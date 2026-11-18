@@ -242,6 +242,11 @@ pub const LINKED_HOLD_MS: Millis = 1000;
 
 pub const UNPLUG_HOLD_MS: Millis = 420;
 
+enum ShelfStop {
+    Game(usize),
+    Videos,
+}
+
 #[derive(Debug)]
 pub enum Phase {
     SetClock {
@@ -463,6 +468,18 @@ pub struct App {
     library: slot_store::Library,
     library_dirty: bool,
     library_saved_at: Millis,
+    companion: slot_store::Companion,
+    pip: Option<crate::pip::PipMenu>,
+    videos: Option<crate::videos::VideoMenu>,
+    videos_visible: bool,
+    /// Saved videos on the shelf beside the game systems. Empty, or hidden in
+    /// Library → Systems, and the shelf is not there.
+    tapes: Vec<crate::videos::Tape>,
+    tape_at: usize,
+    video_focus: bool,
+    /// Y was pressed once on this video: the next Y deletes it.
+    video_delete: Option<String>,
+    tape_tex: Vec<(TexId, u32, u32)>,
     /// Play time being counted: the last tick seen while playing, and what is not a second yet.
     play_tick: Option<Millis>,
     play_ms: Millis,
@@ -649,6 +666,15 @@ impl App {
             library: slot_store::Library::default(),
             library_dirty: false,
             library_saved_at: 0,
+            companion: slot_store::Companion::default(),
+            pip: None,
+            videos: None,
+            videos_visible: false,
+            tapes: Vec::new(),
+            tape_at: 0,
+            video_focus: false,
+            video_delete: None,
+            tape_tex: Vec::new(),
             play_tick: None,
             play_ms: 0,
             played: slot_ui::Printed::default(),
@@ -766,8 +792,14 @@ impl App {
         crate::boot_times::mark("  model and LEDs");
         app.state = read_slot_state(root);
         app.library = slot_store::Library::read(root);
+        app.companion = slot_store::Companion::read(root);
         crate::boot_times::mark("  state and library read");
         app.arrange();
+        app.reload_tapes();
+        if app.shelves.iter().all(|(_, shelf)| shelf.carts.is_empty()) && app.videos_on_shelf() {
+            app.video_focus = true;
+            app.name_pending = true;
+        }
         // At startup, each shelf starts at the top of its order.
         for (_, shelf) in &mut app.shelves {
             shelf.select(0);
@@ -970,7 +1002,10 @@ impl App {
     fn count_play_time(&mut self) {
         let now = self.now();
         let Phase::Playing { cart } = &self.phase else {
-            self.play_tick = None;
+            if self.play_tick.take().is_some() {
+                self.companion.settle();
+                self.save_companion();
+            }
             return;
         };
         if let Some(tick) = self.play_tick {
@@ -985,17 +1020,73 @@ impl App {
             let secs = self.play_ms / 1_000;
             self.play_ms %= 1_000;
             let cart = cart.clone();
+            let games = self.games_seen();
             self.library.get_mut(platform, &cart).played_secs += secs;
             self.library_dirty = true;
+            if self.companion.enabled {
+                let awards = self.companion.note_play(platform, &cart, secs, self.local_day(), &games);
+                if self.companion.toasts {
+                    for award in &awards {
+                        self.announce(&award.title, &award.detail);
+                    }
+                }
+                if !awards.is_empty() || self.library.get(platform, &cart).played_secs % 10 == 0 {
+                    self.save_companion();
+                }
+            }
         }
         if self.library_dirty && now.saturating_sub(self.library_saved_at) >= 60_000 {
             self.save_library();
         }
     }
 
+    fn local_day(&self) -> i64 {
+        self.wall_secs().div_euclid(86_400)
+    }
+
+    fn games_seen(&self) -> Vec<slot_store::GameSeen> {
+        let mut games: Vec<slot_store::GameSeen> = self
+            .all_carts
+            .iter()
+            .map(|cart| {
+                let record = self.library.get(cart.platform, &cart.stem);
+                slot_store::GameSeen {
+                    platform: cart.platform,
+                    stem: cart.stem.clone(),
+                    played_secs: record.played_secs,
+                    last_played: record.last_played,
+                }
+            })
+            .collect();
+        for (platform, stem, record) in self.library.records() {
+            if games.iter().any(|g| g.platform == platform && g.stem == stem) {
+                continue;
+            }
+            games.push(slot_store::GameSeen {
+                platform,
+                stem: stem.to_string(),
+                played_secs: record.played_secs,
+                last_played: record.last_played,
+            });
+        }
+        games
+    }
+
+    fn save_companion(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let text = self.companion.text();
+        let _ = std::thread::Builder::new().name("slot-pip".into()).spawn(move || {
+            if let Err(e) = slot_store::atomic_write(&root.join(slot_store::COMPANION_FILE), text.as_bytes()) {
+                eprintln!("slot: companion: {e}");
+            }
+        });
+    }
+
     /// The selected game's play time, as the footer prints it beside the battery.
     pub fn played_text(&self) -> Option<String> {
-        if !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() {
+        if !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() || self.video_focus {
             return None;
         }
         let platform = self.shelves.get(self.shelf_at)?.0;
@@ -1007,6 +1098,9 @@ impl App {
     pub fn title_card_text(&self) -> Option<String> {
         if !self.state.title_card || !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() {
             return None;
+        }
+        if self.video_focus {
+            return self.tapes.get(self.tape_at).map(|tape| tape.title.clone());
         }
         let cart = self.shelf().carts.get(self.shelf().index)?;
         Some(slot_ui::label_text(cart))
@@ -1049,17 +1143,191 @@ impl App {
     }
 
     fn switch_shelf(&mut self, by: i32) {
-        let Some(to) = self.next_shelf(by) else {
+        let stops = self.shelf_stops();
+        if stops.len() < 2 {
+            return;
+        }
+        let here = if self.video_focus {
+            stops.iter().position(|stop| matches!(stop, ShelfStop::Videos))
+        } else {
+            stops.iter().position(|stop| matches!(stop, ShelfStop::Game(at) if *at == self.shelf_at))
+        };
+        let Some(here) = here else {
             return;
         };
-        self.shelf_mut().release_hold();
+        let next = (here as i32 + by).rem_euclid(stops.len() as i32) as usize;
         self.play_held = None;
+        self.video_delete = None;
+        match stops[next] {
+            ShelfStop::Videos => self.enter_videos(),
+            ShelfStop::Game(at) => {
+                self.video_focus = false;
+                self.land_shelf(at);
+            }
+        }
+    }
+
+    fn land_shelf(&mut self, to: usize) {
+        self.shelf_mut().release_hold();
         self.shelf_at = to;
         self.shelf_platform = slot_ui::Printed::default();
         self.slot_letter = None;
         self.slot_word = None;
         self.shelf_named = None;
         self.name_pending = true;
+    }
+
+    fn enter_videos(&mut self) {
+        self.video_focus = true;
+        self.shelf_platform = slot_ui::Printed::default();
+        self.slot_letter = None;
+        self.slot_word = None;
+        self.shelf_named = None;
+        self.name_pending = true;
+        self.play_held = None;
+        self.video_delete = None;
+        self.reload_tapes();
+    }
+
+    fn videos_on_shelf(&self) -> bool {
+        self.state.show_videos && !self.tapes.is_empty()
+    }
+
+    fn shelf_stops(&self) -> Vec<ShelfStop> {
+        let mut stops = Vec::new();
+        for (at, (_, shelf)) in self.shelves.iter().enumerate() {
+            if !shelf.carts.is_empty() {
+                stops.push(ShelfStop::Game(at));
+            }
+        }
+        if self.videos_on_shelf() {
+            stops.push(ShelfStop::Videos);
+        }
+        stops
+    }
+
+    fn reload_tapes(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        self.tapes = crate::videos::tapes(&root);
+        if self.tape_at >= self.tapes.len() {
+            self.tape_at = self.tapes.len().saturating_sub(1);
+        }
+        if self.video_focus && !self.videos_on_shelf() {
+            self.video_focus = false;
+            self.name_pending = true;
+        }
+    }
+
+    fn nudge_tape(&mut self, dir: i32) {
+        let n = self.tapes.len() as i32;
+        if n == 0 {
+            return;
+        }
+        let next = (self.tape_at as i32 + dir).rem_euclid(n) as usize;
+        if next == self.tape_at {
+            return;
+        }
+        self.tape_at = next;
+        self.video_delete = None;
+    }
+
+    fn play_tape(&mut self) {
+        let Some(id) = self.tapes.get(self.tape_at).map(|tape| tape.id.clone()) else {
+            return;
+        };
+        if self.videos.is_none() {
+            let Some(root) = self.root.clone() else {
+                return;
+            };
+            self.videos = Some(crate::videos::VideoMenu::open(root, self.videos_online()));
+        }
+        let started = self.videos.as_mut().is_some_and(|menu| menu.play_id(&id));
+        if started {
+            self.videos_visible = true;
+            self.video_delete = None;
+        }
+    }
+
+    fn delete_tape(&mut self) {
+        let Some(tape) = self.tapes.get(self.tape_at).cloned() else {
+            return;
+        };
+        if self.video_delete.as_deref() != Some(tape.id.as_str()) {
+            self.video_delete = Some(tape.id);
+            self.announce("Delete this video?", "Press Y again");
+            return;
+        }
+        if let Some(root) = &self.root {
+            let _ = crate::videos::forget(root, &tape.id);
+        }
+        if let Some(menu) = &mut self.videos {
+            menu.reload_saved();
+        }
+        self.video_delete = None;
+        self.reload_tapes();
+        self.announce("Deleted", &tape.title);
+    }
+
+    fn video_shelf_input(&mut self, action: Action) {
+        match action {
+            Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.nudge_tape(-1),
+            Action::ShelfRight | Action::GbaDown(Btn::Right) => self.nudge_tape(1),
+            Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
+            Action::GbaDown(Btn::R1) => self.switch_shelf(1),
+            Action::GbaDown(Btn::A) | Action::Insert => self.play_tape(),
+            Action::GbaUp(Btn::A) => self.play_held = None,
+            Action::GbaDown(Btn::Y) => self.delete_tape(),
+            Action::QuickMenu => {
+                self.open_quick_menu();
+                self.menu_sound(MenuSound::Open);
+            }
+            Action::GbaDown(Btn::X) => {
+                self.open_pip();
+                self.menu_sound(MenuSound::Open);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn tape_list(&self) -> Vec<(String, String, Option<PathBuf>)> {
+        if !self.videos_on_shelf() {
+            return Vec::new();
+        }
+        self.tapes
+            .iter()
+            .map(|tape| (tape.id.clone(), tape.title.clone(), tape.thumb.clone()))
+            .collect()
+    }
+
+    pub fn set_tape_tex(&mut self, tex: Vec<(TexId, u32, u32)>) {
+        self.tape_tex = tex;
+    }
+
+    fn draw_tapes(&self, out: &mut Vec<Draw>) {
+        let n = self.tapes.len();
+        if n == 0 || self.tape_tex.len() != n {
+            return;
+        }
+        let at = self.tape_at.min(n - 1);
+        for (i, (tex, w, h)) in self.tape_tex.iter().copied().enumerate() {
+            let delta = i as i32 - at as i32;
+            if delta.abs() > 1 {
+                continue;
+            }
+            let scale = if delta == 0 { 1.0 } else { 0.72 };
+            let dw = w as f32 * scale;
+            let dh = h as f32 * scale;
+            out.push(Draw::Tex {
+                x: (OUT_W as f32 - dw) / 2.0 + delta as f32 * 220.0,
+                y: slot_ui::TAPE_Y + if delta == 0 { 0.0 } else { 18.0 },
+                w: dw,
+                h: dh,
+                tex,
+                alpha: if delta == 0 { 1.0 } else { 0.8 },
+            });
+        }
     }
 
     fn jump_letter(&mut self, dir: i32) {
@@ -1318,8 +1586,9 @@ impl App {
             QuickRow::ShowGba | QuickRow::ShowGb | QuickRow::ShowGbc | QuickRow::ShowNes | QuickRow::ShowSnes | QuickRow::ShowPs1 => {
                 row.shelf_of().map(|p| QuickValue::flag(self.state.shows(p)))
             }
+            QuickRow::ShowVideos => Some(QuickValue::flag(self.state.show_videos)),
             QuickRow::ResetSettings => self.reset_asked,
-            QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds | QuickRow::SoundVolume => None,
+            QuickRow::Companion | QuickRow::Videos | QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds | QuickRow::SoundVolume => None,
         }
     }
 
@@ -1432,7 +1701,12 @@ impl App {
     }
 
     pub fn shelf_platform_name(&self) -> Option<&'static str> {
-        self.next_shelf(1)?;
+        if self.video_focus {
+            return Some("Videos");
+        }
+        if self.shelf_stops().len() < 2 {
+            return None;
+        }
         Some(self.shelves[self.shelf_at].0.name())
     }
 
@@ -2196,6 +2470,9 @@ impl App {
             }
             return;
         }
+        if self.pip.is_some() || self.videos_visible {
+            return self.sheet_input(action);
+        }
         if let Phase::SetClock {
             picker, from_menu, ..
         } = &mut self.phase
@@ -2232,6 +2509,7 @@ impl App {
         }
         let now = self.now();
         match self.phase {
+            Phase::Shelf if self.video_focus => self.video_shelf_input(action),
             Phase::Shelf => match action {
                 // Like the core picker's lid closing: the sticker is never cut short.
                 _ if self.peel.is_some() => {}
@@ -2271,6 +2549,10 @@ impl App {
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 Action::GbaDown(Btn::Y) => self.toggle_favorite(),
+                Action::GbaDown(Btn::X) => {
+                    self.open_pip();
+                    self.menu_sound(MenuSound::Open);
+                },
                 Action::GbaDown(Btn::Select) => self.cycle_sort(),
                 _ => {}
             },
@@ -2345,9 +2627,9 @@ impl App {
     /// Where the HOME menu is: the screen, the row, and whether an overlay (Wi-Fi) is open.
     fn menu_place(&self) -> (std::mem::Discriminant<Phase>, Option<QuickRow>, bool) {
         #[cfg(feature = "brick")]
-        let overlay = self.wifi.is_some();
+        let overlay = self.wifi.is_some() || self.pip.is_some() || self.videos_visible;
         #[cfg(not(feature = "brick"))]
-        let overlay = false;
+        let overlay = self.pip.is_some() || self.videos_visible;
         (std::mem::discriminant(&self.phase), self.quick_menu(), overlay)
     }
 
@@ -2398,8 +2680,153 @@ impl App {
         self.phase = Phase::QuickMenu { row };
     }
 
+    fn sheet_input(&mut self, action: Action) {
+        if self.pip.is_some() {
+            let mut menu = self.pip.take().expect("pip");
+            let games = self.games_seen();
+            let day = self.local_day();
+            let close = menu.input(action, &mut self.companion, &games, day);
+            let launch = menu.take_launch();
+            if !close && launch.is_none() {
+                self.pip = Some(menu);
+            } else {
+                self.save_companion();
+                if close && launch.is_none() && matches!(self.phase, Phase::QuickMenu { .. }) {
+                    self.menu_sound(MenuSound::Back);
+                }
+            }
+            if let Some(launch) = launch {
+                self.launch_pip(launch.platform, launch.stem);
+            }
+            return;
+        }
+        if self.videos_visible && self.videos.as_mut().is_some_and(|menu| menu.input(action)) {
+            self.videos_visible = false;
+            self.reload_tapes();
+            if matches!(self.phase, Phase::QuickMenu { .. }) {
+                self.menu_sound(MenuSound::Back);
+            }
+        }
+    }
+
+    fn open_pip(&mut self) {
+        self.videos_visible = false;
+        let games = self.games_seen();
+        self.companion.ensure_missions(&games, self.local_day());
+        self.companion.refresh_suggestion(&games, self.local_day());
+        self.pip = Some(crate::pip::PipMenu::open());
+    }
+
+    fn launch_pip(&mut self, platform: Platform, stem: String) {
+        self.phase = Phase::Shelf;
+        if !self.focus_game(platform, &stem) {
+            self.announce("Pip", "That game is not on a shelf");
+            return;
+        }
+        self.play(false);
+    }
+
+    fn focus_game(&mut self, platform: Platform, stem: &str) -> bool {
+        let Some(at) = self.shelves.iter().position(|(p, _)| *p == platform) else {
+            return false;
+        };
+        let Some(index) = self.shelves[at].1.carts.iter().position(|c| c.stem == stem) else {
+            return false;
+        };
+        self.shelf_at = at;
+        self.shelves[at].1.select(index);
+        true
+    }
+
+    fn open_videos(&mut self) {
+        self.pip = None;
+        let online = self.videos_online();
+        match &mut self.videos {
+            Some(menu) => menu.set_online(online),
+            None => {
+                if let Some(root) = &self.root {
+                    self.videos = Some(crate::videos::VideoMenu::open(root.clone(), online));
+                }
+            }
+        }
+        if let Some(menu) = &mut self.videos {
+            menu.dirty = true;
+        }
+        self.videos_visible = self.videos.is_some();
+    }
+
+    fn videos_online(&self) -> bool {
+        #[cfg(feature = "brick")]
+        { self.net_up }
+        #[cfg(not(feature = "brick"))]
+        { true }
+    }
+
+    pub fn pip_open(&self) -> bool { self.pip.is_some() }
+    pub fn pip_game(&self) -> Option<String> { self.pip.as_ref().and_then(|menu| menu.game(&self.companion)) }
+    pub fn videos_open(&self) -> bool { self.videos_visible }
+    pub fn companion_xp(&self) -> u32 { self.companion.xp }
+
+    pub fn sheet_dirty(&self) -> bool {
+        self.pip.as_ref().is_some_and(|menu| menu.dirty) || (self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.dirty))
+    }
+
+    pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
+        if self.pip.as_ref().is_none_or(|menu| !menu.dirty) {
+            return None;
+        }
+        let snapshot = self.companion.clone();
+        let games = self.games_seen();
+        let day = self.local_day();
+        let frame = self.now() / 200;
+        let menu = self.pip.as_mut()?;
+        let face = menu.render(&snapshot, day, &games, frame);
+        menu.dirty = false;
+        Some(face)
+    }
+
+    pub fn set_pip_face(&mut self, tex: TexId) {
+        if let Some(menu) = &mut self.pip { menu.face = Some(tex); }
+    }
+
+    pub fn videos_render(&mut self) -> Option<slot_ui::UndoFace> {
+        if !self.videos_visible { return None; }
+        let menu = self.videos.as_mut()?;
+        if !menu.dirty { return None; }
+        let face = menu.render();
+        menu.dirty = false;
+        Some(face)
+    }
+
+    pub fn set_videos_face(&mut self, tex: TexId) {
+        if let Some(menu) = &mut self.videos { menu.face = Some(tex); }
+    }
+
+    pub fn copy_video_frame(&self, seen: u64) -> Option<(u64, Vec<u8>)> {
+        if !self.videos_visible { return None; }
+        self.videos.as_ref().and_then(|menu| menu.frame_if_new(seen))
+    }
+
+    pub fn set_video_frame(&mut self, tex: TexId) {
+        if let Some(menu) = &mut self.videos { menu.frame_face = Some(tex); }
+    }
+
+    pub fn take_video_pcm(&self) -> Vec<i16> {
+        self.videos.as_ref().map(|menu| menu.take_pcm()).unwrap_or_default()
+    }
+
+    pub fn video_volume_gain(&self) -> f32 {
+        self.videos.as_ref().map(|menu| menu.volume_gain()).unwrap_or(0.0)
+    }
+
+    pub fn video_playing(&self) -> bool {
+        self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.playing())
+    }
+
     fn open_quick_row(&mut self, row: QuickRow) {
         match row {
+            QuickRow::Companion => self.open_pip(),
+            QuickRow::Videos => self.open_videos(),
             QuickRow::Wifi => {
                 #[cfg(feature = "brick")]
                 {self.wifi=Some(crate::brick_wifi::WifiMenu::new());}
@@ -2488,6 +2915,7 @@ impl App {
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
             | QuickRow::ShowPs1
+            | QuickRow::ShowVideos
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -2617,6 +3045,15 @@ impl App {
                 };
                 return self.toggle_system(platform);
             }
+            QuickRow::ShowVideos => {
+                self.state.show_videos = !self.state.show_videos;
+                self.persist();
+                if self.video_focus && !self.videos_on_shelf() {
+                    self.video_focus = false;
+                    self.name_pending = true;
+                }
+                return;
+            }
             QuickRow::LibraryPlayTime => s.play_time_hours = !s.play_time_hours,
             QuickRow::LibraryTitleCard => s.title_card = !s.title_card,
             QuickRow::UpdateCheck => s.update_check = !s.update_check,
@@ -2628,7 +3065,7 @@ impl App {
                     self.clock_sync_at = 0;
                 }
             }
-            QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::ResetSettings | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds => return,
+            QuickRow::Companion | QuickRow::Videos | QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::ResetSettings | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds => return,
         }
         self.persist();
     }
@@ -3054,6 +3491,14 @@ impl App {
         let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
+        let notes = self.videos.as_mut().map(|videos| videos.poll()).unwrap_or_default();
+        let saved = notes.iter().any(|(title, _)| title == "Saved");
+        for (title, detail) in notes {
+            self.announce(&title, &detail);
+        }
+        if saved {
+            self.reload_tapes();
+        }
         if self.banner.is_none() && self.banners.front().is_some_and(ready) {
             if let Some((title, detail, badge, _)) = self.banners.pop_front() {
                 self.banner_seq += 1;
@@ -3419,6 +3864,30 @@ impl App {
         });
     }
 
+    fn draw_sheet(&self, out: &mut Vec<Draw>) {
+        let face = if self.pip.is_some() {
+            self.pip.as_ref().and_then(|menu| menu.face)
+        } else {
+            self.videos.as_ref().filter(|_| self.videos_visible).and_then(|menu| menu.face)
+        };
+        if let Some(tex) = face {
+            out.push(Draw::Tex { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, tex, alpha: 1.0 });
+        }
+        if self.videos_visible {
+            if let Some(tex) = self.videos.as_ref().and_then(|menu| menu.frame_face) {
+                let (x, y) = crate::videos::frame_origin();
+                out.push(Draw::Tex {
+                    x: x as f32,
+                    y: y as f32,
+                    w: crate::videos::FRAME_W as f32,
+                    h: crate::videos::FRAME_H as f32,
+                    tex,
+                    alpha: 1.0,
+                });
+            }
+        }
+    }
+
     fn draw_scene(&self, out: &mut Vec<Draw>) {
         if let Some(index) = self.power_menu {
             draw_menu_screen(&self.power_menu_faces, index, out);
@@ -3452,6 +3921,10 @@ impl App {
         #[cfg(feature = "brick")]
         if let Some(wifi)=&self.wifi {
             if let Some(tex)=wifi.face {out.push(Draw::Tex{x:0.0,y:0.0,w:640.0,h:480.0,tex,alpha:1.0});return;}
+        }
+        if self.pip.is_some() || self.videos_visible {
+            self.draw_sheet(out);
+            return;
         }
         match &self.phase {
             Phase::SetClock {
@@ -3496,6 +3969,12 @@ impl App {
                         self.shelf()
                             .draw_row(Some(stem), 0.0, CORE_PICKER_RECEDE * open, dim, out);
                         draw_empty_slot(out);
+                    }
+                    _ if self.video_focus => {
+                        slot_ui::draw_title_card(self.title_card, slot_ui::tape_foot(), self.title_card_alpha(), out);
+                        self.draw_tapes(out);
+                        draw_empty_slot(out);
+                        draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                     _ => {
                         if let Some(foot) = self.shelf().selected_foot() {
@@ -4188,6 +4667,13 @@ impl App {
     fn doze(&mut self) {
         #[cfg(feature = "brick")]
         {self.wifi=None;}
+        self.pip = None;
+        self.companion.settle();
+        self.save_companion();
+        if let Some(videos) = &mut self.videos {
+            videos.stop_for_sleep();
+        }
+        self.videos_visible = false;
         if self.link_active() {
             self.end_link();
         }

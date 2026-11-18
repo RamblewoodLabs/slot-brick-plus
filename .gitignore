@@ -14,6 +14,8 @@ brick/core-src/
 brick/core-build/
 target-sim/
 
+# Static ffmpeg for HOME → Videos, fetched by brick/fetch-ffmpeg.sh (GPL, not stored here).
+/brick/vendor/ffmpeg
 # Overlays kept on this machine only: not ours to publish (see brick/overlays-local/README.md).
 /brick/overlays-local/
 # Slot OS card images (brick/os/build.sh).

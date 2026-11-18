@@ -1,0 +1,13 @@
+ffmpeg — GPL-3.0-or-later
+https://ffmpeg.org/legal.html
+
+HOME → Videos decodes downloaded files with ffmpeg. The Brick card build
+fetches a static aarch64 build (John Van Sickle's release builds, which are
+GPL builds of ffmpeg) via brick/fetch-ffmpeg.sh and copies it to
+Slot/System/ffmpeg. The binary is not stored in this repository.
+
+Slot links nothing from ffmpeg. It runs the program, asks it for 480×360
+RGBA frames at 12 fps and 22,050 Hz stereo, and draws those itself.
+
+If that binary is missing, playback still uses `ffmpeg` on the path when
+one is installed. Searching and downloading do not need it.

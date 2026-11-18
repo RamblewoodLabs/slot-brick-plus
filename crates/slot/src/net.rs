@@ -24,6 +24,8 @@ pub struct Request<'a> {
     pub path: &'a str,
     /// An application/x-www-form-urlencoded body, for POST.
     pub form: Option<&'a str>,
+    /// A JSON body, for POST. Used only when `form` is absent.
+    pub json: Option<&'a str>,
     /// The most body accepted.
     pub limit: usize,
 }
@@ -87,6 +89,11 @@ pub fn send(req: &Request) -> Result<Response, String> {
         text.push_str(&format!(
             "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\n\r\n{form}",
             form.len()
+        ));
+    } else if let Some(json) = req.json {
+        text.push_str(&format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{json}",
+            json.len()
         ));
     } else {
         text.push_str("\r\n");
@@ -332,14 +339,14 @@ mod tests {
     #[test]
     fn a_request_line_cannot_carry_extra_headers() {
         for (server, path) in [("h:80", "/a\r\nX: y"), ("h:80", "/a b"), ("h\r\n:80", "/"), ("h:80", "a")] {
-            let req = Request { tls: false, server, method: "GET", path, form: None, limit: 1 };
+            let req = Request { tls: false, server, method: "GET", path, form: None, json: None, limit: 1 };
             assert_eq!(send(&req).err().as_deref(), Some("bad request address"), "{path:?}");
         }
     }
 
     #[test]
     fn only_an_unreachable_server_counts_as_unreachable() {
-        let req = |server| Request { tls: false, server, method: "GET", path: "/", form: None, limit: 1 };
+        let req = |server| Request { tls: false, server, method: "GET", path: "/", form: None, json: None, limit: 1 };
         assert!(unreachable(&send(&req("127.0.0.1:1")).err().unwrap()));
         assert!(unreachable(&send(&req("no-such-host.invalid:80")).err().unwrap()));
         assert!(!unreachable("server said 403") && !unreachable("reply too large"));
@@ -364,6 +371,7 @@ mod tests {
             method: "POST",
             path: "/dorequest.php",
             form: Some("r=login2"),
+            json: None,
             limit: 1 << 16,
         })
         .unwrap();

@@ -12,6 +12,7 @@ pub mod core;
 pub mod core_picker;
 pub mod crash;
 pub mod disc_picker;
+pub mod pip;
 pub mod drc;
 pub mod emu;
 pub mod face_builder;
@@ -37,12 +38,15 @@ pub mod resample;
 pub mod rewind;
 pub mod root;
 pub mod session;
+mod sheet;
 pub mod sntp;
 pub mod state_writer;
 pub mod thumb;
 pub mod update;
 pub mod video_mode;
+pub mod videos;
 pub mod wallpaper;
+pub mod youtube;
 
 #[cfg(feature = "brick")]
 pub mod brick_led;

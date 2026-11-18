@@ -75,6 +75,13 @@ pub struct Frontend {
     #[cfg(feature = "brick")]
     wifi_tex: Option<TexId>,
     banner_tex: Option<TexId>,
+    pip_tex: Option<TexId>,
+    videos_tex: Option<TexId>,
+    tape_key: String,
+    tape_tex: Vec<(TexId, u32, u32)>,
+    video_frame_tex: Option<TexId>,
+    video_frame_seq: u64,
+    video_resampler: Option<crate::resample::Resampler>,
     #[cfg(feature = "brick")]
     auto_sleep: bool,
     #[cfg(feature = "brick")]
@@ -392,6 +399,13 @@ impl Frontend {
             #[cfg(feature = "brick")]
             wifi_tex: None,
             banner_tex: None,
+            pip_tex: None,
+            videos_tex: None,
+            tape_key: String::new(),
+            tape_tex: Vec::new(),
+            video_frame_tex: None,
+            video_frame_seq: 0,
+            video_resampler: None,
             #[cfg(feature = "brick")]
             auto_sleep: !platform_root_has(&session_root, "DISABLE_AUTO_SLEEP"),
             #[cfg(feature = "brick")]
@@ -738,6 +752,7 @@ impl Frontend {
     #[cfg(feature = "brick")]
     pub fn needs_render(&self)->bool {
         if self.app().wifi.as_ref().map(|w|w.dirty).unwrap_or(false) {return true}
+        if self.app().sheet_dirty() || self.app().video_playing() {return true}
         if self.app().banner_active() {return true}
         if self.render_effects()!=self.rendered_effects {return true}
         if self.rebuild.is_some() || !matches!(self.app().phase(),Phase::Shelf|Phase::QuickMenu{..}) || self.last_input.elapsed()<Duration::from_secs(2) || self.last_render.elapsed()>=Duration::from_secs(1) {return true}
@@ -754,6 +769,61 @@ impl Frontend {
         compositor.fit(window);
         self.compose(compositor);
         compositor.end_frame(window);
+    }
+
+    fn pump_video_audio(&mut self) {
+        let samples = self.session.app().take_video_pcm();
+        if samples.is_empty() {
+            return;
+        }
+        let rate = self.session.audio_ring().sample_rate();
+        if rate == 0 {
+            return;
+        }
+        if self.video_resampler.is_none() {
+            self.video_resampler = Some(crate::resample::Resampler::new(22_050.0, rate as f64));
+        }
+        let mut out = Vec::new();
+        if let Some(resampler) = &mut self.video_resampler {
+            resampler.process(&samples, &mut out);
+        }
+        let gain = crate::audio::volume::gain(self.session.app().output_volume()) * self.session.app().video_volume_gain();
+        for sample in &mut out {
+            *sample = (*sample as f32 * gain) as i16;
+        }
+        self.session.audio_ring().push(&out);
+    }
+
+    fn sync_tape_faces(&mut self, compositor: &mut Compositor) {
+        let list = self.session.app().tape_list();
+        let key = list
+            .iter()
+            .map(|(id, title, thumb)| {
+                format!(
+                    "{id}\t{title}\t{}",
+                    thumb.as_ref().map(|path| path.display().to_string()).unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if key == self.tape_key {
+            return;
+        }
+        let mut tex = std::mem::take(&mut self.tape_tex);
+        for (i, (_id, _title, thumb)) in list.iter().enumerate() {
+            let face = slot_ui::tape_face(thumb.as_deref());
+            if let Some((id, _, _)) = tex.get(i).copied() {
+                compositor.update_texture(id, face.w, face.h, &face.rgba);
+                tex[i] = (id, face.w, face.h);
+            } else {
+                let id = compositor.create_texture(face.w, face.h, &face.rgba);
+                tex.push((id, face.w, face.h));
+            }
+        }
+        tex.truncate(list.len());
+        self.tape_tex = tex.clone();
+        self.session.app_mut().set_tape_tex(tex);
+        self.tape_key = key;
     }
 
     pub fn compose(&mut self, compositor: &mut Compositor) {
@@ -790,6 +860,34 @@ impl Frontend {
                 self.wifi_tex=Some(tex);wifi.face=Some(tex);wifi.dirty=false;
             }
         }
+        if let Some(face) = self.session.app_mut().pip_render() {
+            let tex = match self.pip_tex {
+                Some(id) => { compositor.update_texture(id, face.w, face.h, &face.rgba); id }
+                None => compositor.create_texture(face.w, face.h, &face.rgba),
+            };
+            self.pip_tex = Some(tex);
+            self.session.app_mut().set_pip_face(tex);
+        }
+        if let Some(face) = self.session.app_mut().videos_render() {
+            let tex = match self.videos_tex {
+                Some(id) => { compositor.update_texture(id, face.w, face.h, &face.rgba); id }
+                None => compositor.create_texture(face.w, face.h, &face.rgba),
+            };
+            self.videos_tex = Some(tex);
+            self.session.app_mut().set_videos_face(tex);
+        }
+        self.sync_tape_faces(compositor);
+        if let Some((seq, rgba)) = self.session.app().copy_video_frame(self.video_frame_seq) {
+            let (w, h) = (crate::videos::FRAME_W, crate::videos::FRAME_H);
+            let tex = match self.video_frame_tex {
+                Some(id) => { compositor.update_texture(id, w, h, &rgba); id }
+                None => compositor.create_texture(w, h, &rgba),
+            };
+            self.video_frame_tex = Some(tex);
+            self.video_frame_seq = seq;
+            self.session.app_mut().set_video_frame(tex);
+        }
+        self.pump_video_audio();
         if let Some((id, title, detail, badge)) = self.session.app().banner_to_render() {
             let px = slot_ui::BADGE_PX;
             let badge = badge.and_then(|p| slot_ui::cover(&p, px, px));
@@ -956,7 +1054,7 @@ impl Frontend {
     /// Doze after a stretch without input; device_app then suspends as for a power press.
     #[cfg(feature = "brick")]
     pub fn idle_sleep(&mut self) {
-        if !self.auto_sleep || self.rebuild.is_some() || self.app().link_active() {return}
+        if !self.auto_sleep || self.rebuild.is_some() || self.app().link_active() || self.app().video_playing() {return}
         let limit = match self.app().phase() {
             Phase::Shelf | Phase::QuickMenu { .. } => IDLE_MENU,
             Phase::Playing { .. } => IDLE_GAME,
