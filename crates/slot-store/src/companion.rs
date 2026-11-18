@@ -301,7 +301,14 @@ impl Companion {
                 atomic_write(&bak, &bytes)?;
             }
         }
-        atomic_write(&path, self.text().as_bytes())
+        let bytes = self.text().into_bytes();
+        atomic_write(&path, &bytes)?;
+        // The first good save has no earlier generation. Keep a spare of this one so a
+        // later tear still has something to read.
+        if !bak.is_file() {
+            atomic_write(&bak, &bytes)?;
+        }
+        Ok(())
     }
 
     /// Remember the face for this day, and which games are favorites, before a save.
@@ -1529,9 +1536,31 @@ mod tests {
             .any(|g| g.stem == "Emerald" && g.favorite));
 
         std::fs::write(dir.path().join(FILE), "slot-companion 2\nxp=1\n").unwrap();
+        std::fs::write(dir.path().join("Config/.companion.txt.9.tmp"), b"torn").unwrap();
         let recovered = Companion::read(dir.path());
         assert_eq!(recovered.xp, sound.xp);
         assert!(recovered.games.iter().any(|g| g.stem == "Tetris"));
+
+        std::fs::remove_file(dir.path().join(FILE)).unwrap();
+        let from_bak = Companion::read(dir.path());
+        assert!(from_bak.games.iter().any(|g| g.stem == "Tetris"));
+
+        let mut done = Companion::default();
+        done.history.push(DoneMission {
+            title: "Play one game for 20 minutes".into(),
+            day: 4,
+            finished: 5,
+            xp: 100,
+            platform: Some(Platform::Gba),
+            stem: "Emerald".into(),
+        });
+        done.finished = 1;
+        done.write(dir.path()).unwrap();
+        let history = Companion::read(dir.path());
+        assert_eq!(history.finished, 1);
+        assert_eq!(history.history[0].xp, 100);
+        assert_eq!(history.history[0].stem, "Emerald");
+        assert_eq!(history.history[0].platform, Some(Platform::Gba));
     }
 
     #[test]
