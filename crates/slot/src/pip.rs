@@ -1,14 +1,12 @@
-//! HOME → Companion. Pip, an original pixel creature, and the missions it keeps.
-//! Not PakUI's companion: different name, different drawing, Slot's own plate.
+//! HOME → Companion. Pip is an original walking cartridge: orange shell, cream label, a face.
+//! Not PakUI's companion: different name, different drawing, Slot's own lines.
 use slot_gfx::OUT_W;
 use slot_input::{Action, Btn};
-use slot_store::{Companion, GameSeen, MissionKind, Mood, Platform};
+use slot_store::{Companion, GameSeen, MissionKind, Platform};
 use slot_ui::{TexId, UndoFace};
 
 use crate::sheet::Sheet;
 
-const SCALE: u32 = 3;
-const CELL: u32 = 32;
 /// The HOME menu's type size and row, on Slot's 640×480 screen (the Brick draws that at 1024×768).
 const ROW_PX: f32 = 30.0;
 const ROW_H: u32 = 40;
@@ -34,6 +32,8 @@ pub struct PipMenu {
     pub dirty: bool,
     pub face: Option<TexId>,
     launch: Option<PipLaunch>,
+    /// Last animation tick already drawn, so a still Pip is not redrawn every frame.
+    shown: u64,
 }
 
 impl PipMenu {
@@ -45,7 +45,17 @@ impl PipMenu {
             dirty: true,
             face: None,
             launch: None,
+            shown: u64::MAX,
         }
+    }
+
+    pub fn needs_frame(&self, tick: u64, animate: bool) -> bool {
+        self.dirty || (animate && self.shown != tick)
+    }
+
+    pub fn mark_drawn(&mut self, tick: u64) {
+        self.shown = tick;
+        self.dirty = false;
     }
 
     pub fn take_launch(&mut self) -> Option<PipLaunch> {
@@ -175,11 +185,18 @@ impl PipMenu {
         .max(1)
     }
 
-    pub fn render(&self, pip: &Companion, day: i64, games: &[GameSeen], frame: u64) -> UndoFace {
+    pub fn render(
+        &self,
+        pip: &Companion,
+        day: i64,
+        hour: u32,
+        games: &[GameSeen],
+        frame: u64,
+    ) -> UndoFace {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         match self.page {
-            Page::Main => self.render_main(&mut sheet, pip, day, games, frame, w),
+            Page::Main => self.render_main(&mut sheet, pip, day, hour, games, frame, w),
             Page::History => self.render_history(&mut sheet, pip, w),
             Page::Settings => self.render_settings(&mut sheet, pip, w),
         }
@@ -191,19 +208,19 @@ impl PipMenu {
         sheet: &mut Sheet,
         pip: &Companion,
         day: i64,
+        hour: u32,
         games: &[GameSeen],
         frame: u64,
         w: u32,
     ) {
-        let mood = pip.mood(day, games);
-        let blink = pip.animate && frame % 8 > 5;
-        let sprite = sprite(mood, blink);
-        let size = CELL * SCALE;
+        let mood = pip.mood_at(day, hour, games);
+        let sprite = crate::pip_art::frame(mood, frame, pip.animate);
+        let size = crate::pip_art::CELL * crate::pip_art::SCALE;
         sheet.image((OUT_W - size) / 2, 4, size, size, &sprite);
         sheet.text(
             &format!(
-                "{}    LEVEL {}    {}/{} XP",
-                pip.greeting(day),
+                "{}   L{} {}/{}",
+                pip.say(day, hour, games),
                 pip.level(),
                 pip.toward_next(),
                 pip.next_cost()
@@ -388,87 +405,6 @@ fn on(flag: bool) -> &'static str {
     }
 }
 
-/// Pip, drawn here. A round little creature with a slot-shaped mark. Original.
-fn sprite(mood: Mood, blink: bool) -> Vec<u8> {
-    let n = CELL * SCALE;
-    let mut rgba = vec![0u8; (n * n * 4) as usize];
-    let sand = [0xef, 0xc8, 0x8a, 255];
-    let ink = [0x2a, 0x22, 0x18, 255];
-    let blush = [0xe0, 0x78, 0x68, 255];
-    let mark = [0xc4, 0x48, 0x2a, 255];
-    for y in 0..CELL {
-        for x in 0..CELL {
-            let dx = x as i32 - 16;
-            let dy = y as i32 - 15;
-            let body = dx * dx + (dy * dy * 3) / 2 < 120;
-            let edge = dx * dx + (dy * dy * 3) / 2 > 96;
-            let mut color = if body {
-                if edge {
-                    ink
-                } else {
-                    sand
-                }
-            } else {
-                [0, 0, 0, 0]
-            };
-            // Feet.
-            if (8..12).contains(&x) && (26..30).contains(&y)
-                || (20..24).contains(&x) && (26..30).contains(&y)
-            {
-                color = ink;
-            }
-            // Belly slot.
-            if (13..19).contains(&x) && (16..22).contains(&y) && body {
-                color = if x == 13 || x == 18 || y == 16 || y == 21 {
-                    ink
-                } else {
-                    mark
-                };
-            }
-            // Eyes.
-            let eye_y = 12;
-            let shut = blink || mood == Mood::Sleepy;
-            for ex in [11, 19] {
-                if (ex..ex + 3).contains(&x)
-                    && (eye_y..eye_y + if shut { 1 } else { 3 }).contains(&y)
-                {
-                    color = ink;
-                }
-            }
-            // Mouth.
-            let smile = matches!(mood, Mood::Happy | Mood::Excited | Mood::Celebrating);
-            if smile && (12..20).contains(&x) && y == 24 {
-                color = ink;
-            }
-            if mood == Mood::Curious && (14..18).contains(&x) && y == 23 {
-                color = ink;
-            }
-            if mood == Mood::Neutral && (12..20).contains(&x) && y == 23 {
-                color = ink;
-            }
-            if matches!(mood, Mood::Excited | Mood::Celebrating)
-                && ((8..11).contains(&x) || (21..24).contains(&x))
-                && (14..17).contains(&y)
-            {
-                color = blush;
-            }
-            if mood == Mood::Celebrating && (x + y) % 9 == 0 && !body {
-                color = [0xff, 0xd8, 0x6a, 255];
-            }
-            if color[3] == 0 {
-                continue;
-            }
-            for sy in 0..SCALE {
-                for sx in 0..SCALE {
-                    let at = (((y * SCALE + sy) * n + x * SCALE + sx) * 4) as usize;
-                    rgba[at..at + 4].copy_from_slice(&color);
-                }
-            }
-        }
-    }
-    rgba
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,7 +447,7 @@ mod tests {
         pip.xp = 40;
         menu.input(Action::GbaDown(Btn::A), &mut pip, &games(), 1);
         assert_eq!(pip.xp, 0);
-        let face = menu.render(&pip, 1, &games(), 0);
+        let face = menu.render(&pip, 1, 12, &games(), 0);
         assert_eq!(face.w, OUT_W);
         assert!(face.rgba.iter().any(|b| *b != 0));
         if let Ok(dir) = std::env::var("SLOT_FEATURE_PREVIEW") {
@@ -521,11 +457,14 @@ mod tests {
             let mut pip = Companion::default();
             pip.xp = 140;
             pip.ensure_missions(&games(), 3);
-            write_png(&dir.join("pip.png"), &shown.render(&pip, 3, &games(), 0));
+            write_png(
+                &dir.join("pip.png"),
+                &shown.render(&pip, 3, 12, &games(), 0),
+            );
             shown.page = Page::Settings;
             write_png(
                 &dir.join("pip-settings.png"),
-                &shown.render(&pip, 3, &games(), 2),
+                &shown.render(&pip, 3, 12, &games(), 2),
             );
         }
     }

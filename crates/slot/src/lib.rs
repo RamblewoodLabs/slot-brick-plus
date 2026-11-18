@@ -13,6 +13,7 @@ pub mod core_picker;
 pub mod crash;
 pub mod disc_picker;
 pub mod pip;
+mod pip_art;
 pub mod drc;
 pub mod emu;
 pub mod face_builder;

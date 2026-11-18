@@ -1297,7 +1297,9 @@ impl App {
             }
             Action::GbaDown(Btn::X) => {
                 self.open_pip();
-                self.menu_sound(MenuSound::Open);
+                if self.companion.sounds {
+                    self.menu_sound(MenuSound::Open);
+                }
             }
             _ => {}
         }
@@ -2561,11 +2563,13 @@ impl App {
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 Action::GbaDown(Btn::Y) => self.toggle_favorite(),
-                Action::GbaDown(Btn::X) => {
-                    self.open_pip();
+            Action::GbaDown(Btn::X) => {
+                self.open_pip();
+                if self.companion.sounds {
                     self.menu_sound(MenuSound::Open);
-                },
-                Action::GbaDown(Btn::Select) => self.cycle_sort(),
+                }
+            },
+            Action::GbaDown(Btn::Select) => self.cycle_sort(),
                 _ => {}
             },
             Phase::Inserting { .. } if action == Action::Eject => self.eject(),
@@ -2697,7 +2701,11 @@ impl App {
             let mut menu = self.pip.take().expect("pip");
             let games = self.games_seen();
             let day = self.local_day();
+            let done_before = self.companion.history.len();
             let close = menu.input(action, &mut self.companion, &games, day);
+            if self.companion.sounds && self.companion.history.len() > done_before {
+                self.menu_sound(MenuSound::Change);
+            }
             let launch = menu.take_launch();
             if !close && launch.is_none() {
                 self.pip = Some(menu);
@@ -2784,16 +2792,18 @@ impl App {
     }
 
     pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
-        if self.pip.as_ref().is_none_or(|menu| !menu.dirty) {
+        let frame = self.now() / 160;
+        let animate = self.companion.animate;
+        if self.pip.as_ref().is_none_or(|menu| !menu.needs_frame(frame, animate)) {
             return None;
         }
         let snapshot = self.companion.clone();
         let games = self.games_seen();
         let day = self.local_day();
-        let frame = self.now() / 200;
+        let hour = (self.wall_secs().rem_euclid(86_400) / 3_600) as u32;
         let menu = self.pip.as_mut()?;
-        let face = menu.render(&snapshot, day, &games, frame);
-        menu.dirty = false;
+        let face = menu.render(&snapshot, day, hour, &games, frame);
+        menu.mark_drawn(frame);
         Some(face)
     }
 
@@ -3836,9 +3846,13 @@ impl App {
             },
             Notice::GameLoaded(Err(e)) => self.announce("No achievements", &e),
             Notice::Unlocked { title, description, points, .. } => {
+                self.companion.note_cheer();
                 self.announce_with(&title, &format!("{points} pts - {description}"), badge)
             }
-            Notice::GameCompleted { title, .. } => self.announce_with("Every achievement earned", &title, badge),
+            Notice::GameCompleted { title, .. } => {
+                self.companion.note_cheer();
+                self.announce_with("Every achievement earned", &title, badge)
+            }
             Notice::LeaderboardStarted { title, .. } => self.announce("Leaderboard attempt", &title),
             Notice::LeaderboardSubmitted { title, score } => self.announce(&title, &score),
             Notice::ServerError { message, .. } => self.announce("Server error", &message),

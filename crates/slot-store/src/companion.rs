@@ -30,6 +30,8 @@ pub enum Mood {
     Curious,
     Celebrating,
     Neutral,
+    Sad,
+    Frustrated,
 }
 
 impl Mood {
@@ -41,6 +43,8 @@ impl Mood {
             Mood::Curious => "Curious",
             Mood::Celebrating => "Celebrating",
             Mood::Neutral => "Neutral",
+            Mood::Sad => "Sad",
+            Mood::Frustrated => "Frustrated",
         }
     }
 }
@@ -233,6 +237,8 @@ pub struct Companion {
     suggest: Option<(Platform, String)>,
     /// Set for a short while after a level-up so the screen can celebrate.
     pub celebrating: bool,
+    /// An achievement just unlocked. Not saved; the next launch clears it.
+    pub pumped: bool,
 }
 
 impl Default for Companion {
@@ -259,6 +265,7 @@ impl Default for Companion {
             open: None,
             suggest: None,
             celebrating: false,
+            pumped: false,
         }
     }
 }
@@ -463,35 +470,105 @@ impl Companion {
         level.max(1).saturating_mul(step).saturating_add(step)
     }
 
-    /// A short hello. The words are Slot's own.
-    pub fn greeting(&self, day: i64) -> &'static str {
-        if self.celebrating {
-            return "That one is done";
+    /// A short hello. The words are Slot's own, and they change with the day, the hour,
+    /// the streak, and the game in front of Pip.
+    pub fn say(&self, day: i64, hour: u32, games: &[GameSeen]) -> String {
+        let mood = self.mood_at(day, hour, games);
+        let (stem, system) = self.topic();
+        let seed = (day as u64)
+            .wrapping_mul(17)
+            ^ u64::from(hour / 4)
+            ^ u64::from(self.streak.current).wrapping_mul(9)
+            ^ u64::from(self.level())
+            ^ fold(&stem);
+        let line = pick(seed, lines(mood, hour));
+        if stem.is_empty() || seed % 3 != 0 {
+            return line.to_string();
         }
-        const LINES: [&str; 4] = [
-            "Good to see you",
-            "Ready when you are",
-            "Pick a game and play",
-            "A short session still counts",
-        ];
-        LINES[day.rem_euclid(LINES.len() as i64) as usize]
+        match seed % 5 {
+            0 => format!("{stem} next?"),
+            1 => format!("{system} today?"),
+            2 if self.streak.current >= 2 => format!("{} days running", self.streak.current),
+            _ => format!("{line} {stem}"),
+        }
     }
 
-    pub fn mood(&self, day: i64, games: &[GameSeen]) -> Mood {
+    pub fn greeting(&self, day: i64) -> String {
+        self.say(day, 12, &[])
+    }
+
+    fn topic(&self) -> (String, String) {
+        if let Some((platform, stem)) = &self.suggest {
+            return (short(stem), short_system(platform.name()));
+        }
+        if let Some(open) = &self.open {
+            return (short(&open.stem), short_system(open.platform.name()));
+        }
+        if let Some(s) = self.sessions.last() {
+            return (short(&s.stem), short_system(s.platform.name()));
+        }
+        (String::new(), String::new())
+    }
+
+    /// What Pip is feeling. `hour` is 0–23 in the player's local time.
+    pub fn mood_at(&self, day: i64, hour: u32, games: &[GameSeen]) -> Mood {
         if self.celebrating {
             return Mood::Celebrating;
         }
-        let last = self.sessions.iter().map(|s| s.day).max().unwrap_or(0);
-        if last > 0 && day >= last + 3 {
-            return Mood::Neutral;
-        }
-        if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() {
-            return Mood::Curious;
-        }
-        if self.history.last().is_some_and(|d| d.day == day) {
+        if self.pumped || self.history.last().is_some_and(|d| d.day == day) {
             return Mood::Excited;
         }
+        if self.streak.current >= 3 && self.streak.last_day == day {
+            return Mood::Excited;
+        }
+        let last = self.last_play_day();
+        if last > 0 && day >= last + 3 {
+            return Mood::Sad;
+        }
+        if self.short_day(day) {
+            return Mood::Frustrated;
+        }
+        if hour >= 23 || hour < 6 {
+            return Mood::Sleepy;
+        }
+        if last > 0 && last + 1 == day {
+            return Mood::Sleepy;
+        }
+        if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() && self.open.is_none()
+        {
+            return Mood::Curious;
+        }
+        if self.sessions.is_empty() && self.open.is_none() {
+            return Mood::Neutral;
+        }
         Mood::Happy
+    }
+
+    pub fn mood(&self, day: i64, games: &[GameSeen]) -> Mood {
+        self.mood_at(day, 12, games)
+    }
+
+    /// An achievement unlocked. Cleared when the next game is launched.
+    pub fn note_cheer(&mut self) {
+        self.pumped = true;
+    }
+
+    fn last_play_day(&self) -> i64 {
+        self.sessions
+            .iter()
+            .map(|s| s.day)
+            .chain(self.open.as_ref().map(|o| o.day))
+            .chain((self.streak.last_day > 0).then_some(self.streak.last_day))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn short_day(&self, day: i64) -> bool {
+        let today: Vec<_> = self.sessions.iter().filter(|s| s.day == day).collect();
+        if today.is_empty() || self.open.is_some() {
+            return false;
+        }
+        today.iter().all(|s| s.secs > 0 && s.secs < 180)
     }
 
     pub fn suggestion(&self) -> Option<(Platform, String)> {
@@ -656,6 +733,7 @@ impl Companion {
             .is_some_and(|o| o.platform == platform && o.stem == stem);
         self.record_play(platform, stem, secs, day, !same);
         if !same {
+            self.pumped = false;
             if let Some(open) = self.open.take() {
                 self.push_session(open);
             }
@@ -1461,8 +1539,155 @@ fn parse_mood(value: &str) -> Option<Mood> {
         "Curious" => Mood::Curious,
         "Celebrating" => Mood::Celebrating,
         "Neutral" => Mood::Neutral,
+        "Sad" => Mood::Sad,
+        "Frustrated" => Mood::Frustrated,
         _ => return None,
     })
+}
+
+fn short(name: &str) -> String {
+    let name = name.trim();
+    let mut out: String = name.chars().take(12).collect();
+    if name.chars().count() > 12 {
+        out.push('…');
+    }
+    out
+}
+
+fn short_system(name: &str) -> String {
+    match name {
+        "Game Boy Advance" => "GBA".into(),
+        "Game Boy Color" => "GBC".into(),
+        "Game Boy" => "GB".into(),
+        "Nintendo Entertainment System" => "NES".into(),
+        "Super Nintendo Entertainment System" => "SNES".into(),
+        "PlayStation" => "PS1".into(),
+        other => short(other),
+    }
+}
+
+fn fold(text: &str) -> u64 {
+    let mut n = 0u64;
+    for b in text.bytes() {
+        n = n.wrapping_mul(33).wrapping_add(u64::from(b));
+    }
+    n
+}
+
+fn pick<'a>(seed: u64, lines: &'a [&'a str]) -> &'a str {
+    lines[seed as usize % lines.len()]
+}
+
+fn lines(mood: Mood, hour: u32) -> &'static [&'static str] {
+    let morning = (6..12).contains(&hour);
+    let evening = (17..23).contains(&hour);
+    let night = hour >= 23 || hour < 6;
+    match mood {
+        Mood::Happy if morning => &[
+            "Morning. A cart is calling",
+            "Up already? Good",
+            "First game of the day",
+            "I kept the slot warm",
+            "Breakfast can wait",
+            "New day, same Pip",
+        ],
+        Mood::Happy if evening => &[
+            "Evening session?",
+            "The good hour for one more",
+            "I was hoping you'd stop by",
+            "Lights low, game on",
+            "A calm one before bed",
+            "Still here. Still ready",
+        ],
+        Mood::Happy => &[
+            "Good to see you",
+            "Ready when you are",
+            "Pick a game and play",
+            "I saved you a spot",
+            "That label looks lucky",
+            "Want to press start?",
+            "I like this shelf",
+            "Your call",
+        ],
+        Mood::Excited => &[
+            "Yes. That one counts",
+            "Look at us go",
+            "Again? I'm in",
+            "That was a good one",
+            "Keep that energy",
+            "I felt that unlock",
+            "The streak is alive",
+            "One more would be rude to skip",
+        ],
+        Mood::Sad => &[
+            "It's been quiet",
+            "I kept your place",
+            "The shelf missed you",
+            "A short visit still counts",
+            "I didn't go anywhere",
+            "Dust on the carts. Not on me",
+            "Welcome back, truly",
+            "We can start small",
+        ],
+        Mood::Frustrated => &[
+            "That was a short one",
+            "Stay a little longer?",
+            "Blink and it was over",
+            "The cart barely warmed up",
+            "One more minute?",
+            "I had just sat down",
+            "A snack, not a session",
+            "We can do better than that",
+        ],
+        Mood::Sleepy if night => &[
+            "Up late. I'm here",
+            "Yawn. Your turn",
+            "The moon can wait",
+            "One quiet game",
+            "I'll wake up if you play",
+            "Zzz. Almost",
+        ],
+        Mood::Sleepy => &[
+            "A yawn, then a game",
+            "I got bored waiting",
+            "Poke me with a cart",
+            "Sleepy, not gone",
+            "Yesterday was nice",
+            "A slow start is fine",
+            "Eyes open. Mostly",
+            "You came back. Good",
+        ],
+        Mood::Celebrating => &[
+            "Level up. Look at us",
+            "That did it",
+            "I knew we had it",
+            "New level. Same Pip",
+            "Worth the wait",
+            "Write that one down",
+            "The bar just moved",
+            "Celebrate, then play",
+        ],
+        Mood::Curious => &[
+            "So many unopened carts",
+            "Pick any of them",
+            "I haven't met that one",
+            "A new label. Please",
+            "Surprise me",
+            "Which one is first?",
+            "They all look ready",
+            "I'm curious. You pick",
+        ],
+        Mood::Neutral => &[
+            "Hello",
+            "Whenever you're ready",
+            "No rush",
+            "I'm just standing here",
+            "A game would be nice",
+            "The slot is empty",
+            "Your move",
+            "I can wait",
+        ],
+    }
 }
 
 fn is_weekend(day: i64) -> bool {
@@ -1671,6 +1896,39 @@ mod tests {
         );
         assert_eq!(seeded.games[0].secs, 100);
         assert_eq!(seeded.games[0].plays, 2);
+    }
+
+    #[test]
+    fn pip_reacts_to_a_streak_a_long_gap_and_a_short_session() {
+        let mut pip = Companion::default();
+        assert_eq!(pip.mood(4, &[]), Mood::Neutral);
+        pip.streak.current = 4;
+        pip.streak.last_day = 10;
+        assert_eq!(pip.mood(10, &[]), Mood::Excited);
+        pip.streak.current = 0;
+        pip.streak.last_day = 1;
+        pip.sessions.push(Session {
+            platform: Platform::Gb,
+            stem: "Tetris".into(),
+            secs: 40,
+            day: 1,
+        });
+        assert_eq!(pip.mood(6, &[]), Mood::Sad);
+        pip.sessions[0].day = 7;
+        pip.sessions[0].secs = 600;
+        assert_eq!(pip.mood_at(8, 1, &[]), Mood::Sleepy);
+        pip.sessions[0].day = 8;
+        pip.sessions[0].secs = 40;
+        assert_eq!(pip.mood(8, &[]), Mood::Frustrated);
+        pip.note_cheer();
+        assert_eq!(pip.mood(8, &[]), Mood::Excited);
+        let mut seen = std::collections::BTreeSet::new();
+        for day in 0..24 {
+            seen.insert(pip.say(day, 15, &[]));
+        }
+        assert!(seen.len() > 4, "the lines should not repeat every day");
+        let named = pip.say(3, 9, &[]);
+        assert!(named.contains("Tetris") || named.contains("GB") || named.contains("days") || !named.is_empty());
     }
 
     #[test]
