@@ -158,6 +158,8 @@ pub struct VideoMenu {
 impl VideoMenu {
     pub fn open(root: PathBuf, online: bool) -> Self {
         let _ = std::fs::create_dir_all(root.join("Videos"));
+        let _ = std::fs::create_dir_all(root.join("Logs"));
+        scrub_parts(&root);
         let mut menu = VideoMenu {
             root,
             online,
@@ -782,7 +784,7 @@ impl VideoMenu {
         self.spawn_lookup(move || {
             youtube::channel_videos(&id, &name).map(|videos| {
                 let videos = youtube::latest_five(videos);
-                let thumbs = videos.iter().map(|v| thumb_rgba(&v.id, 56, 32)).collect();
+                let thumbs = videos.iter().map(|v| thumb_rgba(&v.id, 64, 32)).collect();
                 Found::Videos {
                     name,
                     videos,
@@ -1418,6 +1420,54 @@ fn ytdlp_path(root: &Path) -> Option<PathBuf> {
     own.is_file().then_some(own)
 }
 
+/// One line in `Logs/videos.log`, so a failure on the card can be read later.
+pub fn log_line(root: &Path, line: &str) {
+    let path = root.join("Logs/videos.log");
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    if !line.ends_with('\n') {
+        let _ = std::io::Write::write_all(&mut file, b"\n");
+    }
+}
+
+fn panic_payload(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "download panicked".into()
+    }
+}
+
+fn scrub_parts(root: &Path) {
+    let Ok(dir) = std::fs::read_dir(root.join("Videos")) else {
+        return;
+    };
+    for entry in dir.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".part") || name.ends_with(".mux.mp4") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn scrub_id(root: &Path, id: &str) {
+    if !youtube::valid_id(id) {
+        return;
+    }
+    let dest = video_path(root, id);
+    let _ = std::fs::remove_file(dest.with_extension("mp4.part"));
+    let _ = std::fs::remove_file(root.join("Videos").join(format!("{id}.m4a.part")));
+    let _ = std::fs::remove_file(root.join("Videos").join(format!("{id}.mux.mp4")));
+}
+
 fn video_path(root: &Path, id: &str) -> PathBuf {
     root.join("Videos").join(format!("{id}.mp4"))
 }
@@ -1879,9 +1929,13 @@ impl VideoMenu {
             .name("slot-video".into())
             .spawn(move || {
                 let pause = pause.clone();
-                let note = match download(&root, &task, &progress, &total, &flag, &pause) {
-                    Ok(bytes) => {
+                log_line(&root, &format!("start {} {}", task.id, task.title));
+                let note = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    download(&root, &task, &progress, &total, &flag, &pause)
+                })) {
+                    Ok(Ok(bytes)) => {
                         let _ = fetch_thumbnail(&root, &task.id);
+                        log_line(&root, &format!("saved {} {bytes} bytes", task.id));
                         Note::Done(Saved {
                             id: task.id,
                             title: task.title,
@@ -1891,10 +1945,30 @@ impl VideoMenu {
                             position_ms: 0,
                         })
                     }
-                    Err(message) => Note::Failed {
-                        id: task.id,
-                        message,
-                    },
+                    Ok(Err(message)) => {
+                        scrub_id(&root, &task.id);
+                        log_line(&root, &format!("failed {} {message}", task.id));
+                        Note::Failed {
+                            id: task.id,
+                            message,
+                        }
+                    }
+                    Err(payload) => {
+                        scrub_id(&root, &task.id);
+                        let message = panic_payload(&payload);
+                        log_line(
+                            &root,
+                            &format!(
+                                "panic {} {message}\n{}",
+                                task.id,
+                                std::backtrace::Backtrace::force_capture()
+                            ),
+                        );
+                        Note::Failed {
+                            id: task.id,
+                            message: format!("Download failed: {message}"),
+                        }
+                    }
                 };
                 let _ = tx.send(note);
             });
@@ -1940,6 +2014,53 @@ mod tests {
         assert_eq!(again[0].position_ms, 1500);
         std::fs::remove_file(root.path().join("Videos/abcdefghijk.mp4")).unwrap();
         assert!(read_index(root.path()).is_empty());
+    }
+
+    #[test]
+    fn a_channel_row_with_a_short_thumbnail_still_draws() {
+        let root = tempfile::tempdir().unwrap();
+        let mut menu = VideoMenu::open(root.path().to_path_buf(), true);
+        menu.view = View::Videos;
+        menu.videos = vec![youtube::Video {
+            id: "abcdefghijk".into(),
+            title: "A long title with é and 動画: the one that used to close the screen".into(),
+            channel: "Retro Game Corps".into(),
+            duration_ms: 60_000,
+            published: "today".into(),
+        }];
+        menu.row_thumbs = vec![Some(vec![200u8; 56 * 32 * 4])];
+        let face = menu.render();
+        assert_eq!(face.w, slot_gfx::OUT_W);
+        assert!(face.rgba.iter().any(|b| *b == 200));
+    }
+
+    #[test]
+    fn a_partial_download_is_removed_and_a_finished_one_stays_on_the_shelf() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("Videos")).unwrap();
+        std::fs::write(root.path().join("Videos/abcdefghijk.mp4.part"), b"partial").unwrap();
+        scrub_parts(root.path());
+        assert!(!root.path().join("Videos/abcdefghijk.mp4.part").exists());
+        std::fs::write(root.path().join("Videos/abcdefghijk.mp4"), b"....ftyp").unwrap();
+        std::fs::write(root.path().join("Videos/abcdefghijk.png"), b"png").unwrap();
+        write_index(
+            root.path(),
+            &[Saved {
+                id: "abcdefghijk".into(),
+                title: "Kept".into(),
+                channel: "Linus Tech Tips".into(),
+                bytes: 8,
+                duration_ms: 1,
+                position_ms: 0,
+            }],
+        )
+        .unwrap();
+        let tapes = tapes(root.path());
+        assert_eq!(tapes.len(), 1);
+        assert!(tapes[0].thumb.is_some());
+        log_line(root.path(), "saved abcdefghijk");
+        let log = std::fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
+        assert!(log.contains("saved abcdefghijk"));
     }
 
     #[test]

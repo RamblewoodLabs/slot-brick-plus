@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos no longer closes when a channel's pictures are shown. A download that fails stays on that screen and says why, and a finished video appears on the Videos shelf. What happened is kept in Logs/videos.log.
 - HOME → Companion: Pip, a small pixel friend, suggests a game you have not played much and keeps a few missions (try a new game, revisit one, play three systems, a weekend of four games). Playing earns XP and levels. Toasts show a mission or a level-up. Y on a mission marks it done if Slot could not see it happen. Settings turn Pip, the toasts, and each mission kind on or off, and can reset Pip without touching your games. X on the shelf opens Pip too.
 - HOME → Videos: add a channel by its name, @handle, or link. A on the channel lists its latest videos. If the list cannot be fetched, the screen says why. Videos used and free space on the card are on that screen. Video space limit starts at No limit; Left and Right set 1, 2, 4, 8, or 16 GB. Sign-in is gone.
 - HOME → Companion: Pip is a chunky walking cartridge, orange with a shaded shell, a big cream face, and cream sneakers. It squishes while it idles, waves a whole arm, sulks in the rain, stomps when a session was tiny, jumps when a streak or an achievement lands, yawns, tilts its head when it is curious, and throws both arms up on a level-up. The line under it changes with the time of day, the streak, and the game. Animations and Sounds in its settings still turn those off.

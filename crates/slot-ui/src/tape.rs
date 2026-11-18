@@ -92,12 +92,21 @@ fn put(rgba: &mut [u8], x: u32, y: u32, rgb: [u8; 3]) {
 
 fn blit(dst: &mut [u8], x: u32, y: u32, w: u32, h: u32, src: &[u8]) {
     for yy in 0..h {
+        if y + yy >= TAPE_H {
+            break;
+        }
         for xx in 0..w {
+            if x + xx >= TAPE_W {
+                break;
+            }
             let s = ((yy * w + xx) * 4) as usize;
             if s + 3 >= src.len() || src[s + 3] == 0 {
                 continue;
             }
             let i = (((y + yy) * TAPE_W + x + xx) * 4) as usize;
+            if i + 3 >= dst.len() {
+                continue;
+            }
             dst[i..i + 4].copy_from_slice(&src[s..s + 4]);
         }
     }
