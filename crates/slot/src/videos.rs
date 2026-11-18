@@ -66,7 +66,11 @@ enum Note {
 
 enum Found {
     Channels(Vec<Channel>),
-    Videos { name: String, videos: Vec<Video> },
+    Videos {
+        name: String,
+        videos: Vec<Video>,
+        thumbs: Vec<Option<Vec<u8>>>,
+    },
 }
 
 struct Worker {
@@ -124,6 +128,8 @@ pub struct VideoMenu {
     pause_dl: Arc<AtomicBool>,
     channels: Vec<Channel>,
     videos: Vec<Video>,
+    /// Small pictures for the channel's rows, one per video, already RGBA.
+    row_thumbs: Vec<Option<Vec<u8>>>,
     channel_name: String,
     keys: Option<KeysState>,
     waiting: Vec<Job>,
@@ -160,6 +166,7 @@ impl VideoMenu {
             pause_dl: Arc::new(AtomicBool::new(false)),
             channels: Vec::new(),
             videos: Vec::new(),
+            row_thumbs: Vec::new(),
             channel_name: String::new(),
             keys: None,
             waiting: Vec::new(),
@@ -204,16 +211,20 @@ impl VideoMenu {
                     self.status = format!("{n} channels");
                     self.dirty = true;
                 }
-                Ok(Ok(Found::Videos { name, videos })) => {
+                Ok(Ok(Found::Videos {
+                    name,
+                    videos,
+                    thumbs,
+                })) => {
                     let n = videos.len();
-                    self.videos = youtube::latest_five(videos);
+                    self.videos = videos;
+                    self.row_thumbs = thumbs;
                     self.channel_name = name;
                     self.view = View::Videos;
                     self.row = 0;
                     self.lookup = None;
-                    self.status = format!("{} videos", self.channel_name);
+                    self.status = format!("{n} videos");
                     self.dirty = true;
-                    let _ = n;
                 }
                 Ok(Err(message)) => {
                     self.lookup = None;
@@ -426,15 +437,16 @@ impl VideoMenu {
             if row == self.row {
                 sheet.rect(0, y, OUT_W, 38, slot_ui::edge());
             }
-            sheet.text(
-                &rows[row],
-                24,
-                y + 2,
-                OUT_W.saturating_sub(48),
-                34,
-                20.0,
-                false,
-            );
+            let mut x = 24;
+            let mut text_w = OUT_W.saturating_sub(48);
+            if self.view == View::Videos {
+                if let Some(px) = self.row_thumbs.get(row).and_then(|t| t.as_ref()) {
+                    sheet.image(16, y + 4, 56, 32, px);
+                    x = 80;
+                    text_w = OUT_W.saturating_sub(96);
+                }
+            }
+            sheet.text(&rows[row], x, y + 2, text_w, 34, 20.0, false);
         }
     }
 
@@ -787,7 +799,15 @@ impl VideoMenu {
         self.channel_name = sub.name.clone();
         let (id, name) = (sub.id, sub.name);
         self.spawn_lookup(move || {
-            youtube::channel_videos(&id, &name).map(|videos| Found::Videos { name, videos })
+            youtube::channel_videos(&id, &name).map(|videos| {
+                let videos = youtube::latest_five(videos);
+                let thumbs = videos.iter().map(|v| thumb_rgba(&v.id, 56, 32)).collect();
+                Found::Videos {
+                    name,
+                    videos,
+                    thumbs,
+                }
+            })
         });
     }
 
@@ -987,6 +1007,36 @@ impl VideoMenu {
             at = at.min(saved.duration_ms.saturating_sub(500));
         }
         self.play_at(&saved.id, at);
+    }
+
+    /// Play a saved video from where it stopped. The shelf's A button uses this.
+    pub fn play_id(&mut self, id: &str) -> bool {
+        if !self.library.iter().any(|s| s.id == id) {
+            self.library = read_index(&self.root);
+        }
+        if !self.library.iter().any(|s| s.id == id) {
+            return false;
+        }
+        self.view = View::Player;
+        self.back = View::Home;
+        self.play(id);
+        self.dirty = true;
+        true
+    }
+
+    /// Read the cache again after the shelf deletes a video.
+    pub fn reload_saved(&mut self) {
+        self.library = read_index(&self.root);
+        if self
+            .playing
+            .as_ref()
+            .is_some_and(|s| !self.library.iter().any(|row| row.id == s.id))
+        {
+            self.stop_player(false);
+            self.playing = None;
+            self.view = View::Home;
+        }
+        self.dirty = true;
     }
 
     fn play(&mut self, id: &str) {
@@ -1369,6 +1419,132 @@ fn video_path(root: &Path, id: &str) -> PathBuf {
     root.join("Videos").join(format!("{id}.mp4"))
 }
 
+fn thumb_path(root: &Path, id: &str) -> PathBuf {
+    root.join("Videos").join(format!("{id}.png"))
+}
+
+/// A video on the Videos shelf.
+#[derive(Clone, Debug)]
+pub struct Tape {
+    pub id: String,
+    pub title: String,
+    pub position_ms: u64,
+    pub thumb: Option<PathBuf>,
+}
+
+/// Saved videos that still have a file, oldest first as the cache lists them.
+pub fn tapes(root: &Path) -> Vec<Tape> {
+    read_index(root)
+        .into_iter()
+        .map(|saved| {
+            let thumb = thumb_path(root, &saved.id);
+            Tape {
+                id: saved.id,
+                title: saved.title,
+                position_ms: saved.position_ms,
+                thumb: thumb.is_file().then_some(thumb),
+            }
+        })
+        .collect()
+}
+
+/// Remove a saved video, its picture, and its line in the cache.
+pub fn forget(root: &Path, id: &str) -> bool {
+    if !youtube::valid_id(id) {
+        return false;
+    }
+    let mut library = read_index(root);
+    let before = library.len();
+    library.retain(|saved| saved.id != id);
+    let _ = write_index(root, &library);
+    let _ = std::fs::remove_file(video_path(root, id));
+    let _ = std::fs::remove_file(thumb_path(root, id));
+    let _ = std::fs::remove_file(video_path(root, id).with_extension("mp4.part"));
+    before != library.len()
+}
+
+/// The picture YouTube serves for a video, saved as a PNG beside the file.
+pub fn fetch_thumbnail(root: &Path, id: &str) -> bool {
+    if !youtube::valid_id(id) {
+        return false;
+    }
+    let url = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
+    let Ok(jpeg) = crate::net::get(&url, 1 << 20) else {
+        return false;
+    };
+    let Some(png) = jpeg_to_png(&jpeg) else {
+        return false;
+    };
+    let _ = std::fs::create_dir_all(root.join("Videos"));
+    std::fs::write(thumb_path(root, id), png).is_ok()
+}
+
+/// A JPEG as a PNG. Slot's shelf reads PNG, and the thumbnail arrives as JPEG.
+pub fn jpeg_to_png(jpeg: &[u8]) -> Option<Vec<u8>> {
+    let (rgba, w, h) = jpeg_pixels(jpeg)?;
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.write_header().ok()?.write_image_data(&rgba).ok()?;
+    Some(bytes)
+}
+
+fn thumb_rgba(id: &str, w: u32, h: u32) -> Option<Vec<u8>> {
+    if !youtube::valid_id(id) {
+        return None;
+    }
+    let url = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
+    let jpeg = crate::net::get(&url, 1 << 20).ok()?;
+    let (rgba, sw, sh) = jpeg_pixels(&jpeg)?;
+    Some(scale_nearest(&rgba, sw, sh, w, h))
+}
+
+fn jpeg_pixels(jpeg: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(jpeg));
+    let pixels = decoder.decode().ok()?;
+    let info = decoder.info()?;
+    let w = u32::from(info.width);
+    let h = u32::from(info.height);
+    let rgba = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            let mut out = Vec::with_capacity(pixels.len() / 3 * 4);
+            for chunk in pixels.chunks_exact(3) {
+                out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            }
+            out
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            let mut out = Vec::with_capacity(pixels.len() * 4);
+            for gray in pixels {
+                out.extend_from_slice(&[gray, gray, gray, 255]);
+            }
+            out
+        }
+        _ => return None,
+    };
+    (rgba.len() == (w * h * 4) as usize).then_some((rgba, w, h))
+}
+
+fn scale_nearest(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return out;
+    }
+    for y in 0..dh {
+        for x in 0..dw {
+            let sx = (u64::from(x) * u64::from(sw) / u64::from(dw)).min(u64::from(sw) - 1) as u32;
+            let sy = (u64::from(y) * u64::from(sh) / u64::from(dh)).min(u64::from(sh) - 1) as u32;
+            let s = ((sy * sw + sx) * 4) as usize;
+            let d = ((y * dw + x) * 4) as usize;
+            if s + 4 <= src.len() {
+                out[d..d + 4].copy_from_slice(&src[s..s + 4]);
+            }
+        }
+    }
+    out
+}
+
 fn download(
     root: &Path,
     job: &Job,
@@ -1679,14 +1855,17 @@ impl VideoMenu {
             .spawn(move || {
                 let pause = pause.clone();
                 let note = match download(&root, &task, &progress, &total, &flag, &pause) {
-                    Ok(bytes) => Note::Done(Saved {
-                        id: task.id,
-                        title: task.title,
-                        channel: task.channel,
-                        bytes,
-                        duration_ms: task.duration_ms,
-                        position_ms: 0,
-                    }),
+                    Ok(bytes) => {
+                        let _ = fetch_thumbnail(&root, &task.id);
+                        Note::Done(Saved {
+                            id: task.id,
+                            title: task.title,
+                            channel: task.channel,
+                            bytes,
+                            duration_ms: task.duration_ms,
+                            position_ms: 0,
+                        })
+                    }
                     Err(message) => Note::Failed {
                         id: task.id,
                         message,
@@ -1736,6 +1915,67 @@ mod tests {
         assert_eq!(again[0].position_ms, 1500);
         std::fs::remove_file(root.path().join("Videos/abcdefghijk.mp4")).unwrap();
         assert!(read_index(root.path()).is_empty());
+    }
+
+    #[test]
+    fn the_shelf_lists_a_saved_video_and_forget_removes_it() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("Videos")).unwrap();
+        std::fs::write(root.path().join("Videos/abcdefghijk.mp4"), b"mp4").unwrap();
+        std::fs::write(root.path().join("Videos/abcdefghijk.png"), b"png").unwrap();
+        write_index(
+            root.path(),
+            &[Saved {
+                id: "abcdefghijk".into(),
+                title: "Concert".into(),
+                channel: "Band".into(),
+                bytes: 3,
+                duration_ms: 1000,
+                position_ms: 400,
+            }],
+        )
+        .unwrap();
+        let listed = tapes(root.path());
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].title, "Concert");
+        assert_eq!(listed[0].position_ms, 400);
+        assert!(listed[0].thumb.is_some());
+        assert!(forget(root.path(), "abcdefghijk"));
+        assert!(tapes(root.path()).is_empty());
+        assert!(!root.path().join("Videos/abcdefghijk.mp4").exists());
+        assert!(!root.path().join("Videos/abcdefghijk.png").exists());
+    }
+
+    #[test]
+    fn a_jpeg_thumbnail_becomes_a_png() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpg = dir.path().join("t.jpg");
+        let made = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=8x8",
+                "-frames:v",
+                "1",
+            ])
+            .arg(&jpg)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()
+            .is_some_and(|status| status.success());
+        if !made {
+            return;
+        }
+        let jpeg = std::fs::read(&jpg).unwrap();
+        let png = jpeg_to_png(&jpeg).expect("jpeg decodes");
+        assert!(png.starts_with(b"\x89PNG"));
+        let (rgba, w, h) = jpeg_pixels(&jpeg).unwrap();
+        assert_eq!((w, h), (8, 8));
+        assert!(rgba[0] > 200 && rgba[1] < 40);
     }
 
     #[test]

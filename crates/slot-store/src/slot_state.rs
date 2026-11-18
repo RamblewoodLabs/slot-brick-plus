@@ -49,6 +49,8 @@ pub struct SlotState {
     pub favorites_only: bool,
     /// HOME → Library → Systems: the systems kept off the shelves, in the order of Platform::ALL.
     pub hidden_systems: [bool; Platform::ALL.len()],
+    /// HOME → Library → Systems → Videos: the Videos shelf, when a video is saved.
+    pub show_videos: bool,
     /// Play time in hours and minutes rather than minutes alone.
     pub play_time_hours: bool,
     /// The selected game's name on a card under its cart.
@@ -190,6 +192,7 @@ impl Default for SlotState {
             library_sort: crate::LibrarySort::Az,
             favorites_only: false,
             hidden_systems: [false; Platform::ALL.len()],
+            show_videos: true,
             play_time_hours: false,
             title_card: true,
             rumble: true,
@@ -283,6 +286,7 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
         ("sound_label", s.sound_label),
         ("update_check", s.update_check),
         ("swap_ab", s.swap_ab),
+        ("show_videos", s.show_videos),
     ] {
         let _ = writeln!(text, "{key}={}", on as u8);
     }
@@ -308,6 +312,7 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut library_sort = None;
     let mut favorites_only = None;
     let mut hidden_systems = [false; Platform::ALL.len()];
+    let mut show_videos = None;
     let mut play_time_hours = None;
     let mut title_card = None;
     let mut rumble = None;
@@ -363,6 +368,7 @@ fn parse(text: &str) -> Option<SlotState> {
                     hidden_systems[platform.index()] = true;
                 }
             }
+            "show_videos" => show_videos = flag(value),
             "play_time_hours" => play_time_hours = flag(value),
             "title_card" => title_card = flag(value),
             "rumble" => rumble = flag(value),
@@ -419,6 +425,7 @@ fn parse(text: &str) -> Option<SlotState> {
         library_sort: library_sort.unwrap_or(fallback.library_sort),
         favorites_only: favorites_only.unwrap_or(fallback.favorites_only),
         hidden_systems,
+        show_videos: show_videos.unwrap_or(true),
         play_time_hours: play_time_hours.unwrap_or(fallback.play_time_hours),
         title_card: title_card.unwrap_or(fallback.title_card),
         rumble: rumble.unwrap_or(fallback.rumble),

@@ -39,7 +39,7 @@ doesn't flash anything to the device.
 | ---------------- | --------------------------------------- |
 | `Left` / `Right` | Browse games                            |
 | `Up` / `Down`    | Previous / next letter                  |
-| `L1` / `R1`      | Switch shelves (GBA, GB, GBC, NES, SNES, PlayStation) |
+| `L1` / `R1`      | Switch shelves (GBA, GB, GBC, NES, SNES, PlayStation, Videos) |
 | Tap `A`          | Resume from the last save state (a game of several discs: fan them out, pick one, `A` again) |
 | Hold `A`         | Start the game fresh                    |
 | `START`          | Cart colour, finish, shape and label (GBA: and core) |

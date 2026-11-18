@@ -53,7 +53,7 @@ A port of [Slot.](https://github.com/BrandonKowalski/slot), originally developed
 | **Updates** | Update Slot from the menu over Wi-Fi: signed and checked, with your games, saves and settings left alone. |
 | **Library** | The selected game's name on a title card under its cart for a moment, play time beside the battery (minutes, or hours and minutes), favorites with a star, and shelves sorted A–Z, by last played or by most played, or showing only your favorites. Systems you don't play can be hidden (Library → Systems). |
 | **Companion** | HOME → Companion, or X on the shelf: Pip suggests a game and keeps missions drawn from your library. Play earns XP. It stays on the card. |
-| **Videos** | HOME → Videos: follow a YouTube channel, fetch its five latest videos, download one over Wi-Fi into `Slot/Videos`, and play it offline. |
+| **Videos** | HOME → Videos: follow a YouTube channel, fetch its five latest videos, download one over Wi-Fi into `Slot/Videos`, and play it offline. Saved videos also have a shelf of their own, beside the game shelves. |
 | **Fonts** | HOME → System → Font: Slot's own font, GohuFont, or any `.ttf` / `.otf` you put in `Slot/Fonts`. |
 | **Auto clock** | The clock sets itself from an internet time server whenever Wi-Fi is on. |
 | **Wireless connectivity** | Wi-Fi, with its status shown beside the clock, and an experimental two-player link over Wi-Fi. |
@@ -184,7 +184,7 @@ The three small buttons on the bottom of the Brick and Brick Hammer are **HOME**
 | :--- | :--- |
 | `Left` / `Right` | Browse the carousel |
 | `Up` / `Down` | Jump to the previous / next letter |
-| `L1` / `R1` | Switch between the GBA, GB, GBC, NES, SNES and PlayStation shelves |
+| `L1` / `R1` | Switch between the GBA, GB, GBC, NES, SNES, PlayStation and Videos shelves |
 | Tap `A` | Resume the last save state |
 | Hold `A` | Start the game fresh |
 | `START` | Customise the cartridge (GBA: also choose the emulator core) |
@@ -353,7 +353,9 @@ Slot/Logs/slot.log
 
 Slot does not know bosses, levels inside a game, or other launchers such as PortMaster or PICO-8. Missions use the systems Slot already has (GB, GBC, GBA, NES, SNES, PlayStation) and the play time it already counts. Sleep, and a game that stops unexpectedly, are not counted as extra play.
 
-**Videos** (HOME → Videos) is a channel list, not a general YouTube app. Add a channel with its link or id (`youtube.com/channel/UC…`, or a name). Open a channel for its five latest videos: title, length, and when it was posted. A downloads one over Wi-Fi into `Slot/Videos`, or plays it if it is already there. The queue shows progress; A pauses the download and X cancels it. A failed download can be tried again from Downloads. Storage size is on the same screen. Saved videos play with Wi-Fi off: A pauses, Left and Right skip 10 seconds, Up and Down change the volume, and playback resumes.
+**Videos** (HOME → Videos) is a channel list, not a general YouTube app. Add a channel with its link or id (`youtube.com/channel/UC…`, or a name). Open a channel for its five latest videos: title, length, and when it was posted, with the video's picture on the row when it can be fetched. A downloads one over Wi-Fi into `Slot/Videos`, or plays it if it is already there. The picture is saved next to the file. The queue shows progress; A pauses the download and X cancels it. A failed download can be tried again from Downloads. Storage size is on the same screen. Saved videos play with Wi-Fi off: A pauses, Left and Right skip 10 seconds, Up and Down change the volume, and playback resumes.
+
+Saved videos also sit on their own shelf. `L1` and `R1` reach it beside the game shelves, and it is not there when nothing is saved. Each video is a tape with its picture as the label. A plays it from where it stopped. Y asks, then deletes it. Library → Systems → Videos hides that shelf.
 
 Downloads ask for H.264 in an MP4 at 360p or below. ffmpeg, at `Slot/System/ffmpeg` or on the path, decodes that to a 480×270 picture at 12 frames a second, which the H700 can do in software. The card build tries to fetch ffmpeg. A `yt-dlp` binary at `Slot/System/yt-dlp` is tried first and, if it fails, Slot fetches the file itself. YouTube often hides addresses behind a signature, and public Piped instances go offline, so a download can fail and say why. Age-restricted and members-only videos are not fetched. Sign-in is not available: a Google token would not unlock those addresses. `Slot/Config/youtube-auth.txt` is reserved and unused. Rows do not show the channel's JPEG thumbnail; Slot reads PNG, and the row carries the title, length and date instead.
 

@@ -77,6 +77,8 @@ pub struct Frontend {
     banner_tex: Option<TexId>,
     pip_tex: Option<TexId>,
     videos_tex: Option<TexId>,
+    tape_key: String,
+    tape_tex: Vec<(TexId, u32, u32)>,
     video_frame_tex: Option<TexId>,
     video_frame_seq: u64,
     video_resampler: Option<crate::resample::Resampler>,
@@ -399,6 +401,8 @@ impl Frontend {
             banner_tex: None,
             pip_tex: None,
             videos_tex: None,
+            tape_key: String::new(),
+            tape_tex: Vec::new(),
             video_frame_tex: None,
             video_frame_seq: 0,
             video_resampler: None,
@@ -790,6 +794,38 @@ impl Frontend {
         self.session.audio_ring().push(&out);
     }
 
+    fn sync_tape_faces(&mut self, compositor: &mut Compositor) {
+        let list = self.session.app().tape_list();
+        let key = list
+            .iter()
+            .map(|(id, title, thumb)| {
+                format!(
+                    "{id}\t{title}\t{}",
+                    thumb.as_ref().map(|path| path.display().to_string()).unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if key == self.tape_key {
+            return;
+        }
+        let mut tex = std::mem::take(&mut self.tape_tex);
+        for (i, (_id, _title, thumb)) in list.iter().enumerate() {
+            let face = slot_ui::tape_face(thumb.as_deref());
+            if let Some((id, _, _)) = tex.get(i).copied() {
+                compositor.update_texture(id, face.w, face.h, &face.rgba);
+                tex[i] = (id, face.w, face.h);
+            } else {
+                let id = compositor.create_texture(face.w, face.h, &face.rgba);
+                tex.push((id, face.w, face.h));
+            }
+        }
+        tex.truncate(list.len());
+        self.tape_tex = tex.clone();
+        self.session.app_mut().set_tape_tex(tex);
+        self.tape_key = key;
+    }
+
     pub fn compose(&mut self, compositor: &mut Compositor) {
         compositor.set_blue_light(self.session.app().blue_light());
         compositor.set_picture(self.session.app().picture_rect());
@@ -840,6 +876,7 @@ impl Frontend {
             self.videos_tex = Some(tex);
             self.session.app_mut().set_videos_face(tex);
         }
+        self.sync_tape_faces(compositor);
         if let Some((seq, rgba)) = self.session.app().copy_video_frame(self.video_frame_seq) {
             let (w, h) = (crate::videos::FRAME_W, crate::videos::FRAME_H);
             let tex = match self.video_frame_tex {

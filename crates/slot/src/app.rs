@@ -242,6 +242,11 @@ pub const LINKED_HOLD_MS: Millis = 1000;
 
 pub const UNPLUG_HOLD_MS: Millis = 420;
 
+enum ShelfStop {
+    Game(usize),
+    Videos,
+}
+
 #[derive(Debug)]
 pub enum Phase {
     SetClock {
@@ -467,6 +472,14 @@ pub struct App {
     pip: Option<crate::pip::PipMenu>,
     videos: Option<crate::videos::VideoMenu>,
     videos_visible: bool,
+    /// Saved videos on the shelf beside the game systems. Empty, or hidden in
+    /// Library → Systems, and the shelf is not there.
+    tapes: Vec<crate::videos::Tape>,
+    tape_at: usize,
+    video_focus: bool,
+    /// Y was pressed once on this video: the next Y deletes it.
+    video_delete: Option<String>,
+    tape_tex: Vec<(TexId, u32, u32)>,
     /// Play time being counted: the last tick seen while playing, and what is not a second yet.
     play_tick: Option<Millis>,
     play_ms: Millis,
@@ -657,6 +670,11 @@ impl App {
             pip: None,
             videos: None,
             videos_visible: false,
+            tapes: Vec::new(),
+            tape_at: 0,
+            video_focus: false,
+            video_delete: None,
+            tape_tex: Vec::new(),
             play_tick: None,
             play_ms: 0,
             played: slot_ui::Printed::default(),
@@ -777,6 +795,11 @@ impl App {
         app.companion = slot_store::Companion::read(root);
         crate::boot_times::mark("  state and library read");
         app.arrange();
+        app.reload_tapes();
+        if app.shelves.iter().all(|(_, shelf)| shelf.carts.is_empty()) && app.videos_on_shelf() {
+            app.video_focus = true;
+            app.name_pending = true;
+        }
         // At startup, each shelf starts at the top of its order.
         for (_, shelf) in &mut app.shelves {
             shelf.select(0);
@@ -1063,7 +1086,7 @@ impl App {
 
     /// The selected game's play time, as the footer prints it beside the battery.
     pub fn played_text(&self) -> Option<String> {
-        if !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() {
+        if !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() || self.video_focus {
             return None;
         }
         let platform = self.shelves.get(self.shelf_at)?.0;
@@ -1075,6 +1098,9 @@ impl App {
     pub fn title_card_text(&self) -> Option<String> {
         if !self.state.title_card || !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() {
             return None;
+        }
+        if self.video_focus {
+            return self.tapes.get(self.tape_at).map(|tape| tape.title.clone());
         }
         let cart = self.shelf().carts.get(self.shelf().index)?;
         Some(slot_ui::label_text(cart))
@@ -1117,17 +1143,191 @@ impl App {
     }
 
     fn switch_shelf(&mut self, by: i32) {
-        let Some(to) = self.next_shelf(by) else {
+        let stops = self.shelf_stops();
+        if stops.len() < 2 {
+            return;
+        }
+        let here = if self.video_focus {
+            stops.iter().position(|stop| matches!(stop, ShelfStop::Videos))
+        } else {
+            stops.iter().position(|stop| matches!(stop, ShelfStop::Game(at) if *at == self.shelf_at))
+        };
+        let Some(here) = here else {
             return;
         };
-        self.shelf_mut().release_hold();
+        let next = (here as i32 + by).rem_euclid(stops.len() as i32) as usize;
         self.play_held = None;
+        self.video_delete = None;
+        match stops[next] {
+            ShelfStop::Videos => self.enter_videos(),
+            ShelfStop::Game(at) => {
+                self.video_focus = false;
+                self.land_shelf(at);
+            }
+        }
+    }
+
+    fn land_shelf(&mut self, to: usize) {
+        self.shelf_mut().release_hold();
         self.shelf_at = to;
         self.shelf_platform = slot_ui::Printed::default();
         self.slot_letter = None;
         self.slot_word = None;
         self.shelf_named = None;
         self.name_pending = true;
+    }
+
+    fn enter_videos(&mut self) {
+        self.video_focus = true;
+        self.shelf_platform = slot_ui::Printed::default();
+        self.slot_letter = None;
+        self.slot_word = None;
+        self.shelf_named = None;
+        self.name_pending = true;
+        self.play_held = None;
+        self.video_delete = None;
+        self.reload_tapes();
+    }
+
+    fn videos_on_shelf(&self) -> bool {
+        self.state.show_videos && !self.tapes.is_empty()
+    }
+
+    fn shelf_stops(&self) -> Vec<ShelfStop> {
+        let mut stops = Vec::new();
+        for (at, (_, shelf)) in self.shelves.iter().enumerate() {
+            if !shelf.carts.is_empty() {
+                stops.push(ShelfStop::Game(at));
+            }
+        }
+        if self.videos_on_shelf() {
+            stops.push(ShelfStop::Videos);
+        }
+        stops
+    }
+
+    fn reload_tapes(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        self.tapes = crate::videos::tapes(&root);
+        if self.tape_at >= self.tapes.len() {
+            self.tape_at = self.tapes.len().saturating_sub(1);
+        }
+        if self.video_focus && !self.videos_on_shelf() {
+            self.video_focus = false;
+            self.name_pending = true;
+        }
+    }
+
+    fn nudge_tape(&mut self, dir: i32) {
+        let n = self.tapes.len() as i32;
+        if n == 0 {
+            return;
+        }
+        let next = (self.tape_at as i32 + dir).rem_euclid(n) as usize;
+        if next == self.tape_at {
+            return;
+        }
+        self.tape_at = next;
+        self.video_delete = None;
+    }
+
+    fn play_tape(&mut self) {
+        let Some(id) = self.tapes.get(self.tape_at).map(|tape| tape.id.clone()) else {
+            return;
+        };
+        if self.videos.is_none() {
+            let Some(root) = self.root.clone() else {
+                return;
+            };
+            self.videos = Some(crate::videos::VideoMenu::open(root, self.videos_online()));
+        }
+        let started = self.videos.as_mut().is_some_and(|menu| menu.play_id(&id));
+        if started {
+            self.videos_visible = true;
+            self.video_delete = None;
+        }
+    }
+
+    fn delete_tape(&mut self) {
+        let Some(tape) = self.tapes.get(self.tape_at).cloned() else {
+            return;
+        };
+        if self.video_delete.as_deref() != Some(tape.id.as_str()) {
+            self.video_delete = Some(tape.id);
+            self.announce("Delete this video?", "Press Y again");
+            return;
+        }
+        if let Some(root) = &self.root {
+            let _ = crate::videos::forget(root, &tape.id);
+        }
+        if let Some(menu) = &mut self.videos {
+            menu.reload_saved();
+        }
+        self.video_delete = None;
+        self.reload_tapes();
+        self.announce("Deleted", &tape.title);
+    }
+
+    fn video_shelf_input(&mut self, action: Action) {
+        match action {
+            Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.nudge_tape(-1),
+            Action::ShelfRight | Action::GbaDown(Btn::Right) => self.nudge_tape(1),
+            Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
+            Action::GbaDown(Btn::R1) => self.switch_shelf(1),
+            Action::GbaDown(Btn::A) | Action::Insert => self.play_tape(),
+            Action::GbaUp(Btn::A) => self.play_held = None,
+            Action::GbaDown(Btn::Y) => self.delete_tape(),
+            Action::QuickMenu => {
+                self.open_quick_menu();
+                self.menu_sound(MenuSound::Open);
+            }
+            Action::GbaDown(Btn::X) => {
+                self.open_pip();
+                self.menu_sound(MenuSound::Open);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn tape_list(&self) -> Vec<(String, String, Option<PathBuf>)> {
+        if !self.videos_on_shelf() {
+            return Vec::new();
+        }
+        self.tapes
+            .iter()
+            .map(|tape| (tape.id.clone(), tape.title.clone(), tape.thumb.clone()))
+            .collect()
+    }
+
+    pub fn set_tape_tex(&mut self, tex: Vec<(TexId, u32, u32)>) {
+        self.tape_tex = tex;
+    }
+
+    fn draw_tapes(&self, out: &mut Vec<Draw>) {
+        let n = self.tapes.len();
+        if n == 0 || self.tape_tex.len() != n {
+            return;
+        }
+        let at = self.tape_at.min(n - 1);
+        for (i, (tex, w, h)) in self.tape_tex.iter().copied().enumerate() {
+            let delta = i as i32 - at as i32;
+            if delta.abs() > 1 {
+                continue;
+            }
+            let scale = if delta == 0 { 1.0 } else { 0.72 };
+            let dw = w as f32 * scale;
+            let dh = h as f32 * scale;
+            out.push(Draw::Tex {
+                x: (OUT_W as f32 - dw) / 2.0 + delta as f32 * 220.0,
+                y: slot_ui::TAPE_Y + if delta == 0 { 0.0 } else { 18.0 },
+                w: dw,
+                h: dh,
+                tex,
+                alpha: if delta == 0 { 1.0 } else { 0.8 },
+            });
+        }
     }
 
     fn jump_letter(&mut self, dir: i32) {
@@ -1386,6 +1586,7 @@ impl App {
             QuickRow::ShowGba | QuickRow::ShowGb | QuickRow::ShowGbc | QuickRow::ShowNes | QuickRow::ShowSnes | QuickRow::ShowPs1 => {
                 row.shelf_of().map(|p| QuickValue::flag(self.state.shows(p)))
             }
+            QuickRow::ShowVideos => Some(QuickValue::flag(self.state.show_videos)),
             QuickRow::ResetSettings => self.reset_asked,
             QuickRow::Companion | QuickRow::Videos | QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds | QuickRow::SoundVolume => None,
         }
@@ -1500,7 +1701,12 @@ impl App {
     }
 
     pub fn shelf_platform_name(&self) -> Option<&'static str> {
-        self.next_shelf(1)?;
+        if self.video_focus {
+            return Some("Videos");
+        }
+        if self.shelf_stops().len() < 2 {
+            return None;
+        }
         Some(self.shelves[self.shelf_at].0.name())
     }
 
@@ -2303,6 +2509,7 @@ impl App {
         }
         let now = self.now();
         match self.phase {
+            Phase::Shelf if self.video_focus => self.video_shelf_input(action),
             Phase::Shelf => match action {
                 // Like the core picker's lid closing: the sticker is never cut short.
                 _ if self.peel.is_some() => {}
@@ -2495,6 +2702,7 @@ impl App {
         }
         if self.videos_visible && self.videos.as_mut().is_some_and(|menu| menu.input(action)) {
             self.videos_visible = false;
+            self.reload_tapes();
             if matches!(self.phase, Phase::QuickMenu { .. }) {
                 self.menu_sound(MenuSound::Back);
             }
@@ -2707,6 +2915,7 @@ impl App {
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
             | QuickRow::ShowPs1
+            | QuickRow::ShowVideos
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -2835,6 +3044,15 @@ impl App {
                     return;
                 };
                 return self.toggle_system(platform);
+            }
+            QuickRow::ShowVideos => {
+                self.state.show_videos = !self.state.show_videos;
+                self.persist();
+                if self.video_focus && !self.videos_on_shelf() {
+                    self.video_focus = false;
+                    self.name_pending = true;
+                }
+                return;
             }
             QuickRow::LibraryPlayTime => s.play_time_hours = !s.play_time_hours,
             QuickRow::LibraryTitleCard => s.title_card = !s.title_card,
@@ -3273,10 +3491,13 @@ impl App {
         let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
-        if let Some(videos) = &mut self.videos {
-            for (title, detail) in videos.poll() {
-                self.announce(&title, &detail);
-            }
+        let notes = self.videos.as_mut().map(|videos| videos.poll()).unwrap_or_default();
+        let saved = notes.iter().any(|(title, _)| title == "Saved");
+        for (title, detail) in notes {
+            self.announce(&title, &detail);
+        }
+        if saved {
+            self.reload_tapes();
         }
         if self.banner.is_none() && self.banners.front().is_some_and(ready) {
             if let Some((title, detail, badge, _)) = self.banners.pop_front() {
@@ -3748,6 +3969,12 @@ impl App {
                         self.shelf()
                             .draw_row(Some(stem), 0.0, CORE_PICKER_RECEDE * open, dim, out);
                         draw_empty_slot(out);
+                    }
+                    _ if self.video_focus => {
+                        slot_ui::draw_title_card(self.title_card, slot_ui::tape_foot(), self.title_card_alpha(), out);
+                        self.draw_tapes(out);
+                        draw_empty_slot(out);
+                        draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                     _ => {
                         if let Some(foot) = self.shelf().selected_foot() {

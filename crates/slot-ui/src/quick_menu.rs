@@ -93,10 +93,11 @@ pub enum QuickRow {
     UpdateCheck,
     Companion,
     Videos,
+    ShowVideos,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 80] = [
+    pub const ALL: [QuickRow; 81] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -177,6 +178,7 @@ impl QuickRow {
         QuickRow::UpdateCheck,
         QuickRow::Companion,
         QuickRow::Videos,
+        QuickRow::ShowVideos,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -218,9 +220,17 @@ impl QuickRow {
     /// Library: how the shelves are ordered, whether they hold only the favorites, which
     /// systems have a shelf, and what is printed around them.
     pub const LIBRARY: [QuickRow; 5] = [QuickRow::LibrarySort, QuickRow::LibraryShow, QuickRow::LibrarySystems, QuickRow::LibraryTitleCard, QuickRow::LibraryPlayTime];
-    /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
-    pub const SYSTEMS: [QuickRow; 6] =
-        [QuickRow::ShowGba, QuickRow::ShowGb, QuickRow::ShowGbc, QuickRow::ShowNes, QuickRow::ShowSnes, QuickRow::ShowPs1];
+    /// Library → Systems: each system's shelf shown or hidden, in the shelves' order,
+    /// then the Videos shelf.
+    pub const SYSTEMS: [QuickRow; 7] = [
+        QuickRow::ShowGba,
+        QuickRow::ShowGb,
+        QuickRow::ShowGbc,
+        QuickRow::ShowNes,
+        QuickRow::ShowSnes,
+        QuickRow::ShowPs1,
+        QuickRow::ShowVideos,
+    ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
 
@@ -339,7 +349,8 @@ impl QuickRow {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => &QuickRow::SYSTEMS,
+            | QuickRow::ShowPs1
+            | QuickRow::ShowVideos => &QuickRow::SYSTEMS,
             QuickRow::SoundVolume
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
@@ -446,6 +457,7 @@ impl QuickRow {
             QuickRow::ShowNes => "NES",
             QuickRow::ShowSnes => "SNES",
             QuickRow::ShowPs1 => "PlayStation",
+            QuickRow::ShowVideos => "Videos",
             QuickRow::ResetSettings => "Reset Settings",
             QuickRow::AboutVersion => "Version",
             QuickRow::AboutBuild => "Build",
