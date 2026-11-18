@@ -29,6 +29,7 @@ pub enum Mood {
     Sleepy,
     Curious,
     Celebrating,
+    Neutral,
 }
 
 impl Mood {
@@ -39,6 +40,7 @@ impl Mood {
             Mood::Sleepy => "Sleepy",
             Mood::Curious => "Curious",
             Mood::Celebrating => "Celebrating",
+            Mood::Neutral => "Neutral",
         }
     }
 }
@@ -89,7 +91,7 @@ impl MissionKind {
             MissionKind::Marathon => "Play one game for 20 minutes",
             MissionKind::Forgotten => "Play a game you haven't opened in a while",
             MissionKind::OneMore => "Play a game one more time",
-            MissionKind::Tourist => "Play 3 different systems today",
+            MissionKind::Tourist => "Play any game on one system",
             MissionKind::Weekend => "Play 4 different games this weekend",
         }
     }
@@ -215,7 +217,7 @@ impl Companion {
         atomic_write(&root.join(FILE), self.text().as_bytes())
     }
 
-    /// Each level asks for more than the one before: 100, then 200, then 300.
+    /// Each level asks for more than the one before: 100, then 150, then 200.
     pub fn level(&self) -> u32 {
         let mut left = self.xp;
         let mut level = 1u32;
@@ -248,7 +250,7 @@ impl Companion {
     }
 
     fn cost_of(&self, level: u32) -> u32 {
-        LEVEL_XP.saturating_mul(level.max(1))
+        level.max(1).saturating_mul(50).saturating_add(50)
     }
 
     /// A short hello. The words are Slot's own.
@@ -270,8 +272,8 @@ impl Companion {
             return Mood::Celebrating;
         }
         let last = self.sessions.iter().map(|s| s.day).max().unwrap_or(0);
-        if last > 0 && day > last + 2 {
-            return Mood::Sleepy;
+        if last > 0 && day >= last + 3 {
+            return Mood::Neutral;
         }
         if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() {
             return Mood::Curious;
@@ -490,19 +492,32 @@ impl Companion {
                 MissionKind::TryNew
                 | MissionKind::HiddenGem
                 | MissionKind::Forgotten
-                | MissionKind::OneMore => {
-                    if mission.platform == Some(platform) && mission.stem == stem {
-                        mission.progress = 1;
-                    }
-                }
-                MissionKind::Marathon => {
-                    if mission.platform == Some(platform) && mission.stem == stem {
-                        mission.progress = mission
-                            .progress
-                            .saturating_add(secs.min(u32::MAX as u64) as u32);
+                | MissionKind::OneMore
+                | MissionKind::Marathon => {
+                    let hit = if mission.stem.is_empty() {
+                        mission.platform == Some(platform)
+                    } else {
+                        mission.platform == Some(platform) && mission.stem == stem
+                    };
+                    if hit {
+                        if mission.need >= 60 {
+                            mission.progress = mission
+                                .progress
+                                .saturating_add(secs.min(u32::MAX as u64) as u32);
+                        } else {
+                            mission.progress = 1;
+                        }
                     }
                 }
                 MissionKind::Tourist => {
+                    if mission.need >= 60 {
+                        if mission.platform == Some(platform) {
+                            mission.progress = mission
+                                .progress
+                                .saturating_add(secs.min(u32::MAX as u64) as u32);
+                        }
+                        continue;
+                    }
                     let tag = platform.dir_name();
                     if !mission.extra.split(',').any(|s| s == tag) {
                         if !mission.extra.is_empty() {
@@ -636,6 +651,31 @@ impl Companion {
         self.fill_slot(3, &unplayed, &played, pick.copied(), &mission)
     }
 
+    /// Turn the mission just added into a timed one. Reward is minutes times `per_minute`.
+    fn time_the_last(&mut self, per_minute: u32) {
+        let seed = self.next_id.max(1);
+        let mins = match per_minute {
+            8 => 10 + seed % 15,
+            5 => {
+                let rare = self
+                    .missions
+                    .last()
+                    .is_some_and(|m| m.kind == MissionKind::Forgotten);
+                if rare {
+                    5 + seed % 10
+                } else {
+                    10 + seed % 15
+                }
+            }
+            _ => 5 + seed % 15,
+        };
+        if let Some(mission) = self.missions.last_mut() {
+            mission.need = mins * 60;
+            mission.xp = mins * per_minute;
+            mission.detail = format!("About {mins} minutes");
+        }
+    }
+
     fn wants(&self, kind: MissionKind) -> bool {
         self.categories.contains(&kind) && !self.missions.iter().any(|m| !m.done && m.kind == kind)
     }
@@ -663,6 +703,7 @@ impl Companion {
                         Some(game),
                         1,
                     ));
+                    self.time_the_last(5);
                     return true;
                 }
             }
@@ -675,6 +716,7 @@ impl Companion {
                         Some(game),
                         1,
                     ));
+                    self.time_the_last(5);
                     return true;
                 }
             }
@@ -688,20 +730,31 @@ impl Companion {
                         Some(game),
                         20 * 60,
                     ));
+                    self.time_the_last(5);
                     return true;
                 }
             }
             return false;
         }
         if slot == 1 && self.wants(MissionKind::Tourist) {
-            self.missions.push(mission(
-                MissionKind::Tourist,
-                MissionKind::Tourist.plain(),
-                "Play three different systems",
-                None,
-                3,
-            ));
-            return true;
+            let pool: Vec<&GameSeen> = played.iter().chain(unplayed.iter()).copied().collect();
+            if let Some(game) = pool
+                .get((self.next_id as usize) % pool.len().max(1))
+                .copied()
+            {
+                if !pool.is_empty() {
+                    self.missions.push(mission(
+                        MissionKind::Tourist,
+                        MissionKind::Tourist.plain(),
+                        &format!("Any game on {}", game.platform.name()),
+                        Some(game),
+                        3,
+                    ));
+                    self.missions.last_mut().map(|m| m.stem.clear());
+                    self.time_the_last(6);
+                    return true;
+                }
+            }
         }
         if slot == 2 {
             if self.wants(MissionKind::TryNew) {
@@ -713,6 +766,7 @@ impl Companion {
                         Some(game),
                         1,
                     ));
+                    self.time_the_last(7);
                     return true;
                 }
             }
@@ -726,6 +780,7 @@ impl Companion {
                         Some(game),
                         1,
                     ));
+                    self.time_the_last(8);
                     return true;
                 }
             }
@@ -1055,13 +1110,13 @@ mod tests {
         pip.xp = 100;
         assert_eq!(
             (pip.level(), pip.toward_next(), pip.next_cost()),
-            (2, 0, 200)
+            (2, 0, 150)
         );
         pip.xp = 140;
         assert_eq!(pip.toward_next(), 40);
-        pip.xp = 300;
+        pip.xp = 250;
         assert_eq!(pip.level(), 3);
-        assert_eq!(pip.next_cost(), 300);
+        assert_eq!(pip.next_cost(), 200);
     }
 
     #[test]
@@ -1071,12 +1126,14 @@ mod tests {
         pip.categories = vec![MissionKind::TryNew];
         pip.ensure_missions(&games, 100);
         let target = pip.active().next().unwrap().stem.clone();
-        let awards = pip.note_play(Platform::Gba, &target, 5, 100, &games);
+        let need = pip.active().next().unwrap().need as u64;
+        let reward = pip.active().next().unwrap().xp;
+        let awards = pip.note_play(Platform::Gba, &target, need.max(5), 100, &games);
         assert!(awards.iter().any(|a| a.xp == XP_FIRST));
         assert!(awards.iter().any(|a| a.title == "Mission"));
         let again = pip.note_play(Platform::Gba, &target, 5, 100, &games);
         assert!(again.iter().all(|a| a.title != "First launch"));
-        assert_eq!(pip.xp, XP_FIRST + XP_SHORT);
+        assert_eq!(pip.xp, XP_FIRST + reward);
     }
 
     #[test]

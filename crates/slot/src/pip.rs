@@ -221,17 +221,20 @@ impl PipMenu {
             if row == self.row {
                 sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
-            let name = if mission.stem.is_empty() {
-                mission.kind.plain().to_string()
-            } else {
+            let name = if !mission.stem.is_empty() {
                 format!("{} · {}", mission.kind.plain(), mission.stem)
+            } else if let Some(platform) = mission.platform {
+                format!("{} · {}", mission.kind.plain(), platform.name())
+            } else {
+                mission.kind.plain().to_string()
+            };
+            let (done, goal) = if mission.need >= 60 {
+                (mission.progress.min(mission.need) / 60, mission.need / 60)
+            } else {
+                (mission.progress.min(mission.need), mission.need)
             };
             sheet.text(
-                &format!(
-                    "{name}  {}/{}",
-                    mission.progress.min(mission.need),
-                    mission.need
-                ),
+                &format!("{name}  {done}/{goal}"),
                 16,
                 y,
                 w,
@@ -438,6 +441,9 @@ fn sprite(mood: Mood, blink: bool) -> Vec<u8> {
                 color = ink;
             }
             if mood == Mood::Curious && (14..18).contains(&x) && y == 23 {
+                color = ink;
+            }
+            if mood == Mood::Neutral && (12..20).contains(&x) && y == 23 {
                 color = ink;
             }
             if matches!(mood, Mood::Excited | Mood::Celebrating)
