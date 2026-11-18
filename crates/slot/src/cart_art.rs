@@ -980,6 +980,7 @@ fn request(origin: &str, path: &str, limit: usize) -> Result<Reply, String> {
         path,
         form: None,
         json: None,
+        agent: None,
         limit,
     })?;
     reply_of(&reply, origin)

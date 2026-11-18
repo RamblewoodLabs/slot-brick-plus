@@ -26,6 +26,8 @@ pub struct Request<'a> {
     pub form: Option<&'a str>,
     /// A JSON body, for POST. Used only when `form` is absent.
     pub json: Option<&'a str>,
+    /// Replaces Slot's own name on this request.
+    pub agent: Option<&'a str>,
     /// The most body accepted.
     pub limit: usize,
 }
@@ -83,7 +85,7 @@ pub fn send(req: &Request) -> Result<Response, String> {
         "{} {} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {}\r\nConnection: close\r\n",
         req.method,
         req.path,
-        user_agent()
+        req.agent.unwrap_or(&user_agent())
     );
     if let Some(form) = req.form {
         text.push_str(&format!(
@@ -139,10 +141,14 @@ pub struct Body {
 /// GET `url`, following redirects (a GitHub download is one, to its file server), with the
 /// body left to be read as it arrives rather than held in memory. Only a 200 is a body.
 pub fn get_stream(url: &str) -> Result<Body, String> {
+    get_stream_as(url, None)
+}
+
+fn get_stream_as(url: &str, agent: Option<&str>) -> Result<Body, String> {
     let mut url = url.to_string();
     for _ in 0..5 {
         let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
-        let (status, head, reader) = open_get(tls, &server, &path)?;
+        let (status, head, reader) = open_get(tls, &server, &path, agent)?;
         let reply = Response { status, head, body: Vec::new() };
         match status {
             200 => {
@@ -162,9 +168,19 @@ pub fn get_stream(url: &str) -> Result<Body, String> {
     Err("too many redirects".into())
 }
 
+/// A browser's name. YouTube's pages answer this; they often refuse Slot's own name.
+pub const BROWSER: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 /// GET `url` whole, following redirects; at most `limit` bytes.
+
 pub fn get(url: &str, limit: usize) -> Result<Vec<u8>, String> {
-    let body = get_stream(url)?;
+    get_as(url, limit, None)
+}
+
+/// GET `url` whole, saying `agent` instead of Slot's own name.
+pub fn get_as(url: &str, limit: usize, agent: Option<&str>) -> Result<Vec<u8>, String> {
+    let body = get_stream_as(url, agent)?;
     if body.len.is_some_and(|n| n > limit as u64) {
         return Err("reply too large".into());
     }
@@ -185,7 +201,12 @@ pub fn get(url: &str, limit: usize) -> Result<Vec<u8>, String> {
 
 /// Sends a GET and reads up to the end of its headers: the status, the headers, and the
 /// connection, at the body's first byte.
-fn open_get(tls: bool, server: &str, path: &str) -> Result<(u16, String, Box<dyn Read + Send>), String> {
+fn open_get(
+    tls: bool,
+    server: &str,
+    path: &str,
+    agent: Option<&str>,
+) -> Result<(u16, String, Box<dyn Read + Send>), String> {
     let host = host_of(server);
     if !(plain(server) && plain(path) && path.starts_with('/')) {
         return Err("bad request address".into());
@@ -193,7 +214,7 @@ fn open_get(tls: bool, server: &str, path: &str) -> Result<(u16, String, Box<dyn
     let tcp = dial(server)?;
     let text = format!(
         "GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {}\r\nConnection: close\r\n\r\n",
-        user_agent()
+        agent.unwrap_or(&user_agent())
     );
     let mut stream: Box<dyn Read + Send> = if tls {
         let name = rustls::pki_types::ServerName::try_from(host.to_string())
@@ -339,14 +360,14 @@ mod tests {
     #[test]
     fn a_request_line_cannot_carry_extra_headers() {
         for (server, path) in [("h:80", "/a\r\nX: y"), ("h:80", "/a b"), ("h\r\n:80", "/"), ("h:80", "a")] {
-            let req = Request { tls: false, server, method: "GET", path, form: None, json: None, limit: 1 };
+            let req = Request { tls: false, server, method: "GET", path, form: None, json: None, agent: None, limit: 1 };
             assert_eq!(send(&req).err().as_deref(), Some("bad request address"), "{path:?}");
         }
     }
 
     #[test]
     fn only_an_unreachable_server_counts_as_unreachable() {
-        let req = |server| Request { tls: false, server, method: "GET", path: "/", form: None, json: None, limit: 1 };
+        let req = |server| Request { tls: false, server, method: "GET", path: "/", form: None, json: None, agent: None, limit: 1 };
         assert!(unreachable(&send(&req("127.0.0.1:1")).err().unwrap()));
         assert!(unreachable(&send(&req("no-such-host.invalid:80")).err().unwrap()));
         assert!(!unreachable("server said 403") && !unreachable("reply too large"));
@@ -372,6 +393,7 @@ mod tests {
             path: "/dorequest.php",
             form: Some("r=login2"),
             json: None,
+            agent: None,
             limit: 1 << 16,
         })
         .unwrap();
