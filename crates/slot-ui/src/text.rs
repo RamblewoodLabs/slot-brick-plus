@@ -239,7 +239,11 @@ fn stamp(dst: &mut [u8], dst_w: u32, dst_h: u32, x: i32, y: i32, cov: &[u8], gw:
                 continue;
             }
             let i = (dy as u32 * dst_w + dx as u32) as usize;
-            dst[i] = dst[i].max(cov[(gy * gw + gx) as usize]);
+            let ci = (gy * gw + gx) as usize;
+            if i >= dst.len() || ci >= cov.len() {
+                continue;
+            }
+            dst[i] = dst[i].max(cov[ci]);
         }
     }
 }

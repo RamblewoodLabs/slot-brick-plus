@@ -189,16 +189,20 @@ pub fn media_for(video_id: &str) -> Result<Media, String> {
             Err(e) => errors.push(format!("{base}: {e}")),
         }
     }
-    match innertube("player", &player_body(video_id)) {
-        Ok(body) => match parse_innertube_player(&body) {
-            Some(media) => return Ok(media),
-            None => errors.push(
-                player_failure(&body).unwrap_or_else(|| {
-                    "YouTube sent no direct 360p address. It often hides those behind a signature this player cannot make.".into()
-                }),
-            ),
-        },
-        Err(e) => errors.push(format!("YouTube's player: {e}")),
+    // IOS and ANDROID_VR still hand out progressive MP4 itags 18 and 22 with a
+    // direct url. ANDROID often only offers a signature, which we do not decipher.
+    for (client, body) in player_clients(video_id) {
+        match innertube("player", &body) {
+            Ok(body) => match progressive_mp4(&body).or_else(|| parse_innertube_player(&body)) {
+                Some(media) => return Ok(media),
+                None => errors.push(
+                    player_failure(&body).unwrap_or_else(|| {
+                        format!("{client} sent no direct MP4 address")
+                    }),
+                ),
+            },
+            Err(e) => errors.push(format!("{client}: {e}")),
+        }
     }
     let watch = format!("https://www.youtube.com/watch?v={video_id}");
     match get_text(&watch, 2 << 20) {
@@ -268,11 +272,73 @@ fn browse_body(channel_id: &str) -> String {
     )
 }
 
-fn player_body(video_id: &str) -> String {
-    format!(
-        r#"{{"context":{{"client":{{"clientName":"ANDROID","clientVersion":"19.17.34","androidSdkVersion":30,"hl":"en","gl":"US"}}}},"videoId":"{}","contentCheckOk":true,"racyCheckOk":true}}"#,
-        json_escape(video_id)
-    )
+fn player_clients(video_id: &str) -> Vec<(&'static str, String)> {
+    let id = json_escape(video_id);
+    vec![
+        (
+            "IOS",
+            format!(
+                r#"{{"context":{{"client":{{"clientName":"IOS","clientVersion":"19.45.4","deviceMake":"Apple","deviceModel":"iPhone16,2","hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
+            ),
+        ),
+        (
+            "ANDROID_VR",
+            format!(
+                r#"{{"context":{{"client":{{"clientName":"ANDROID_VR","clientVersion":"1.60.19","deviceMake":"Oculus","deviceModel":"Quest 3","androidSdkVersion":32,"hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
+            ),
+        ),
+        (
+            "ANDROID",
+            format!(
+                r#"{{"context":{{"client":{{"clientName":"ANDROID","clientVersion":"19.17.34","androidSdkVersion":30,"hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
+            ),
+        ),
+    ]
+}
+
+/// A direct progressive MP4 (itag 18, else 22) from a player response. Signature
+/// ciphers are left alone: this scan only accepts a `"url"` field.
+pub fn progressive_mp4(body: &str) -> Option<Media> {
+    let text = body
+        .replace("\\u0026", "&")
+        .replace("\\u002F", "/")
+        .replace("\\/", "/");
+    let mut itag18 = None;
+    let mut itag22 = None;
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("\"url\"") {
+        rest = &rest[at + 5..];
+        let Some(colon) = rest.find(':') else {
+            break;
+        };
+        let val = rest[colon + 1..].trim_start();
+        if !val.starts_with('"') {
+            continue;
+        }
+        let val = &val[1..];
+        let end = val.find('"').unwrap_or(val.len());
+        let url = &val[..end];
+        rest = &val[end..];
+        if !url.contains("googlevideo.com/videoplayback") {
+            continue;
+        }
+        if url.contains("itag=18") {
+            itag18 = Some(url.to_string());
+        } else if url.contains("itag=22") && itag22.is_none() {
+            itag22 = Some(url.to_string());
+        }
+    }
+    let (height, video_url) = if let Some(url) = itag18 {
+        (360, url)
+    } else {
+        (720, itag22?)
+    };
+    Some(Media {
+        video_url,
+        audio_url: None,
+        height,
+        muxed: true,
+    })
 }
 
 pub fn parse_piped_search(body: &str) -> Vec<Channel> {
@@ -1362,6 +1428,23 @@ mod tests {
         .unwrap();
         assert!(media.muxed && media.height == 360);
         assert!(media.video_url.ends_with("360.mp4"));
+    }
+
+    #[test]
+    fn a_direct_itag_18_is_kept_and_a_cipher_is_not() {
+        let media = progressive_mp4(
+            r#"{"streamingData":{"formats":[{"itag":22,"signatureCipher":"s=abc\u0026url=https%3A%2F%2Frr.googlevideo.com%2Fvideoplayback%3Fitag%3D22"},{"itag":18,"url":"https://rr.googlevideo.com/videoplayback?itag=18\u0026id=1"},{"itag":22,"url":"https://rr.googlevideo.com/videoplayback?itag=22\u0026id=2"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(media.height, 360);
+        assert!(media.muxed);
+        assert!(media.video_url.contains("itag=18"));
+        assert!(media.audio_url.is_none());
+        let only22 = progressive_mp4(
+            r#"{"formats":[{"itag":22,"url":"https://rr.googlevideo.com/videoplayback?itag=22&id=2"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(only22.height, 720);
     }
 
     #[test]

@@ -10,6 +10,29 @@ const SIGNALS: [(i32, &str); 5] = [
 ];
 
 pub fn install() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".into());
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .map(str::to_string)
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".into());
+        let text = format!(
+            "panic at {loc}: {msg}\n{}\n",
+            std::backtrace::Backtrace::force_capture()
+        );
+        let root = std::env::var_os("SLOT_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("/mnt/SDCARD/Slot"));
+        crate::videos::log_line(&root, &text);
+        previous(info);
+    }));
     for (sig, _) in SIGNALS {
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();

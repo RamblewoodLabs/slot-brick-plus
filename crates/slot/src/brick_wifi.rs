@@ -724,9 +724,10 @@ struct Painter{rgba:Vec<u8>}
 impl Painter{
     fn new()->Self{let mut s=Self{rgba:vec![0;640*480*4]};s.rect(0,0,640,480,slot_ui::opening());s}
     fn rect(&mut self,x:usize,y:usize,w:usize,h:usize,c:[f32;4]){let c=c.map(|v|(v*255.0)as u8);for yy in y..(y+h).min(480){for xx in x..(x+w).min(640){self.rgba[(yy*640+xx)*4..(yy*640+xx)*4+4].copy_from_slice(&c)}}}
-    fn text(&mut self,s:&str,x:usize,y:usize,w:usize,px:f32){let Some(font)=slot_ui::text::label_font()else{return};let mut s=s.to_string();while slot_ui::text::line_width(font,&s,px,0.0)>w as f32 && !s.is_empty(){s.pop();}
-        let h=40;let mut face=vec![0;w*h*4];let layout=slot_ui::text::Layout{lines:vec![s],px,tracking:0.0};slot_ui::text::draw_centred(&mut face,w as u32,h as u32,&layout,[238,238,242]);
-        for yy in 0..h.min(480-y){for xx in 0..w.min(640-x){let a=(yy*w+xx)*4;let b=((y+yy)*640+x+xx)*4;let alpha=face[a+3]as u32;for ch in 0..3{self.rgba[b+ch]=((face[a+ch]as u32*alpha+self.rgba[b+ch]as u32*(255-alpha))/255)as u8;}}}
+    fn text(&mut self,s:&str,x:usize,y:usize,w:usize,px:f32){let Some(font)=slot_ui::text::label_font()else{return};if y>=480||x>=640||w==0{return}let mut s=s.to_string();while slot_ui::text::line_width(font,&s,px,0.0)>w as f32 && s.chars().count()>1{s.pop();}
+        let h=40usize;let mut face=vec![0;w.saturating_mul(h).saturating_mul(4)];let layout=slot_ui::text::Layout{lines:vec![s],px,tracking:0.0};slot_ui::text::draw_centred(&mut face,w as u32,h as u32,&layout,[238,238,242]);
+        let rows=h.min(480usize.saturating_sub(y));let cols=w.min(640usize.saturating_sub(x));
+        for yy in 0..rows{for xx in 0..cols{let a=(yy*w+xx)*4;let b=((y+yy)*640+x+xx)*4;if a+3>=face.len()||b+3>=self.rgba.len(){continue}let alpha=face[a+3]as u32;for ch in 0..3{self.rgba[b+ch]=((face[a+ch]as u32*alpha+self.rgba[b+ch]as u32*(255-alpha))/255)as u8;}}}
     }
 }
 #[cfg(test)]mod tests{

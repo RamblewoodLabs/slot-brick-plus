@@ -152,7 +152,12 @@ impl Scroll {
         for y in 0..h {
             let from = ((y * w + pad + at) * 4) as usize;
             let to = ((y * room + pad) * 4) as usize;
-            out[to..to + (ink * 4) as usize].copy_from_slice(&self.whole.rgba[from..from + (ink * 4) as usize]);
+            let want = (ink * 4) as usize;
+            let src_end = from.saturating_add(want).min(self.whole.rgba.len());
+            let n = src_end.saturating_sub(from).min(out.len().saturating_sub(to));
+            if n > 0 {
+                out[to..to + n].copy_from_slice(&self.whole.rgba[from..from + n]);
+            }
         }
         const FADE: u32 = 14;
         for x in 0..FADE.min(ink) {
