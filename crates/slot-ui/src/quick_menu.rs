@@ -91,10 +91,12 @@ pub enum QuickRow {
     SoundLabel,
     SoundVolume,
     UpdateCheck,
+    Companion,
+    Videos,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 78] = [
+    pub const ALL: [QuickRow; 80] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -173,15 +175,17 @@ impl QuickRow {
         QuickRow::SoundLabel,
         QuickRow::SoundVolume,
         QuickRow::UpdateCheck,
+        QuickRow::Companion,
+        QuickRow::Videos,
     ];
 
     #[cfg(not(feature = "brick"))]
-    pub const MAIN: [QuickRow; 4] = [QuickRow::Screen, QuickRow::Game, QuickRow::Library, QuickRow::System];
+    pub const MAIN: [QuickRow; 6] = [QuickRow::Screen, QuickRow::Game, QuickRow::Library, QuickRow::Companion, QuickRow::Videos, QuickRow::System];
     #[cfg(not(feature = "brick"))]
     pub const SYSTEM: [QuickRow; 7] = [QuickRow::DateTime, QuickRow::Font, QuickRow::Rumble, QuickRow::SystemSounds, QuickRow::BatteryShutdown, QuickRow::ResetSettings, QuickRow::About];
 
     #[cfg(feature = "brick")]
-    pub const MAIN: [QuickRow; 5] = [QuickRow::Screen,QuickRow::Game,QuickRow::Library,QuickRow::Online,QuickRow::System];
+    pub const MAIN: [QuickRow; 7] = [QuickRow::Screen,QuickRow::Game,QuickRow::Library,QuickRow::Companion,QuickRow::Videos,QuickRow::Online,QuickRow::System];
     /// System: the Brick's lights, its clock, the font, rumble, Slot's sounds, the battery,
     /// asking GitHub for a newer Slot, every setting back to how it came, and what Slot is.
     #[cfg(feature = "brick")]
@@ -419,6 +423,8 @@ impl QuickRow {
             QuickRow::Saving => "Saving",
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
+            QuickRow::Companion => "Companion",
+            QuickRow::Videos => "Videos",
             QuickRow::Font => "Font",
             QuickRow::Lights => "LEDs",
             QuickRow::LedMode => "All LEDs",
@@ -485,7 +491,7 @@ impl QuickRow {
     pub fn opens(self) -> bool {
         matches!(
             self,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game | QuickRow::Lights | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library
+            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game | QuickRow::Lights | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::Companion | QuickRow::Videos
                 | QuickRow::LibrarySystems | QuickRow::ResetSettings | QuickRow::AboutLabel | QuickRow::SystemSounds
                 | QuickRow::Online | QuickRow::Clock | QuickRow::Saving
                 | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1

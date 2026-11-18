@@ -979,6 +979,7 @@ fn request(origin: &str, path: &str, limit: usize) -> Result<Reply, String> {
         method: "GET",
         path,
         form: None,
+        json: None,
         limit,
     })?;
     reply_of(&reply, origin)

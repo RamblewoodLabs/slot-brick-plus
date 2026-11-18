@@ -1,6 +1,7 @@
 pub mod archive;
 mod atomic;
 pub mod cart_shell;
+mod companion;
 mod config;
 mod core;
 pub mod gb;
@@ -28,6 +29,7 @@ pub use core::{
 pub use gb_palette::GbPalette;
 pub use gba::{header_clean, header_code, header_title, header_title_code};
 pub use overlay::{overlay_name_ok, overlays, overlays_dir, step_overlay, OVERLAYS_DIR};
+pub use companion::{Companion, GameSeen, Mission, MissionKind, Mood, FILE as COMPANION_FILE};
 pub use library::{arrange, played_text, GameRecord, Library, LibrarySort, LIBRARY_FILE};
 pub use platform::Platform;
 pub use ring::{StateEntry, StateRing, RING_MAX};

@@ -44,8 +44,9 @@ doesn't flash anything to the device.
 | Hold `A`         | Start the game fresh                    |
 | `START`          | Cart colour, finish, shape and label (GBA: and core) |
 | `Y`              | Favorite: a star on the cart, or off again |
+| `X`              | Companion: Pip suggests a game. A starts it, X picks another |
 | `SELECT`         | Sort: A–Z, last played, most played     |
-| `HOME`           | Menu (Emulation, Gameplay, Library, Online: Wi-Fi, Cart Art, RetroAchievements, Update, and System: LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
+| `HOME`           | Menu (Emulation, Gameplay, Library, Companion, Videos, Online: Wi-Fi, Cart Art, RetroAchievements, Update, and System: LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
 
 ### In game
 

@@ -69,6 +69,7 @@ fn fetch(url: &str, path: &Path) -> Result<(), String> {
         method: "GET",
         path: &tail,
         form: None,
+        json: None,
         limit: BADGE_MAX,
     })?;
     if reply.status != 200 {

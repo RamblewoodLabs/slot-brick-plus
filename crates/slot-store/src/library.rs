@@ -105,6 +105,11 @@ impl Library {
     pub fn any_favorite(&self, carts: &[Cart]) -> bool {
         carts.iter().any(|c| self.get(c.platform, &c.stem).favorite)
     }
+
+    /// Every game the library remembers.
+    pub fn records(&self) -> impl Iterator<Item = (Platform, &str, GameRecord)> + '_ {
+        self.games.iter().map(|((platform, stem), record)| (*platform, stem.as_str(), *record))
+    }
 }
 
 /// `carts`, in A–Z order (as `scan` gives them), put in `sort`'s order, and only the favorites
