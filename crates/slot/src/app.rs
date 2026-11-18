@@ -1076,9 +1076,21 @@ impl App {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let text = self.companion.text();
+        let games = self.games_seen();
+        let favs: Vec<(slot_store::Platform, String)> = self
+            .library
+            .records()
+            .filter(|(_, _, record)| record.favorite)
+            .map(|(platform, stem, _)| (platform, stem.to_string()))
+            .collect();
+        let fav_refs: Vec<(slot_store::Platform, &str)> = favs
+            .iter()
+            .map(|(platform, stem)| (*platform, stem.as_str()))
+            .collect();
+        self.companion.stamp(self.local_day(), &games, &fav_refs);
+        let pip = self.companion.clone();
         let _ = std::thread::Builder::new().name("slot-pip".into()).spawn(move || {
-            if let Err(e) = slot_store::atomic_write(&root.join(slot_store::COMPANION_FILE), text.as_bytes()) {
+            if let Err(e) = pip.write(&root) {
                 eprintln!("slot: companion: {e}");
             }
         });

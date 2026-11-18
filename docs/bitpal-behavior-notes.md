@@ -4,7 +4,48 @@ These notes describe how the companion in PakUI behaves, rewritten from reading 
 
 ## What it stores
 
-A small text record holds the companion's level, the XP sitting inside the current level, how much XP the next level costs, a mood name, the last time the screen was opened, and how many missions have been finished. Each active mission is its own one-line record: a description, a game or system, a kind, a length in minutes, an XP reward, when it was accepted, the game file it points at, and how many seconds have been counted so far. Finished missions are appended to a history list. Up to five missions can be active at once. A separate session file remembers a game that was still running if the machine stopped, so the next open can add that time.
+The companion record itself is one text file:
+
+| Field | Meaning |
+| --- | --- |
+| name | Display name |
+| level | Current level |
+| xp | XP still inside this level, not the lifetime total |
+| xp_next | XP required to reach the next level |
+| mood | happy, excited, neutral, sad, angry, or surprised |
+| last_visit | Unix time the screen was last opened |
+| missions_completed | How many missions have ever been finished |
+
+Each active mission is a separate file, one slot, up to five. A line holds: the sentence shown to the player, a short game name, the kind of mission, the length in minutes, the XP reward, the unix time it was accepted, the game path, and the seconds counted so far. A marker file beside it means the mission already reached its time and should be paid on the next open.
+
+Finished missions go in one append-only list. Each line is the sentence, the unix time it started, the unix time it finished, and the XP paid.
+
+A session file holds the game path and the seconds of a launch that never got a clean ending. A one-line file holds the length of the latest finished launch.
+
+The play log, shared with the time tracker, is one row per game: a label, the game path, the system, how many times it was launched, the total seconds, a short time string, a marker that it is a launch row, and the unix time of the last session. Rows are kept sorted by total time.
+
+A streak file holds the last day played, the current run of days, the longest run, how many days have had play, and the day the current run started.
+
+Those files are rewritten in place. A power loss in the middle of a rewrite can leave a partial file, and there is no second copy.
+
+## What Slot stores
+
+Slot keeps one versioned file, `Config/companion.txt`, plus `Config/companion.txt.bak`. The header is `slot-companion 2`. A checksum line rejects a torn or edited file. A good file is copied to the backup before the next save. The save itself is a new temp file, flushed, then renamed, and the folder is flushed too. If the main file fails the checksum, the backup is read and written back. A version 1 file is still accepted and saved as version 2.
+
+The file holds every fact above, and more:
+
+| Record | Fields |
+| --- | --- |
+| Companion | switches, lifetime XP, next mission id, mood, last visit day, missions finished |
+| Per game | system, name, launch count, total seconds, last day, last session length, favorite |
+| Per system | launch count, total seconds, last day, how many games have time |
+| Streak | last day, current run, longest run, days with play, day the run started |
+| Session | system, game, seconds, day, including one left open by a crash |
+| Mission | id, kind, words, system, game, seconds required, seconds counted, XP, done, extra |
+| History | words, day, XP, system, game. The list is trimmed; the finished count is not |
+| Also | first-play awards, systems the player turned off, the suggested game |
+
+Favorites and per-system totals are not separate files in the other project. Slot keeps them in this record so a crash cannot lose them independently of the play log.
 
 ## Missions
 

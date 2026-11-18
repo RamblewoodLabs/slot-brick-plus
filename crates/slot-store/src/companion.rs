@@ -134,6 +134,55 @@ pub struct Mission {
 pub struct DoneMission {
     pub title: String,
     pub day: i64,
+    /// The day the mission was finished. `day` is the same value, kept for older files.
+    pub finished: i64,
+    pub xp: u32,
+    pub platform: Option<Platform>,
+    pub stem: String,
+}
+
+/// One game's record: how often it was launched, how long it has been played, and the last session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameStat {
+    pub platform: Platform,
+    pub stem: String,
+    pub plays: u32,
+    pub secs: u64,
+    pub last_day: i64,
+    pub last_secs: u64,
+    pub favorite: bool,
+}
+
+/// Totals for one of Slot's systems.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemStat {
+    pub platform: Platform,
+    pub plays: u32,
+    pub secs: u64,
+    pub last_day: i64,
+    pub games: u32,
+}
+
+/// Days in a row with play, and the longest such run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Streak {
+    pub last_day: i64,
+    pub current: u32,
+    pub longest: u32,
+    pub total_days: u32,
+    pub start_day: i64,
+}
+
+impl Default for Streak {
+    fn default() -> Self {
+        Streak {
+            last_day: 0,
+            current: 0,
+            longest: 0,
+            total_days: 0,
+            start_day: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,6 +222,13 @@ pub struct Companion {
     pub missions: Vec<Mission>,
     pub history: Vec<DoneMission>,
     pub sessions: Vec<Session>,
+    pub games: Vec<GameStat>,
+    pub systems: Vec<SystemStat>,
+    pub streak: Streak,
+    /// How many missions have ever been finished, even after the history list is trimmed.
+    pub finished: u32,
+    pub last_visit: i64,
+    pub face: Mood,
     open: Option<OpenSession>,
     suggest: Option<(Platform, String)>,
     /// Set for a short while after a level-up so the screen can celebrate.
@@ -194,6 +250,12 @@ impl Default for Companion {
             missions: Vec::new(),
             history: Vec::new(),
             sessions: Vec::new(),
+            games: Vec::new(),
+            systems: Vec::new(),
+            streak: Streak::default(),
+            finished: 0,
+            last_visit: 0,
+            face: Mood::Happy,
             open: None,
             suggest: None,
             celebrating: false,
@@ -203,8 +265,26 @@ impl Default for Companion {
 
 impl Companion {
     pub fn read(root: &Path) -> Companion {
-        let text = std::fs::read_to_string(root.join(FILE)).unwrap_or_default();
-        let mut companion = Companion::parse(&text);
+        let path = root.join(FILE);
+        let bak = backup_path(&path);
+        let mut companion = if let Some(companion) = load_sound(&path) {
+            if !bak.is_file() {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    let _ = atomic_write(&bak, &bytes);
+                }
+            }
+            companion
+        } else if let Some(companion) = load_sound(&bak) {
+            let _ = companion.write(root);
+            companion
+        } else if let Some(companion) = load_legacy(&path) {
+            companion
+        } else if let Some(companion) = load_legacy(&bak) {
+            let _ = companion.write(root);
+            companion
+        } else {
+            Companion::default()
+        };
         // A session left open by a crash or a power loss keeps only the seconds already
         // counted. The gap until now is not play.
         if let Some(open) = companion.open.take() {
@@ -214,7 +294,47 @@ impl Companion {
     }
 
     pub fn write(&self, root: &Path) -> std::io::Result<()> {
-        atomic_write(&root.join(FILE), self.text().as_bytes())
+        let path = root.join(FILE);
+        let bak = backup_path(&path);
+        if let Ok(bytes) = std::fs::read(&path) {
+            if load_sound_bytes(&bytes).is_some() {
+                atomic_write(&bak, &bytes)?;
+            }
+        }
+        atomic_write(&path, self.text().as_bytes())
+    }
+
+    /// Remember the face for this day, and which games are favorites, before a save.
+    pub fn stamp(&mut self, day: i64, games: &[GameSeen], favorites: &[(Platform, &str)]) {
+        self.face = self.mood(day, games);
+        self.last_visit = day;
+        self.sync_favorites(favorites);
+    }
+
+    pub fn sync_favorites(&mut self, favorites: &[(Platform, &str)]) {
+        for game in &mut self.games {
+            game.favorite = favorites
+                .iter()
+                .any(|(platform, stem)| *platform == game.platform && *stem == game.stem);
+        }
+        for (platform, stem) in favorites {
+            if self
+                .games
+                .iter()
+                .any(|g| g.platform == *platform && g.stem == *stem)
+            {
+                continue;
+            }
+            self.games.push(GameStat {
+                platform: *platform,
+                stem: (*stem).to_string(),
+                plays: 0,
+                secs: 0,
+                last_day: 0,
+                last_secs: 0,
+                favorite: true,
+            });
+        }
     }
 
     /// Each level asks for more than the one before: 100, then 150, then 200.
@@ -331,6 +451,9 @@ impl Companion {
         self.advance(platform, stem, secs, day, &mut awards);
         self.ensure_missions(games, day);
         self.pick_suggestion(games, day);
+        self.note_streak(day);
+        self.face = self.mood(day, games);
+        self.last_visit = day;
         awards
     }
 
@@ -442,6 +565,7 @@ impl Companion {
             .open
             .as_ref()
             .is_some_and(|o| o.platform == platform && o.stem == stem);
+        self.record_play(platform, stem, secs, day, !same);
         if !same {
             if let Some(open) = self.open.take() {
                 self.push_session(open);
@@ -557,9 +681,14 @@ impl Companion {
             "Mission",
             &format!("{}  +{} XP", mission.title, mission.xp),
         );
+        self.finished = self.finished.saturating_add(1);
         self.history.push(DoneMission {
             title: mission.title.clone(),
             day,
+            finished: day,
+            xp: mission.xp,
+            platform: mission.platform,
+            stem: mission.stem.clone(),
         });
         if self.history.len() > 20 {
             let extra = self.history.len() - 20;
@@ -898,11 +1027,26 @@ impl Companion {
                     }
                 }
                 "done" => {
-                    if let Some((title, day)) = value.rsplit_once('\t') {
-                        companion.history.push(DoneMission {
-                            title: title.to_string(),
-                            day: day.parse().unwrap_or(0),
-                        });
+                    if let Some(done) = parse_done(value) {
+                        companion.history.push(done);
+                    }
+                }
+                "game" => {
+                    if let Some(game) = parse_game(value) {
+                        companion.games.push(game);
+                    }
+                }
+                "system" => {
+                    if let Some(system) = parse_system(value) {
+                        companion.systems.push(system);
+                    }
+                }
+                "streak" => companion.streak = parse_streak(value),
+                "finished" => companion.finished = value.parse().unwrap_or(0),
+                "last_visit" => companion.last_visit = value.parse().unwrap_or(0),
+                "mood" => {
+                    if let Some(mood) = parse_mood(value) {
+                        companion.face = mood;
                     }
                 }
                 _ => {}
@@ -915,7 +1059,7 @@ impl Companion {
     }
 
     pub fn text(&self) -> String {
-        let mut out = String::from("slot-companion 1\n");
+        let mut out = String::from("slot-companion 2\n");
         let flag = |on: bool| if on { "1" } else { "0" };
         out.push_str(&format!(
             "enabled={}\ntoasts={}\nsounds={}\nanimate={}\nxp={}\nnext_id={}\n",
@@ -981,10 +1125,255 @@ impl Companion {
             ));
         }
         for done in &self.history {
-            out.push_str(&format!("done={}\t{}\n", flat(&done.title), done.day));
+            out.push_str(&format!(
+                "done={}\t{}\t{}\t{}\t{}\t{}\n",
+                flat(&done.title),
+                done.day,
+                done.finished,
+                done.xp,
+                done.platform.map(|p| p.dir_name()).unwrap_or("-"),
+                flat(&done.stem)
+            ));
         }
+        for game in &self.games {
+            out.push_str(&format!(
+                "game={}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                game.platform.dir_name(),
+                flat(&game.stem),
+                game.plays,
+                game.secs,
+                game.last_day,
+                game.last_secs,
+                u8::from(game.favorite)
+            ));
+        }
+        for system in &self.systems {
+            out.push_str(&format!(
+                "system={}\t{}\t{}\t{}\t{}\n",
+                system.platform.dir_name(),
+                system.plays,
+                system.secs,
+                system.last_day,
+                system.games
+            ));
+        }
+        out.push_str(&format!(
+            "streak={}\t{}\t{}\t{}\t{}\n",
+            self.streak.last_day,
+            self.streak.current,
+            self.streak.longest,
+            self.streak.total_days,
+            self.streak.start_day
+        ));
+        out.push_str(&format!(
+            "finished={}\nlast_visit={}\nmood={}\n",
+            self.finished,
+            self.last_visit,
+            self.face.name()
+        ));
+        let sum = checksum(out.as_bytes());
+        out.push_str(&format!("sum={sum:016x}\n"));
         out
     }
+
+    fn record_play(
+        &mut self,
+        platform: Platform,
+        stem: &str,
+        secs: u64,
+        day: i64,
+        new_launch: bool,
+    ) {
+        if let Some(game) = self
+            .games
+            .iter_mut()
+            .find(|g| g.platform == platform && g.stem == stem)
+        {
+            if new_launch {
+                game.plays = game.plays.saturating_add(1);
+                game.last_secs = secs;
+            } else {
+                game.last_secs = game.last_secs.saturating_add(secs);
+            }
+            game.secs = game.secs.saturating_add(secs);
+            game.last_day = day;
+        } else {
+            self.games.push(GameStat {
+                platform,
+                stem: stem.to_string(),
+                plays: u32::from(new_launch),
+                secs,
+                last_day: day,
+                last_secs: secs,
+                favorite: false,
+            });
+        }
+        let games = self
+            .games
+            .iter()
+            .filter(|g| g.platform == platform && g.secs > 0)
+            .count() as u32;
+        if let Some(system) = self.systems.iter_mut().find(|s| s.platform == platform) {
+            if new_launch {
+                system.plays = system.plays.saturating_add(1);
+            }
+            system.secs = system.secs.saturating_add(secs);
+            system.last_day = day;
+            system.games = games;
+        } else {
+            self.systems.push(SystemStat {
+                platform,
+                plays: u32::from(new_launch),
+                secs,
+                last_day: day,
+                games,
+            });
+        }
+    }
+
+    fn note_streak(&mut self, day: i64) {
+        if self.streak.last_day == day {
+            return;
+        }
+        if self.streak.last_day == 0 {
+            self.streak.current = 1;
+            self.streak.start_day = day;
+        } else if day == self.streak.last_day + 1 {
+            self.streak.current = self.streak.current.saturating_add(1);
+        } else if day > self.streak.last_day {
+            self.streak.current = 1;
+            self.streak.start_day = day;
+        }
+        self.streak.longest = self.streak.longest.max(self.streak.current);
+        if day != self.streak.last_day {
+            self.streak.total_days = self.streak.total_days.saturating_add(1);
+        }
+        self.streak.last_day = day;
+    }
+}
+
+fn backup_path(path: &Path) -> std::path::PathBuf {
+    path.with_file_name("companion.txt.bak")
+}
+
+fn checksum(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn load_sound(path: &Path) -> Option<Companion> {
+    let bytes = std::fs::read(path).ok()?;
+    load_sound_bytes(&bytes)
+}
+
+fn load_sound_bytes(bytes: &[u8]) -> Option<Companion> {
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let mut body = String::new();
+    let mut sum = None;
+    for line in text.lines() {
+        if let Some(hex) = line.trim().strip_prefix("sum=") {
+            sum = u64::from_str_radix(hex.trim(), 16).ok();
+        } else {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    let sum = sum?;
+    if checksum(body.as_bytes()) != sum {
+        return None;
+    }
+    let header = body.lines().next()?.trim();
+    if header != "slot-companion 2" {
+        return None;
+    }
+    Some(Companion::parse(&body))
+}
+
+fn load_legacy(path: &Path) -> Option<Companion> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let header = text.lines().next()?.trim();
+    if header == "slot-companion 1" || header.starts_with("enabled=") {
+        Some(Companion::parse(&text))
+    } else {
+        None
+    }
+}
+
+fn parse_done(value: &str) -> Option<DoneMission> {
+    let mut f = value.split('\t');
+    let title = f.next()?.to_string();
+    let day = f.next()?.parse().ok()?;
+    let finished = f.next().and_then(|v| v.parse().ok()).unwrap_or(day);
+    let xp = f.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let platform = f.next().and_then(platform_named);
+    let stem = f.next().unwrap_or("").to_string();
+    Some(DoneMission {
+        title,
+        day,
+        finished,
+        xp,
+        platform,
+        stem,
+    })
+}
+
+fn parse_game(value: &str) -> Option<GameStat> {
+    let mut f = value.split('\t');
+    let platform = platform_named(f.next()?)?;
+    let stem = f.next()?.to_string();
+    let plays = f.next()?.parse().ok()?;
+    let secs = f.next()?.parse().ok()?;
+    let last_day = f.next()?.parse().ok()?;
+    let last_secs = f.next()?.parse().ok()?;
+    let favorite = f.next().unwrap_or("0") == "1";
+    Some(GameStat {
+        platform,
+        stem,
+        plays,
+        secs,
+        last_day,
+        last_secs,
+        favorite,
+    })
+}
+
+fn parse_system(value: &str) -> Option<SystemStat> {
+    let mut f = value.split('\t');
+    let platform = platform_named(f.next()?)?;
+    Some(SystemStat {
+        platform,
+        plays: f.next()?.parse().ok()?,
+        secs: f.next()?.parse().ok()?,
+        last_day: f.next()?.parse().ok()?,
+        games: f.next()?.parse().ok()?,
+    })
+}
+
+fn parse_streak(value: &str) -> Streak {
+    let mut f = value.split('\t');
+    Streak {
+        last_day: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        current: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        longest: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        total_days: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        start_day: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+    }
+}
+
+fn parse_mood(value: &str) -> Option<Mood> {
+    Some(match value {
+        "Happy" => Mood::Happy,
+        "Excited" => Mood::Excited,
+        "Sleepy" => Mood::Sleepy,
+        "Curious" => Mood::Curious,
+        "Celebrating" => Mood::Celebrating,
+        "Neutral" => Mood::Neutral,
+        _ => return None,
+    })
 }
 
 fn is_weekend(day: i64) -> bool {
@@ -1099,6 +1488,50 @@ mod tests {
         assert!(empty.active().all(|m| m.stem.is_empty()
             || m.kind == MissionKind::Tourist
             || m.kind == MissionKind::Weekend));
+    }
+
+    #[test]
+    fn a_version_one_file_migrates_and_a_torn_file_comes_back_from_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Config")).unwrap();
+        let old = "slot-companion 1\nenabled=1\ntoasts=1\nsounds=1\nanimate=1\nxp=40\nnext_id=3\ncats=try,marathon\n";
+        std::fs::write(dir.path().join(FILE), old).unwrap();
+        let pip = Companion::read(dir.path());
+        assert_eq!(pip.xp, 40);
+        assert!(pip.categories.contains(&MissionKind::TryNew));
+        pip.write(dir.path()).unwrap();
+        let saved = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
+        assert!(saved.starts_with("slot-companion 2\n"));
+        assert!(saved.lines().any(|line| line.starts_with("sum=")));
+        let again = Companion::read(dir.path());
+        assert_eq!(again.xp, 40);
+
+        let mut tracked = Companion::default();
+        tracked.note_play(Platform::Gb, "Tetris", 30, 10, &library());
+        tracked.note_play(Platform::Gb, "Tetris", 12, 11, &library());
+        tracked.sync_favorites(&[(Platform::Gba, "Emerald")]);
+        tracked.write(dir.path()).unwrap();
+        tracked.write(dir.path()).unwrap();
+        let sound = Companion::read(dir.path());
+        let game = sound.games.iter().find(|g| g.stem == "Tetris").unwrap();
+        assert_eq!(game.plays, 1);
+        assert_eq!(game.secs, 42);
+        assert_eq!(game.last_day, 11);
+        assert!(sound
+            .systems
+            .iter()
+            .any(|s| s.platform == Platform::Gb && s.secs == 42));
+        assert_eq!(sound.streak.current, 2);
+        assert_eq!(sound.streak.longest, 2);
+        assert!(sound
+            .games
+            .iter()
+            .any(|g| g.stem == "Emerald" && g.favorite));
+
+        std::fs::write(dir.path().join(FILE), "slot-companion 2\nxp=1\n").unwrap();
+        let recovered = Companion::read(dir.path());
+        assert_eq!(recovered.xp, sound.xp);
+        assert!(recovered.games.iter().any(|g| g.stem == "Tetris"));
     }
 
     #[test]
