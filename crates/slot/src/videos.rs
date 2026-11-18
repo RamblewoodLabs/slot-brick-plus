@@ -13,7 +13,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use slot_gfx::{OUT_H, OUT_W};
+use slot_gfx::OUT_W;
 use slot_input::{Action, Btn};
 use slot_ui::{TexId, UndoFace};
 
@@ -29,6 +29,11 @@ const MAX_VIDEO: u64 = 250 * 1024 * 1024;
 const KEEP_FREE: u64 = 256 * 1024 * 1024;
 /// 0 is no cap. The rest are the Video space limit row, up to 16 GB.
 const LIMITS_MB: [u32; 6] = [0, 1024, 2048, 4096, 8192, 16384];
+/// HOME menu type, on the 640×480 screen the Brick scales to 1024×768.
+const MENU_PX: f32 = 30.0;
+const MENU_H: u32 = 40;
+const MENU_PITCH: u32 = 48;
+const MENU_LEGEND: u32 = 432;
 
 const KEYS: [&str; 3] = [
     "1234567890qwertyuiopasdfghjkl-zxcvbnm_. ",
@@ -406,10 +411,10 @@ impl VideoMenu {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         if self.view != View::Player {
-            sheet.text("VIDEOS", 24, 16, w, 36, 28.0, false);
+            sheet.text("VIDEOS", 16, 8, w, MENU_H, MENU_PX, false);
         }
         if !self.status.is_empty() && self.view != View::Player {
-            sheet.text(&self.status, 24, 56, w, 28, 16.0, true);
+            sheet.text(&self.status, 16, 48, w, MENU_H, 24.0, true);
         }
         match self.view {
             View::Search => self.render_keys(&mut sheet),
@@ -419,10 +424,10 @@ impl VideoMenu {
         sheet.text(
             &self.legend(),
             16,
-            OUT_H.saturating_sub(36),
+            MENU_LEGEND,
             OUT_W.saturating_sub(32),
-            28,
-            15.0,
+            MENU_H,
+            MENU_PX,
             false,
         );
         sheet.finish()
@@ -430,22 +435,23 @@ impl VideoMenu {
 
     fn render_rows(&self, sheet: &mut Sheet) {
         let rows = self.row_labels();
-        let first = self.row.saturating_sub(6);
-        for (line, row) in (first..rows.len().min(first + 7)).enumerate() {
-            let y = 96 + line as u32 * 42;
+        let visible = ((MENU_LEGEND - 96) / MENU_PITCH) as usize;
+        let first = self.row.saturating_sub(visible.saturating_sub(1));
+        for (line, row) in (first..rows.len().min(first + visible)).enumerate() {
+            let y = 96 + line as u32 * MENU_PITCH;
             if row == self.row {
-                sheet.rect(0, y, OUT_W, 38, slot_ui::edge());
+                sheet.rect(0, y, OUT_W, MENU_H, slot_ui::edge());
             }
-            let mut x = 24;
-            let mut text_w = OUT_W.saturating_sub(48);
+            let mut x = 16;
+            let mut text_w = OUT_W.saturating_sub(32);
             if self.view == View::Videos {
                 if let Some(px) = self.row_thumbs.get(row).and_then(|t| t.as_ref()) {
-                    sheet.image(16, y + 4, 56, 32, px);
-                    x = 80;
-                    text_w = OUT_W.saturating_sub(96);
+                    sheet.image(12, y + 4, 64, 32, px);
+                    x = 84;
+                    text_w = OUT_W.saturating_sub(100);
                 }
             }
-            sheet.text(&rows[row], x, y + 2, text_w, 34, 20.0, false);
+            sheet.text(&rows[row], x, y, text_w, MENU_H, MENU_PX, false);
         }
     }
 
@@ -453,31 +459,35 @@ impl VideoMenu {
         let Some(keys) = &self.keys else {
             return;
         };
-        sheet.text(
+        sheet.text_case(
             &keys.query,
-            24,
+            16,
             96,
-            OUT_W.saturating_sub(48),
-            32,
-            22.0,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
+            false,
             false,
         );
-        let margin = 20u32;
-        let gap = 4u32;
+        let margin = 16u32;
+        let gap = 6u32;
         let key_w = (OUT_W - margin * 2 - gap * 9) / 10;
         let page = KEYS[keys.page];
         for i in 0..40 {
             let x = margin + (i as u32 % 10) * (key_w + gap);
-            let y = 150 + (i as u32 / 10) * 44;
+            let y = 148 + (i as u32 / 10) * 52;
+            if y + MENU_H > MENU_LEGEND {
+                break;
+            }
             if i == keys.key {
-                sheet.rect(x, y, key_w, 40, slot_ui::edge());
+                sheet.rect(x, y, key_w, MENU_H, slot_ui::edge());
             }
             let label = match page.chars().nth(i) {
                 Some(' ') => "SPC".to_string(),
                 Some(c) => c.to_string(),
                 None => continue,
             };
-            sheet.text_case(&label, x, y + 4, key_w, 32, 18.0, false, false);
+            sheet.text_case(&label, x, y, key_w, MENU_H, 26.0, false, false);
         }
     }
 
@@ -489,7 +499,15 @@ impl VideoMenu {
             .as_ref()
             .map(|s| s.title.as_str())
             .unwrap_or("VIDEO");
-        sheet.text(title, 24, 16, OUT_W.saturating_sub(48), 32, 20.0, false);
+        sheet.text(
+            title,
+            16,
+            8,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
+            false,
+        );
         if self.player.is_none() {
             let note = if self.status.is_empty() {
                 "NO PICTURE"
@@ -498,11 +516,11 @@ impl VideoMenu {
             };
             sheet.text(
                 note,
-                x + 16,
+                x + 8,
                 y + FRAME_H / 2 - 20,
-                FRAME_W.saturating_sub(32),
-                40,
-                15.0,
+                FRAME_W.saturating_sub(16),
+                MENU_H,
+                MENU_PX,
                 true,
             );
         }
@@ -524,11 +542,11 @@ impl VideoMenu {
         let state = if paused { "PAUSED" } else { "PLAYING" };
         sheet.text(
             &format!("{state}    {clock}"),
-            24,
+            16,
             y + FRAME_H + 8,
-            OUT_W.saturating_sub(48),
-            28,
-            16.0,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
             false,
         );
     }

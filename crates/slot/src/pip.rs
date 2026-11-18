@@ -1,6 +1,6 @@
 //! HOME → Companion. Pip, an original pixel creature, and the missions it keeps.
 //! Not PakUI's companion: different name, different drawing, Slot's own plate.
-use slot_gfx::{OUT_H, OUT_W};
+use slot_gfx::OUT_W;
 use slot_input::{Action, Btn};
 use slot_store::{Companion, GameSeen, MissionKind, Mood, Platform};
 use slot_ui::{TexId, UndoFace};
@@ -9,6 +9,11 @@ use crate::sheet::Sheet;
 
 const SCALE: u32 = 3;
 const CELL: u32 = 32;
+/// The HOME menu's type size and row, on Slot's 640×480 screen (the Brick draws that at 1024×768).
+const ROW_PX: f32 = 30.0;
+const ROW_H: u32 = 40;
+const ROW_PITCH: u32 = 46;
+const LEGEND_TOP: u32 = 432;
 
 pub struct PipLaunch {
     pub platform: Platform,
@@ -194,41 +199,48 @@ impl PipMenu {
         let blink = pip.animate && frame % 8 > 5;
         let sprite = sprite(mood, blink);
         let size = CELL * SCALE;
-        sheet.image((OUT_W - size) / 2, 8, size, size, &sprite);
-        sheet.text("PIP", 24, 8, 80, 24, 16.0, false);
-        sheet.text(mood.name(), 24, 112, w, 22, 15.0, true);
+        sheet.image((OUT_W - size) / 2, 4, size, size, &sprite);
         sheet.text(
-            &format!("LEVEL {}    {} / 100 XP", pip.level(), pip.toward_next()),
-            24,
-            134,
+            &format!(
+                "{}    LEVEL {}    {}/100 XP",
+                mood.name(),
+                pip.level(),
+                pip.toward_next()
+            ),
+            16,
+            104,
             w,
-            22,
-            15.0,
+            ROW_H,
+            ROW_PX,
             false,
         );
         let mut row = 0usize;
-        let mut y = 164u32;
+        let mut y = 152u32;
         for mission in pip.active() {
             if row == self.row {
-                sheet.rect(0, y, OUT_W, 36, slot_ui::edge());
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
+            let name = if mission.stem.is_empty() {
+                mission.kind.plain().to_string()
+            } else {
+                format!("{} · {}", mission.kind.plain(), mission.stem)
+            };
             sheet.text(
                 &format!(
-                    "{}  {}/{}",
-                    mission.title,
+                    "{name}  {}/{}",
                     mission.progress.min(mission.need),
                     mission.need
                 ),
                 16,
-                y + 2,
+                y,
                 w,
-                32,
-                15.0,
+                ROW_H,
+                ROW_PX,
                 false,
             );
             row += 1;
-            y += 38;
-            if y > 360 {
+            y += ROW_PITCH;
+            if y + ROW_PITCH > LEGEND_TOP {
                 break;
             }
         }
@@ -237,44 +249,50 @@ impl PipMenu {
             .map(|(_, stem)| format!("Next: {stem}"))
             .unwrap_or_else(|| "Next: nothing new".into());
         if row == self.row {
-            sheet.rect(0, y, OUT_W, 32, slot_ui::edge());
+            sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
         }
-        sheet.text(&suggest, 16, y, w, 28, 15.0, false);
-        y += 34;
+        sheet.text(&suggest, 16, y, w, ROW_H, ROW_PX, false);
+        y += ROW_PITCH;
         row += 1;
         for (label, at) in [("History", row), ("Settings", row + 1)] {
-            if self.row == at {
-                sheet.rect(0, y, OUT_W, 28, slot_ui::edge());
+            if y + ROW_H > LEGEND_TOP {
+                break;
             }
-            sheet.text(label, 16, y, w, 26, 15.0, false);
-            y += 30;
+            if self.row == at {
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
+            }
+            sheet.text(label, 16, y, w, ROW_H, ROW_PX, false);
+            y += ROW_PITCH;
         }
         sheet.text(
-            "A PLAY    X ANOTHER    Y I DID IT    L SKIP SYSTEM    B BACK",
-            8,
-            OUT_H.saturating_sub(28),
-            OUT_W.saturating_sub(16),
-            24,
-            12.0,
+            "A PLAY    X ANOTHER    Y DONE    B BACK",
+            16,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
             false,
         );
     }
 
     fn render_history(&self, sheet: &mut Sheet, pip: &Companion, w: u32) {
-        sheet.text("RECENTLY", 24, 20, w, 32, 24.0, false);
+        sheet.text("RECENTLY", 16, 8, w, ROW_H, ROW_PX, false);
         if pip.history.is_empty() && pip.sessions.is_empty() {
             sheet.text(
                 "No outings yet. Pip is happy to wait.",
-                24,
-                80,
+                16,
+                64,
                 w,
-                28,
-                15.0,
+                ROW_H,
+                ROW_PX,
                 true,
             );
         }
-        let mut y = 70u32;
-        for session in pip.sessions.iter().rev().take(6) {
+        let mut y = 56u32;
+        for session in pip.sessions.iter().rev().take(5) {
+            if y + ROW_H > LEGEND_TOP {
+                break;
+            }
             sheet.text(
                 &format!(
                     "{}  {}  {}s",
@@ -282,25 +300,43 @@ impl PipMenu {
                     session.stem,
                     session.secs
                 ),
-                24,
+                16,
                 y,
                 w,
-                24,
-                14.0,
+                ROW_H,
+                ROW_PX,
                 false,
             );
-            y += 26;
+            y += ROW_PITCH;
         }
-        y += 8;
-        for done in pip.history.iter().rev().take(4) {
-            sheet.text(&format!("Done  {}", done.title), 24, y, w, 24, 14.0, true);
-            y += 26;
+        for done in pip.history.iter().rev().take(3) {
+            if y + ROW_H > LEGEND_TOP {
+                break;
+            }
+            sheet.text(
+                &format!("Done  {}", done.title),
+                16,
+                y,
+                w,
+                ROW_H,
+                ROW_PX,
+                true,
+            );
+            y += ROW_PITCH;
         }
-        sheet.text("B BACK", 16, OUT_H.saturating_sub(28), w, 24, 15.0, false);
+        sheet.text(
+            "B BACK",
+            16,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
+            false,
+        );
     }
 
     fn render_settings(&self, sheet: &mut Sheet, pip: &Companion, w: u32) {
-        sheet.text("PIP'S SETTINGS", 24, 16, w, 28, 20.0, false);
+        sheet.text("SETTINGS", 16, 8, w, ROW_H, ROW_PX, false);
         let mut rows = vec![
             format!("Pip  {}", on(pip.enabled)),
             format!("Toasts  {}", on(pip.toasts)),
@@ -308,36 +344,33 @@ impl PipMenu {
             format!("Animations  {}", on(pip.animate)),
         ];
         for kind in MissionKind::ALL {
-            let name = match kind {
-                MissionKind::TryNew => "Try something new",
-                MissionKind::Marathon => "Retro marathon",
-                MissionKind::Forgotten => "Forgotten favorite",
-                MissionKind::Tourist => "Console tourist",
-                MissionKind::OneMore => "One more round",
-                MissionKind::HiddenGem => "Hidden gem",
-                MissionKind::Weekend => "Weekend adventure",
-            };
-            rows.push(format!("{name}  {}", on(pip.categories.contains(&kind))));
+            rows.push(format!(
+                "{}  {}",
+                kind.plain(),
+                on(pip.categories.contains(&kind))
+            ));
         }
         rows.push(if self.reset_armed {
-            "Reset progress?  A AGAIN".into()
+            "Reset progress?  A again".into()
         } else {
             "Reset progress".into()
         });
-        for (i, label) in rows.iter().enumerate() {
-            let y = 52 + i as u32 * 28;
-            if i == self.row {
-                sheet.rect(0, y, OUT_W, 26, slot_ui::edge());
+        let visible = ((LEGEND_TOP - 56) / ROW_PITCH) as usize;
+        let first = self.row.saturating_sub(visible.saturating_sub(1));
+        for (line, label) in rows.iter().enumerate().skip(first).take(visible) {
+            let y = 56 + (line - first) as u32 * ROW_PITCH;
+            if line == self.row {
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
-            sheet.text(label, 16, y, w, 24, 13.0, false);
+            sheet.text(label, 16, y, w, ROW_H, ROW_PX, false);
         }
         sheet.text(
             "A CHANGE    B BACK",
             16,
-            OUT_H.saturating_sub(24),
-            w,
-            22,
-            14.0,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
             false,
         );
     }

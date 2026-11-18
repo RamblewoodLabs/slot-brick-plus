@@ -81,6 +81,19 @@ impl MissionKind {
         Self::ALL.into_iter().find(|k| k.id() == value)
     }
 
+    /// What the mission is, in ordinary words. The screen and the settings row use this.
+    pub fn plain(self) -> &'static str {
+        match self {
+            MissionKind::TryNew => "Try a game you've never played",
+            MissionKind::HiddenGem => "Try a game you rarely play",
+            MissionKind::Marathon => "Play one game for 20 minutes",
+            MissionKind::Forgotten => "Play a game you haven't opened in a while",
+            MissionKind::OneMore => "Play a game one more time",
+            MissionKind::Tourist => "Play 3 different systems today",
+            MissionKind::Weekend => "Play 4 different games this weekend",
+        }
+    }
+
     fn xp(self) -> u32 {
         match self {
             MissionKind::Weekend => XP_WEEKLY,
@@ -568,7 +581,7 @@ impl Companion {
             if let Some(game) = pick.filter(|_| !unplayed.is_empty()) {
                 self.missions.push(mission(
                     MissionKind::TryNew,
-                    "Try something new",
+                    MissionKind::TryNew.plain(),
                     &format!("Launch {}", game.stem),
                     Some(game),
                     1,
@@ -581,7 +594,7 @@ impl Companion {
             if !used.iter().any(|(_, stem)| stem == &game.stem) {
                 self.missions.push(mission(
                     MissionKind::HiddenGem,
-                    "Hidden gem",
+                    MissionKind::HiddenGem.plain(),
                     &format!("Try {}", game.stem),
                     Some(game),
                     1,
@@ -594,7 +607,7 @@ impl Companion {
             if let Some(game) = game {
                 self.missions.push(mission(
                     MissionKind::Marathon,
-                    "Retro marathon",
+                    MissionKind::Marathon.plain(),
                     &format!("Play {} for 20 minutes", game.stem),
                     Some(game),
                     20 * 60,
@@ -610,7 +623,7 @@ impl Companion {
             if let Some(game) = old {
                 self.missions.push(mission(
                     MissionKind::Forgotten,
-                    "Forgotten favorite",
+                    MissionKind::Forgotten.plain(),
                     &format!("Revisit {}", game.stem),
                     Some(game),
                     1,
@@ -622,7 +635,7 @@ impl Companion {
             if let Some(game) = played.first() {
                 self.missions.push(mission(
                     MissionKind::OneMore,
-                    "One more round",
+                    MissionKind::OneMore.plain(),
                     &format!("Return to {}", game.stem),
                     Some(game),
                     1,
@@ -633,7 +646,7 @@ impl Companion {
         if want(MissionKind::Tourist) {
             self.missions.push(mission(
                 MissionKind::Tourist,
-                "Console tourist",
+                MissionKind::Tourist.plain(),
                 "Play three different systems",
                 None,
                 3,
@@ -644,7 +657,7 @@ impl Companion {
             let _ = day;
             self.missions.push(mission(
                 MissionKind::Weekend,
-                "Weekend adventure",
+                MissionKind::Weekend.plain(),
                 "Play four different games over a weekend",
                 None,
                 4,
@@ -1016,6 +1029,9 @@ mod tests {
             };
             pip.note_play(platform, stem, 1, 2, &library());
         }
-        assert!(pip.history.iter().any(|d| d.title == "Weekend adventure"));
+        assert!(pip
+            .history
+            .iter()
+            .any(|d| d.title == MissionKind::Weekend.plain()));
     }
 }
