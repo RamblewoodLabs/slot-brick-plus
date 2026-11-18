@@ -350,7 +350,7 @@ impl ArtList{
 }
 /// The RetroAchievements screen: log in, test the connection, show a test unlock, log out.
 /// `test`: a pretend unlock waiting for the app to toast it.
-struct RaScreen{account:Option<ra::Account>,user:String,password:String,job:Option<mpsc::Receiver<RaDone>>,test:Option<TestUnlock>}
+struct RaScreen{account:Option<ra::Account>,user:String,password:String,job:Option<mpsc::Receiver<RaDone>>,test:Option<TestUnlock>,page:u8,games:Vec<crate::offline_ra::GameCard>,focus:usize,cache:Option<crate::offline_ra::CacheRun>}
 /// A pretend unlock: title, description, points, and a badge already cached on the card.
 pub struct TestUnlock{pub title:String,pub description:String,pub points:u32,pub badge:Option<PathBuf>}
 /// Any badge cached on the card, so the test toast looks like the real thing.
@@ -390,15 +390,21 @@ impl WifiMenu{
     pub fn achievements()->Self{
         let account=ra::load(&card_root());
         let status=match &account{Some(a)=>format!("Logged in as {}",a.user),None=>"Log in with your RetroAchievements account".into()};
-        Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account,user:String::new(),password:String::new(),job:None,test:None}),query:None,update:None}
+        let games=crate::offline_ra::games(&card_root());
+        let waiting=crate::offline_ra::waiting(&card_root());
+        let status=if waiting==0{status}else{format!("{status}. {waiting} unlock{} waiting to send",if waiting==1{""}else{"s"})};
+        Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account,user:String::new(),password:String::new(),job:None,test:None,page:0,games,focus:0,cache:None}),query:None,update:None}
     }
-    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.ra.as_ref().is_some_and(|r|r.job.is_some())}
+    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.ra.as_ref().is_some_and(|r|r.job.is_some() || r.cache.is_some())}
     pub fn cancel(&mut self){
         if let Some(w)=&self.worker{w.cancel.store(true,Ordering::Relaxed);}
         if let Some(a)=&self.art{a.cancel();}
         if let Some(u)=&mut self.update{u.cancel();self.dirty=true;return}
         // A reply that comes back after this is dropped unread, so nothing gets saved.
-        if let Some(r)=&mut self.ra{if r.job.take().is_some(){self.status="Cancelled".into();self.dirty=true;return}}
+        if let Some(r)=&mut self.ra{
+            if r.job.take().is_some(){self.status="Cancelled".into();self.dirty=true;return}
+            if let Some(c)=r.cache.take(){c.cancel();self.status="Cancelled".into();self.dirty=true;return}
+        }
         if self.busy(){self.status="Cancelling...".into();self.dirty=true;}
     }
     /// Labels saved since the last call, for the library to show straight away.
@@ -432,6 +438,7 @@ impl WifiMenu{
         if let Some(u)=&mut self.update{if u.poll(){self.dirty=true;}return}
         self.poll_art();
         self.poll_ra();
+        self.poll_cache();
         if let Some(w)=&self.worker{match w.rx.try_recv(){
             Ok(r)=>{self.worker=None;match r{Ok(r)=>{self.on=r.on;self.status=r.status;if let Some(n)=r.networks{self.networks=n;}},Err(e)=>self.status=e}self.row=self.row.min(self.networks.len()+FIXED-1);self.dirty=true;self.refreshed=Instant::now();},
             Err(mpsc::TryRecvError::Disconnected)=>{self.worker=None;self.status="Wi-Fi worker stopped".into();self.dirty=true;self.refreshed=Instant::now();},_=>{}
@@ -525,23 +532,98 @@ impl WifiMenu{
             RaDone::LoggedIn(Err(e))|RaDone::Checked(Err(e))=>e,
         };
     }
+    fn poll_cache(&mut self){
+        loop{
+            let event=match self.ra.as_ref().and_then(|r|r.cache.as_ref()).map(|c|c.try_recv()){
+                None=>return,
+                Some(Err(mpsc::TryRecvError::Empty))=>return,
+                Some(Err(mpsc::TryRecvError::Disconnected))=>{
+                    if let Some(r)=&mut self.ra{r.cache=None;}
+                    self.status="Caching stopped".into();self.dirty=true;return;
+                }
+                Some(Ok(e))=>e,
+            };
+            self.dirty=true;
+            match event{
+                crate::offline_ra::CacheEvent::Step{done,total,name}=>{self.status=format!("Caching {}/{total}: {name}",done+1);}
+                crate::offline_ra::CacheEvent::Done{cached,missed,failed}=>{
+                    if let Some(r)=&mut self.ra{r.cache=None;r.games=crate::offline_ra::games(&card_root());}
+                    self.status=format!("Cached {cached} sets, {missed} had none, {failed} failed");
+                    return;
+                }
+            }
+        }
+    }
+    fn ra_rows(ra:&RaScreen)->Vec<String>{
+        match ra.page{
+            1 if ra.games.is_empty()=>vec!["NO SETS CACHED YET".into()],
+            1=>ra.games.iter().map(|g|{
+                let got=g.achievements.iter().filter(|a|a.unlocked).count();
+                format!("{got}/{}  {}",g.achievements.len(),g.title)
+            }).collect(),
+            2=>{
+                let Some(g)=ra.games.get(ra.focus) else{return vec!["NO SET".into()]};
+                if g.achievements.is_empty(){return vec!["NO ACHIEVEMENTS IN THIS SET".into()]}
+                g.achievements.iter().map(|a|{
+                    let mark=if a.refused{"HELD"}else if a.waiting{"WAIT"}else if a.unlocked{"GOT"}else{"LOCK"};
+                    format!("{mark}  {}  {} PTS",a.title,a.points)
+                }).collect()
+            }
+            _=>match &ra.account{
+                None=>{
+                    let mut rows=vec![
+                        format!("USERNAME     {}",if ra.user.is_empty(){"-"}else{&ra.user}),
+                        format!("PASSWORD     {}",if ra.password.is_empty(){"-".to_string()}else{"*".repeat(ra.password.chars().count().min(20))}),
+                        "LOG IN".into(),
+                    ];
+                    if !ra.games.is_empty(){rows.push("VIEW ACHIEVEMENTS".into());}
+                    rows
+                }
+                Some(a)=>vec![
+                    format!("LOGGED IN AS  {}",a.user),
+                    "TEST CONNECTION".into(),
+                    "CACHE ACHIEVEMENT SETS".into(),
+                    "VIEW ACHIEVEMENTS".into(),
+                    "TEST ACHIEVEMENT".into(),
+                    "LOG OUT".into(),
+                ],
+            }
+        }
+    }
     fn ra_input(&mut self,a:Action)->bool{
         let Some(ra)=&mut self.ra else{return true};
-        let rows=if ra.account.is_some(){4}else{3};
+        let rows=Self::ra_rows(ra).len().max(1);
         match a{
-            Action::GbaDown(Btn::B)=>return true,
-            Action::GbaDown(Btn::Up)=>self.row=(self.row+rows-1)%rows,
-            Action::GbaDown(Btn::Down)=>self.row=(self.row+1)%rows,
+            Action::GbaDown(Btn::B)=>{
+                if ra.page>0{ra.page-=1;self.row=0;self.status=if ra.page==0{"Achievements saved on the card".into()}else{"Choose a game".into()};return false}
+                return true
+            }
+            Action::GbaDown(Btn::Up)=>{self.row=(self.row+rows-1)%rows;}
+            Action::GbaDown(Btn::Down)=>{self.row=(self.row+1)%rows;}
+            Action::GbaDown(Btn::A)|Action::Insert if ra.page==1=>{
+                if ra.games.is_empty(){return false}
+                ra.focus=self.row.min(ra.games.len()-1);
+                let title=ra.games[ra.focus].title.clone();
+                ra.page=2;self.row=0;self.status=title;return false
+            }
+            Action::GbaDown(Btn::A)|Action::Insert if ra.page==2=>{
+                if let Some(ach)=ra.games.get(ra.focus).and_then(|g|g.achievements.get(self.row)){
+                    let state=if ach.refused{"Not accepted by the server"}else if ach.waiting{"Earned here, waiting to send"}else if ach.unlocked{"Earned"}else{"Not earned yet"};
+                    self.status=format!("{state}. {}  {} points",ach.description,ach.points);
+                }
+                return false
+            }
             Action::GbaDown(Btn::A)|Action::Insert=>match (&ra.account,self.row){
                 (None,0)=>self.keyboard=Some(Keyboard{target:KeyTarget::RaUser,secret:false,password:ra.user.clone(),key:0,page:0,typed:None}),
                 (None,1)=>self.keyboard=Some(Keyboard{target:KeyTarget::RaPassword,secret:true,password:String::new(),key:0,page:0,typed:None}),
-                (None,_)=>{
+                (None,2)=>{
                     if ra.user.is_empty() || ra.password.is_empty(){self.status="Enter your username and password first".into();return false}
                     if !online(){self.status="Connect to Wi-Fi first".into();return false}
                     let (user,password)=(ra.user.clone(),ra.password.clone());let(tx,rx)=mpsc::channel();
                     thread::spawn(move||{let _=tx.send(RaDone::LoggedIn(ra::login(&user,&password)));});
                     ra.job=Some(rx);self.status="Logging in...".into();
                 }
+                (None,_)=>{ra.page=1;self.row=0;self.status="Sets saved on the card".into();}
                 (Some(_),0)=>{}
                 (Some(account),1)=>{
                     if !online(){self.status="Connect to Wi-Fi first".into();return false}
@@ -549,7 +631,14 @@ impl WifiMenu{
                     thread::spawn(move||{let _=tx.send(RaDone::Checked(ra::check(&account)));});
                     ra.job=Some(rx);self.status="Testing the connection...".into();
                 }
-                (Some(_),2)=>{
+                (Some(account),2)=>{
+                    if !online(){self.status="Connect to Wi-Fi first".into();return false}
+                    let (root,user,token)=(card_root(),account.user.clone(),account.token.clone());
+                    ra.cache=Some(crate::offline_ra::CacheRun::start(root,user,token));
+                    self.status="Caching achievement sets...".into();
+                }
+                (Some(_),3)=>{ra.page=1;self.row=0;self.status="Sets saved on the card".into();}
+                (Some(_),4)=>{
                     ra.test=Some(TestUnlock{title:"Test Achievement".into(),description:"Toasts are working".into(),points:5,badge:cached_badge(&card_root())});
                     self.status="Test achievement sent".into();
                 }
@@ -564,13 +653,18 @@ impl WifiMenu{
         }false
     }
     fn render_ra(&self,ra:&RaScreen)->UndoFace{
-        let mut p=Painter::new();p.text("RETROACHIEVEMENTS",32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
-        let rows:Vec<String>=match &ra.account{
-            None=>vec![format!("USERNAME     {}",if ra.user.is_empty(){"-"}else{&ra.user}),format!("PASSWORD     {}",if ra.password.is_empty(){"-".to_string()}else{"*".repeat(ra.password.chars().count().min(20))}),"LOG IN".into()],
-            Some(a)=>vec![format!("LOGGED IN AS  {}",a.user),"TEST CONNECTION".into(),"TEST ACHIEVEMENT".into(),"LOG OUT".into()],
-        };
-        for (i,label) in rows.iter().enumerate(){let y=110+i*41;if i==self.row{p.rect(0,y,640,38,slot_ui::edge());}p.text(label,32,y+1,576,23.0);}
-        p.text(if self.busy(){"B CANCEL"}else{"B BACK    A SELECT"},24,430,592,20.0);
+        let mut p=Painter::new();
+        let title=match ra.page{1=>"ACHIEVEMENT SETS",2=>"ACHIEVEMENTS",_=>"RETROACHIEVEMENTS"};
+        p.text(title,32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
+        let rows=Self::ra_rows(ra);
+        let first=if self.row<7{0}else{self.row-6};
+        for (line,row) in (first..rows.len().min(first+7)).enumerate(){
+            let y=110+line*41;
+            if row==self.row{p.rect(0,y,640,38,slot_ui::edge());}
+            p.text(&rows[row],32,y+1,576,23.0);
+        }
+        let legend=if self.busy(){"B CANCEL"}else if ra.page==0{"B BACK    A SELECT"}else if ra.page==1{"B BACK    A OPEN"}else{"B BACK    A DETAILS"};
+        p.text(legend,24,430,592,20.0);
         UndoFace{rgba:p.rgba,w:640,h:480}
     }
     fn render_art(&self,list:&ArtList)->UndoFace{
@@ -749,7 +843,7 @@ impl Painter{
         assert_eq!(masked(&k),"Benni");
     }
     #[test]fn ra_screen_types_the_login_and_needs_both_fields(){
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None}),query:None,update:None};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None}),query:None,update:None};
         m.input(Action::GbaDown(Btn::A));assert!(m.keyboard.as_ref().is_some_and(|k|!k.secret));
         // q w e on the letter row
         m.input(Action::GbaDown(Btn::Down));for _ in 0..3{m.input(Action::GbaDown(Btn::A));m.input(Action::GbaDown(Btn::Right));}
@@ -767,13 +861,26 @@ impl Painter{
         assert_eq!(cached_badge(&dir),Some(dir.join("System/Cache/Badges/a.png")));
         assert_eq!(cached_badge(&dir.join("nowhere")),None);let _=fs::remove_dir_all(&dir);
         let account=ra::Account{user:"Benni".into(),token:"t".into()};
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None}),query:None,update:None};
-        m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,3,"four rows when logged in, wrapping to LOG OUT");
-        m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,2);
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None}),query:None,update:None};
+        m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,5,"six rows when logged in, wrapping to LOG OUT");
+        m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,4);
         assert!(m.take_test_unlock().is_none());
         m.input(Action::GbaDown(Btn::A));
         let t=m.take_test_unlock().unwrap();assert_eq!((t.title.as_str(),t.points),("Test Achievement",5));
         assert!(m.take_test_unlock().is_none(),"taken once");assert!(!m.busy());
+    }
+    #[test]fn a_cached_set_opens_offline(){
+        let card=crate::offline_ra::GameCard{key:"abc".into(),title:"Tetris".into(),game_id:1,place:"GB  Tetris".into(),achievements:vec![crate::offline_ra::Ach{id:5,points:10,badge:"00010".into(),title:"Clear".into(),description:"Clear a line".into(),unlocked:true,waiting:true,refused:false}]};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:vec![card],focus:0,cache:None}),query:None,update:None};
+        m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::Down));
+        m.input(Action::GbaDown(Btn::A));
+        assert_eq!(m.ra.as_ref().unwrap().page,1);
+        m.input(Action::GbaDown(Btn::A));
+        assert_eq!(m.ra.as_ref().unwrap().page,2);
+        m.input(Action::GbaDown(Btn::A));
+        assert!(m.status.contains("waiting"),"{}",m.status);
+        assert!(!m.input(Action::GbaDown(Btn::B)));
+        assert_eq!(m.ra.as_ref().unwrap().page,1);
     }
     #[test]fn qwerty_under_a_number_row(){
         let rows=|p:usize|KEYS[p].as_bytes().chunks(10).map(|r|String::from_utf8_lossy(r).into_owned()).collect::<Vec<_>>();

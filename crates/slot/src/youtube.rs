@@ -1,19 +1,24 @@
 //! Finding a YouTube channel and a video file, on the Brick, over Wi-Fi.
 //!
-//! Piped's public API is asked first: it returns plain JSON and, when it can, a
-//! combined 360p MP4. YouTube's own Innertube player is the fallback, and it only
-//! helps when the reply carries a direct address (a `url`, not a signature that
-//! would need YouTube's player script). Sign-in is deliberately not implemented;
-//! see [`auth_status`].
-use std::path::Path;
-
+//! A typed name or `@handle` is resolved from YouTube's own pages. The latest
+//! videos come from the channel's RSS feed, which needs no key. Piped and
+//! Invidious are fallbacks for the list and for a direct file address. YouTube's
+//! player is asked last, and only a direct `url` is used (not a signature).
 use crate::net;
 
-/// Public Piped instances, tried in order. `SLOT_PIPED` names one instead.
+/// Public Piped instances, tried in order. The one that answered recently is first.
+/// `SLOT_PIPED` names one instead.
 const PIPED: [&str; 3] = [
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.adminforge.de",
     "https://api.piped.private.coffee",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.leptons.xyz",
+];
+
+/// Public Invidious instances with an API, tried when Piped has no file address.
+const INVIDIOUS: [&str; 3] = [
+    "https://yt.chocolatemoo53.com",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.tiekoetter.com",
 ];
 
 /// A public Android client key, the same one the YouTube app sends. It is not a secret.
@@ -51,36 +56,23 @@ pub struct Media {
     pub muxed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthState {
-    /// No sign-in is stored. Search does not need one.
-    SignedOut,
-    /// Config/youtube-auth.txt holds a token a future Slot might use. This one does not.
-    SavedUnused,
-}
-
-/// Why account login is not wired up, for the Account screen and the docs.
-pub fn auth_reason() -> &'static str {
-    "YouTube sign-in is not available. Subscriptions need a Google account, and a device-code login would need an OAuth client of Slot's own. A token from Google still does not unlock video addresses: those come from YouTube's player, which this screen does not log into. Search and downloads work without an account."
-}
-
-/// `Config/youtube-auth.txt` is reserved. A non-comment `token=` line means a later
-/// Slot saved a sign-in. Nothing here writes one.
-pub fn auth_status(root: &Path) -> AuthState {
-    let Ok(text) = std::fs::read_to_string(root.join("Config/youtube-auth.txt")) else {
-        return AuthState::SignedOut;
-    };
-    let saved = text.lines().any(|line| {
-        let line = line.trim();
-        !line.is_empty()
-            && !line.starts_with('#')
-            && line.starts_with("token=")
-            && line.len() > "token=".len()
-    });
-    if saved {
-        AuthState::SavedUnused
-    } else {
-        AuthState::SignedOut
+/// Turn a name, `@handle`, or channel link into channels the player can follow.
+pub fn find_channels(query: &str) -> Result<Vec<Channel>, String> {
+    match channel_ref(query)? {
+        ChannelRef::Id(id) => Ok(vec![Channel {
+            id,
+            name: query.trim().to_string(),
+            subscribers: String::new(),
+        }]),
+        ChannelRef::Handle(handle) => match resolve_handle(&handle) {
+            Ok(channel) => Ok(vec![channel]),
+            Err(page) => match search_channels(&handle) {
+                Ok(found) if !found.is_empty() => Ok(found),
+                Ok(_) => Err(page),
+                Err(search) => Err(format!("{page} · {search}")),
+            },
+        },
+        ChannelRef::Name(name) => search_channels(&name),
     }
 }
 
@@ -90,6 +82,30 @@ pub fn search_channels(query: &str) -> Result<Vec<Channel>, String> {
         return Err("Type a channel name".into());
     }
     let mut errors = Vec::new();
+    let page = format!(
+        "https://www.youtube.com/results?search_query={}&sp=EgIQAg%3D%3D",
+        percent(query)
+    );
+    match get_text(&page, 2 << 20) {
+        Ok(body) => {
+            let found = parse_youtube_search(&body);
+            if !found.is_empty() {
+                return Ok(found);
+            }
+            errors.push("YouTube's search page had no channels".into());
+        }
+        Err(e) => errors.push(format!("YouTube's search page: {e}")),
+    }
+    match innertube("search", &search_body(query)) {
+        Ok(body) => {
+            let found = parse_innertube_channels(&body);
+            if !found.is_empty() {
+                return Ok(found);
+            }
+            errors.push("YouTube's search had no channels".into());
+        }
+        Err(e) => errors.push(format!("YouTube's search: {e}")),
+    }
     for base in piped_bases() {
         let url = format!("{base}/search?q={}&filter=channels", percent(query));
         match get_text(&url, 2 << 20) {
@@ -103,26 +119,35 @@ pub fn search_channels(query: &str) -> Result<Vec<Channel>, String> {
             Err(e) => errors.push(format!("{base}: {e}")),
         }
     }
-    match innertube("search", &search_body(query)) {
-        Ok(body) => {
-            let found = parse_innertube_channels(&body);
-            if !found.is_empty() {
-                return Ok(found);
-            }
-            errors.push("YouTube returned no channels".into());
-        }
-        Err(e) => errors.push(format!("YouTube: {e}")),
-    }
-    Err(errors
-        .pop()
-        .unwrap_or_else(|| "no video service answered".into()))
+    Err(join_errors(&errors))
 }
 
 pub fn channel_videos(id: &str, name: &str) -> Result<Vec<Video>, String> {
-    if !valid_id(id) && !id.starts_with("UC") {
+    if !valid_channel_id(id) {
         return Err("That channel address cannot be used".into());
     }
     let mut errors = Vec::new();
+    let feed = format!("https://www.youtube.com/feeds/videos.xml?channel_id={id}");
+    match get_text(&feed, 1 << 20) {
+        Ok(body) => {
+            let found = parse_rss(&body, name);
+            if !found.is_empty() {
+                return Ok(found);
+            }
+            errors.push("YouTube's video feed had no videos".into());
+        }
+        Err(e) => errors.push(format!("YouTube's video feed: {e}")),
+    }
+    match innertube("browse", &browse_body(id)) {
+        Ok(body) => {
+            let found = parse_innertube_videos(&body, name);
+            if !found.is_empty() {
+                return Ok(found);
+            }
+            errors.push("YouTube's channel page had no video titles".into());
+        }
+        Err(e) => errors.push(format!("YouTube's channel page: {e}")),
+    }
     for base in piped_bases() {
         let url = format!("{base}/channel/{}", percent(id));
         match get_text(&url, 3 << 20) {
@@ -136,19 +161,7 @@ pub fn channel_videos(id: &str, name: &str) -> Result<Vec<Video>, String> {
             Err(e) => errors.push(format!("{base}: {e}")),
         }
     }
-    match innertube("browse", &browse_body(id)) {
-        Ok(body) => {
-            let found = parse_innertube_videos(&body, name);
-            if !found.is_empty() {
-                return Ok(found);
-            }
-            errors.push("YouTube listed no videos".into());
-        }
-        Err(e) => errors.push(format!("YouTube: {e}")),
-    }
-    Err(errors
-        .pop()
-        .unwrap_or_else(|| "no video service answered".into()))
+    Err(join_errors(&errors))
 }
 
 pub fn media_for(video_id: &str) -> Result<Media, String> {
@@ -166,16 +179,43 @@ pub fn media_for(video_id: &str) -> Result<Media, String> {
             Err(e) => errors.push(format!("{base}: {e}")),
         }
     }
+    for base in invidious_bases() {
+        let url = format!("{base}/api/v1/videos/{video_id}");
+        match get_text(&url, 2 << 20) {
+            Ok(body) => match parse_invidious_video(&body) {
+                Some(media) => return Ok(media),
+                None => errors.push(format!("{base} had no 360p MP4")),
+            },
+            Err(e) => errors.push(format!("{base}: {e}")),
+        }
+    }
     match innertube("player", &player_body(video_id)) {
         Ok(body) => match parse_innertube_player(&body) {
             Some(media) => return Ok(media),
-            None => errors.push("YouTube sent no direct 360p address. It often hides those behind a signature this player cannot make.".into()),
+            None => errors.push(
+                player_failure(&body).unwrap_or_else(|| {
+                    "YouTube sent no direct 360p address. It often hides those behind a signature this player cannot make.".into()
+                }),
+            ),
         },
-        Err(e) => errors.push(format!("YouTube: {e}")),
+        Err(e) => errors.push(format!("YouTube's player: {e}")),
     }
-    Err(errors
-        .pop()
-        .unwrap_or_else(|| "no video service answered".into()))
+    let watch = format!("https://www.youtube.com/watch?v={video_id}");
+    match get_text(&watch, 2 << 20) {
+        Ok(body) => match parse_watch_page(&body) {
+            Some(media) => return Ok(media),
+            None => errors.push("YouTube's watch page had no direct file address".into()),
+        },
+        Err(e) => errors.push(format!("YouTube's watch page: {e}")),
+    }
+    Err(join_errors(&errors))
+}
+
+fn resolve_handle(handle: &str) -> Result<Channel, String> {
+    let url = format!("https://www.youtube.com/@{handle}");
+    let html = get_text(&url, 2 << 20).map_err(|e| format!("@{handle}: {e}"))?;
+    parse_handle_page(&html, handle)
+        .ok_or_else(|| format!("YouTube's page for @{handle} had no channel id"))
 }
 
 fn piped_bases() -> Vec<String> {
@@ -186,8 +226,12 @@ fn piped_bases() -> Vec<String> {
     }
 }
 
+fn invidious_bases() -> Vec<String> {
+    INVIDIOUS.iter().map(|s| (*s).to_string()).collect()
+}
+
 fn get_text(url: &str, limit: usize) -> Result<String, String> {
-    let bytes = net::get(url, limit)?;
+    let bytes = net::get_as(url, limit, Some(net::BROWSER))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -200,6 +244,7 @@ fn innertube(method: &str, body: &str) -> Result<String, String> {
         path: &path,
         form: None,
         json: Some(body),
+        agent: Some(net::BROWSER),
         limit: 4 << 20,
     })?;
     if reply.status != 200 {
@@ -359,9 +404,9 @@ pub fn parse_innertube_videos(body: &str, channel: &str) -> Vec<Video> {
     let Some(value) = parse_json(body) else {
         return Vec::new();
     };
+    let mut out = Vec::new();
     let mut found = Vec::new();
     objects_with(&value, "videoId", &mut found);
-    let mut out = Vec::new();
     for obj in found {
         let Some(id) = obj.get("videoId").and_then(J::as_str) else {
             continue;
@@ -378,7 +423,70 @@ pub fn parse_innertube_videos(body: &str, channel: &str) -> Vec<Video> {
         let published = text_field(obj, "publishedTimeText").unwrap_or_default();
         push_video(&mut out, id, title, channel, duration_ms, published);
     }
+    let mut locks = Vec::new();
+    objects_with(&value, "lockupViewModel", &mut locks);
+    for obj in locks {
+        let Some(vm) = obj.get("lockupViewModel") else {
+            continue;
+        };
+        let Some(id) = vm.get("contentId").and_then(J::as_str) else {
+            continue;
+        };
+        let Some(title) = vm
+            .get("metadata")
+            .and_then(|m| m.get("lockupMetadataViewModel"))
+            .and_then(|m| m.get("title"))
+            .and_then(|t| t.get("content"))
+            .and_then(J::as_str)
+        else {
+            continue;
+        };
+        let duration_ms = badge_clock(vm);
+        let published = recent_label(vm);
+        push_video(
+            &mut out,
+            id,
+            title.to_string(),
+            channel,
+            duration_ms,
+            published,
+        );
+    }
     out
+}
+
+fn badge_clock(vm: &J) -> u64 {
+    let mut found = Vec::new();
+    objects_with(vm, "thumbnailBadgeViewModel", &mut found);
+    for obj in found {
+        let Some(text) = obj
+            .get("thumbnailBadgeViewModel")
+            .and_then(|b| b.get("text"))
+            .and_then(J::as_str)
+        else {
+            continue;
+        };
+        if text.contains(':') {
+            return clock_ms(text);
+        }
+    }
+    0
+}
+
+fn recent_label(vm: &J) -> String {
+    let mut found = Vec::new();
+    objects_with(vm, "content", &mut found);
+    let mut last = String::new();
+    for obj in found {
+        let Some(text) = obj.get("content").and_then(J::as_str) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.contains("ago") || text.contains("Premier") {
+            last = text.to_string();
+        }
+    }
+    last
 }
 
 pub fn parse_innertube_player(body: &str) -> Option<Media> {
@@ -564,11 +672,11 @@ pub fn latest_five(videos: Vec<Video>) -> Vec<Video> {
     videos.into_iter().take(5).collect()
 }
 
-/// A channel link or id typed on the Brick. A video link is refused.
+/// A channel link, `@handle`, name, or id typed on the Brick. A video link is refused.
 pub fn channel_ref(input: &str) -> Result<ChannelRef, String> {
     let text = input.trim();
     if text.is_empty() {
-        return Err("Type a channel link or id".into());
+        return Err("Type a channel name, @handle, or link".into());
     }
     let lower = text.to_ascii_lowercase();
     if lower.contains("watch?") || lower.contains("/watch") || lower.contains("youtu.be/") {
@@ -580,16 +688,35 @@ pub fn channel_ref(input: &str) -> Result<ChannelRef, String> {
     {
         return Ok(ChannelRef::Id(id.to_string()));
     }
-    let name = text.trim_start_matches('@').trim();
+    if let Some(handle) = handle_in(text) {
+        return Ok(ChannelRef::Handle(handle));
+    }
+    let name = text.trim();
     if name.len() < 2 || name.chars().any(|c| c.is_control()) {
         return Err("That channel link does not look right".into());
     }
     Ok(ChannelRef::Name(name.to_string()))
 }
 
+fn handle_in(text: &str) -> Option<String> {
+    let piece = text
+        .split(['/', '?', '&', ' '])
+        .find_map(|part| part.strip_prefix('@'))?;
+    let handle = piece.trim();
+    valid_handle(handle).then(|| handle.to_string())
+}
+
+fn valid_handle(handle: &str) -> bool {
+    (2..=40).contains(&handle.len())
+        && handle
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChannelRef {
     Id(String),
+    Handle(String),
     Name(String),
 }
 
@@ -688,6 +815,231 @@ fn percent(s: &str) -> String {
         }
     }
     out
+}
+
+fn join_errors(errors: &[String]) -> String {
+    if errors.is_empty() {
+        return "no video service answered".into();
+    }
+    let mut ranked: Vec<&String> = errors.iter().collect();
+    ranked.sort_by_key(|e| {
+        let low = e.to_lowercase();
+        if low.contains("date & time")
+            || low.contains("certificate")
+            || low.contains("secure connection")
+        {
+            0
+        } else if low.contains("player") || low.contains("sign in") || low.contains("bot") {
+            1
+        } else {
+            2
+        }
+    });
+    let mut text = ranked
+        .iter()
+        .map(|e| e.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if text.len() > 240 {
+        let mut end = 237;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str("...");
+    }
+    text
+}
+
+pub fn parse_youtube_search(html: &str) -> Vec<Channel> {
+    let mut out = Vec::new();
+    let key = "\"channelRenderer\":{\"channelId\":\"";
+    let mut rest = html;
+    while let Some(at) = rest.find(key) {
+        rest = &rest[at + key.len()..];
+        let Some(id_end) = rest.find('"') else { break };
+        let id = &rest[..id_end];
+        let window = &rest[..rest.len().min(800)];
+        let name = between(window, "\"simpleText\":\"", "\"").unwrap_or("");
+        let handle = between(window, "\"canonicalBaseUrl\":\"/", "\"").unwrap_or("");
+        if valid_channel_id(id) && !name.is_empty() {
+            push_channel(&mut out, id, unescape(name), handle.to_string());
+        }
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out
+}
+
+pub fn parse_handle_page(html: &str, handle: &str) -> Option<Channel> {
+    let id = between(
+        html,
+        "rel=\"canonical\" href=\"https://www.youtube.com/channel/",
+        "\"",
+    )
+    .or_else(|| between(html, "youtube.com/channel/", "\""))?;
+    let id = id.trim_end_matches('/');
+    if !valid_channel_id(id) {
+        return None;
+    }
+    let title = between(html, "<title>", "</title>").unwrap_or(handle);
+    let name = title
+        .trim()
+        .trim_end_matches("- YouTube")
+        .trim()
+        .trim_end_matches("— YouTube")
+        .trim();
+    let name = if name.is_empty() || name.eq_ignore_ascii_case("youtube") {
+        handle
+    } else {
+        name
+    };
+    Some(Channel {
+        id: id.to_string(),
+        name: unescape(name),
+        subscribers: format!("@{handle}"),
+    })
+}
+
+pub fn parse_rss(xml: &str, channel: &str) -> Vec<Video> {
+    let mut out = Vec::new();
+    for entry in xml.split("<entry>").skip(1) {
+        let Some(id) = between(entry, "<yt:videoId>", "</yt:videoId>") else {
+            continue;
+        };
+        let title = between(entry, "<title>", "</title>").unwrap_or("");
+        let published = between(entry, "<published>", "</published>")
+            .unwrap_or("")
+            .chars()
+            .take(10)
+            .collect::<String>();
+        push_video(&mut out, id, unescape(title), channel, 0, published);
+    }
+    out
+}
+
+pub fn parse_invidious_video(body: &str) -> Option<Media> {
+    let value = parse_json(body)?;
+    let mut videos = Vec::new();
+    let mut audios = Vec::new();
+    if let Some(J::Arr(items)) = value.get("formatStreams") {
+        for item in items {
+            let url = item.get("url").and_then(J::as_str)?.to_string();
+            if url.is_empty() {
+                continue;
+            }
+            let quality = item.get("qualityLabel").and_then(J::as_str).unwrap_or("");
+            let encoding = item.get("encoding").and_then(J::as_str).unwrap_or("");
+            let container = item.get("container").and_then(J::as_str).unwrap_or("");
+            videos.push(StreamOffer {
+                url,
+                height: height_of(quality),
+                h264: encoding.contains("avc1") || container == "mp4",
+                muxed: true,
+            });
+        }
+    }
+    if let Some(J::Arr(items)) = value.get("adaptiveFormats") {
+        for item in items {
+            let url = item.get("url").and_then(J::as_str)?.to_string();
+            if url.is_empty() {
+                continue;
+            }
+            let kind = item.get("type").and_then(J::as_str).unwrap_or("");
+            let encoding = item.get("encoding").and_then(J::as_str).unwrap_or("");
+            if kind.starts_with("audio/") {
+                audios.push(AudioOffer {
+                    url,
+                    aac: encoding.contains("mp4a") || kind.contains("mp4"),
+                    bitrate: item.get("bitrate").and_then(J::as_u32).unwrap_or(u32::MAX),
+                });
+            } else {
+                let quality = item.get("qualityLabel").and_then(J::as_str).unwrap_or("");
+                videos.push(StreamOffer {
+                    url,
+                    height: height_of(quality),
+                    h264: encoding.contains("avc1") || kind.contains("mp4"),
+                    muxed: false,
+                });
+            }
+        }
+    }
+    pick_media(&videos, &audios)
+}
+
+pub fn parse_watch_page(html: &str) -> Option<Media> {
+    let text = html.replace("\\u0026", "&").replace("\\/", "/");
+    let mut best: Option<(u32, String)> = None;
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("https://") {
+        rest = &rest[at..];
+        let end = rest.find(['"', '\\', ' ']).unwrap_or(rest.len());
+        let url = &rest[..end];
+        rest = &rest[end.max(1)..];
+        if !url.contains("googlevideo.com/videoplayback") {
+            continue;
+        }
+        let itag = url
+            .split("itag=")
+            .nth(1)
+            .and_then(|s| s.split('&').next())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        // 18 is the muxed 360p H.264 file. 22 is 720p, which is more than we play.
+        let height = match itag {
+            18 => 360,
+            36 => 240,
+            17 => 144,
+            _ => 0,
+        };
+        if height == 0 || height > MAX_HEIGHT {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(h, _)| height > *h) {
+            best = Some((height, url.to_string()));
+        }
+    }
+    best.map(|(height, video_url)| Media {
+        video_url,
+        audio_url: None,
+        height,
+        muxed: true,
+    })
+}
+
+fn player_failure(body: &str) -> Option<String> {
+    let value = parse_json(body)?;
+    let status = value.get("playabilityStatus")?;
+    let name = status.get("status").and_then(J::as_str).unwrap_or("");
+    if name.is_empty() || name == "OK" {
+        return None;
+    }
+    let reason = status
+        .get("reason")
+        .and_then(J::as_str)
+        .unwrap_or("")
+        .trim();
+    Some(match reason.is_empty() {
+        true => format!("YouTube's player said {name}"),
+        false => format!("YouTube's player: {reason}"),
+    })
+}
+
+fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let at = text.find(start)? + start.len();
+    let rest = &text[at..];
+    let stop = rest.find(end)?;
+    Some(&rest[..stop])
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("\\u0026", "&")
 }
 
 fn json_escape(s: &str) -> String {
@@ -1021,22 +1373,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_file_is_a_hook_and_stays_unused() {
-        let d = tempfile::tempdir().unwrap();
-        assert_eq!(auth_status(d.path()), AuthState::SignedOut);
-        std::fs::create_dir_all(d.path().join("Config")).unwrap();
-        std::fs::write(d.path().join("Config/youtube-auth.txt"), "# reserved\n").unwrap();
-        assert_eq!(auth_status(d.path()), AuthState::SignedOut);
-        std::fs::write(
-            d.path().join("Config/youtube-auth.txt"),
-            "# reserved\ntoken=abc\n",
-        )
-        .unwrap();
-        assert_eq!(auth_status(d.path()), AuthState::SavedUnused);
-        assert!(auth_reason().contains("not available"));
-    }
-
-    #[test]
     fn a_channel_link_is_accepted_and_a_video_link_is_not() {
         assert_eq!(
             channel_ref("https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"),
@@ -1045,10 +1381,85 @@ mod tests {
         assert!(channel_ref("https://youtu.be/abcdefghijk").is_err());
         assert!(channel_ref("https://www.youtube.com/watch?v=abcdefghijk").is_err());
         assert_eq!(
-            channel_ref("@Nintendo").unwrap(),
-            ChannelRef::Name("Nintendo".into())
+            channel_ref("@breakingpoints").unwrap(),
+            ChannelRef::Handle("breakingpoints".into())
+        );
+        assert_eq!(
+            channel_ref("https://www.youtube.com/@RetroGameCorps/videos").unwrap(),
+            ChannelRef::Handle("RetroGameCorps".into())
+        );
+        assert_eq!(
+            channel_ref("Breaking Points").unwrap(),
+            ChannelRef::Name("Breaking Points".into())
         );
         assert!(matches!(channel_ref("   "), Err(_)));
+    }
+
+    #[test]
+    fn a_search_page_a_handle_page_and_a_feed_become_channels_and_videos() {
+        let html = r#""channelRenderer":{"channelId":"UCDRIjKy6eZOvKtOELtTdeUA","title":{"simpleText":"Breaking Points"},"browseEndpoint":{"browseId":"UCDRIjKy6eZOvKtOELtTdeUA","canonicalBaseUrl":"/@breakingpoints"}}"#;
+        let found = parse_youtube_search(html);
+        assert_eq!(found[0].name, "Breaking Points");
+        assert_eq!(found[0].subscribers, "@breakingpoints");
+        let page = r#"<title>Breaking Points - YouTube</title><link rel="canonical" href="https://www.youtube.com/channel/UCDRIjKy6eZOvKtOELtTdeUA">"#;
+        let channel = parse_handle_page(page, "breakingpoints").unwrap();
+        assert_eq!(channel.id, "UCDRIjKy6eZOvKtOELtTdeUA");
+        assert_eq!(channel.name, "Breaking Points");
+        let rss = r#"<feed><entry><yt:videoId>8fVV8qauHRc</yt:videoId><title>Stocks &amp; PLUNGE</title><published>2026-11-18T17:00:09+00:00</published></entry></feed>"#;
+        let videos = parse_rss(rss, "Breaking Points");
+        assert_eq!(videos[0].id, "8fVV8qauHRc");
+        assert_eq!(videos[0].title, "Stocks & PLUNGE");
+        assert_eq!(videos[0].published, "2026-11-18");
+    }
+
+    #[test]
+    fn a_lockup_and_a_watch_page_url_are_readable() {
+        let body = r#"{"lockupViewModel":{"contentId":"abcdefghijk","metadata":{"lockupMetadataViewModel":{"title":{"content":"A game"}}},"contentImage":{"thumbnailBadgeViewModel":{"text":"1:30"}}}}"#;
+        let videos = parse_innertube_videos(body, "Band");
+        assert_eq!(videos[0].title, "A game");
+        assert_eq!(videos[0].duration_ms, 90_000);
+        let page = r#"<script>var u="https://rr.googlevideo.com/videoplayback?itag=18\u0026id=1";</script>"#;
+        let media = parse_watch_page(page).unwrap();
+        assert!(media.muxed && media.height == 360);
+        assert!(media.video_url.contains("itag=18&id=1"));
+    }
+
+    #[test]
+    #[ignore = "needs internet"]
+    fn live_handles_and_feeds_list_real_videos() {
+        let points = find_channels("@breakingpoints").unwrap();
+        assert_eq!(points[0].id, "UCDRIjKy6eZOvKtOELtTdeUA");
+        assert!(points[0].name.to_ascii_lowercase().contains("breaking"));
+        let videos = channel_videos(&points[0].id, &points[0].name).unwrap();
+        assert!(videos.len() >= 5, "{videos:?}");
+        assert!(videos.iter().all(|v| valid_id(&v.id)));
+        let corps = find_channels("Retro Game Corps").unwrap();
+        assert!(
+            corps.iter().any(|c| c.id == "UCoZQiN0o7f36H7PaW4fVhFw"),
+            "{corps:?}"
+        );
+        let typed = find_channels("Breaking Point").unwrap();
+        assert!(
+            typed.iter().any(|c| c.name == "Breaking Points"),
+            "{typed:?}"
+        );
+        let zone = find_channels("@RetroGamingCore").unwrap();
+        assert_eq!(zone[0].id, "UCFKxT8oaisBZMTYTUgMHDUQ", "{zone:?}");
+        let listed = channel_videos(&zone[0].id, &zone[0].name).unwrap();
+        assert!(!listed.is_empty(), "{listed:?}");
+        match media_for(&videos[0].id) {
+            Ok(media) => {
+                let got = crate::net::get(&media.video_url, 256 * 1024).expect("file bytes");
+                assert!(got.len() > 1000, "short file {}", got.len());
+            }
+            Err(e) => assert!(
+                e.to_lowercase().contains("player")
+                    || e.to_lowercase().contains("sign in")
+                    || e.to_lowercase().contains("bot")
+                    || e.to_lowercase().contains("direct"),
+                "the failure should name YouTube's answer, not a bare 'no videos': {e}"
+            ),
+        }
     }
 
     #[test]

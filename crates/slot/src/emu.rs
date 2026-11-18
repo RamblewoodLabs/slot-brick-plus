@@ -113,8 +113,8 @@ struct Shared {
     requested: AtomicBool,
     clock: Mutex<Clock>,
     clocked: Condvar,
-    /// RetroAchievements login for the worker to start with (user, token, console).
-    cheevos_login: Mutex<Option<(String, String, slot_cheevos::Console)>>,
+    /// RetroAchievements login for the worker to start with (user, token, console, card root).
+    cheevos_login: Mutex<Option<(String, String, slot_cheevos::Console, std::path::PathBuf)>>,
     /// What RetroAchievements said, for the app to show.
     cheevos_notices: Mutex<Vec<slot_cheevos::Notice>>,
     /// The loaded game's badge URLs, to fetch before any unlock needs one.
@@ -241,9 +241,10 @@ impl EmuHandle {
     }
 
     /// Turns RetroAchievements on for this game (softcore), logged in with a saved token.
-    pub fn achievements(&self, user: &str, token: &str, console: slot_cheevos::Console) {
+    /// `root` is where a cached set and the unlock queue live.
+    pub fn achievements(&self, root: &std::path::Path, user: &str, token: &str, console: slot_cheevos::Console) {
         *self.shared.cheevos_login.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some((user.to_string(), token.to_string(), console));
+            Some((user.to_string(), token.to_string(), console, root.to_path_buf()));
     }
 
     pub fn take_badge_urls(&self) -> Vec<String> {
@@ -493,11 +494,12 @@ impl Snapshot for EmuSnapshot {
 fn start_cheevos(
     core: &mut dyn RetroCore,
     rom: &std::path::Path,
+    root: &std::path::Path,
     user: &str,
     token: &str,
     console: slot_cheevos::Console,
 ) -> Option<slot_cheevos::Cheevos> {
-    let mut c = slot_cheevos::Cheevos::new(Arc::new(crate::ra::Http))?;
+    let mut c = slot_cheevos::Cheevos::new(Arc::new(crate::ra::Http::new(root)))?;
     let (map, count) = core.memory_map();
     // The map and regions are the core's own and live as long as its game, which this
     // session does not outlive (it ends with the worker).
@@ -645,8 +647,8 @@ impl Worker {
                 }
             }
             let login = self.shared.cheevos_login.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some((user, token, console)) = login {
-                cheevos = start_cheevos(core.as_mut(), &rom, &user, &token, console);
+            if let Some((user, token, console, root)) = login {
+                cheevos = start_cheevos(core.as_mut(), &rom, &root, &user, &token, console);
             }
             if let Some(c) = &cheevos {
                 let said = c.take();

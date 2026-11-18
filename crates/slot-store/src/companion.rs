@@ -29,6 +29,9 @@ pub enum Mood {
     Sleepy,
     Curious,
     Celebrating,
+    Neutral,
+    Sad,
+    Frustrated,
 }
 
 impl Mood {
@@ -39,6 +42,9 @@ impl Mood {
             Mood::Sleepy => "Sleepy",
             Mood::Curious => "Curious",
             Mood::Celebrating => "Celebrating",
+            Mood::Neutral => "Neutral",
+            Mood::Sad => "Sad",
+            Mood::Frustrated => "Frustrated",
         }
     }
 }
@@ -81,6 +87,19 @@ impl MissionKind {
         Self::ALL.into_iter().find(|k| k.id() == value)
     }
 
+    /// What the mission is, in ordinary words. The screen and the settings row use this.
+    pub fn plain(self) -> &'static str {
+        match self {
+            MissionKind::TryNew => "Try a game you've never played",
+            MissionKind::HiddenGem => "Try a game you rarely play",
+            MissionKind::Marathon => "Play one game for 20 minutes",
+            MissionKind::Forgotten => "Play a game you haven't opened in a while",
+            MissionKind::OneMore => "Play a game one more time",
+            MissionKind::Tourist => "Play any game on one system",
+            MissionKind::Weekend => "Play 4 different games this weekend",
+        }
+    }
+
     fn xp(self) -> u32 {
         match self {
             MissionKind::Weekend => XP_WEEKLY,
@@ -119,6 +138,55 @@ pub struct Mission {
 pub struct DoneMission {
     pub title: String,
     pub day: i64,
+    /// The day the mission was finished. `day` is the same value, kept for older files.
+    pub finished: i64,
+    pub xp: u32,
+    pub platform: Option<Platform>,
+    pub stem: String,
+}
+
+/// One game's record: how often it was launched, how long it has been played, and the last session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameStat {
+    pub platform: Platform,
+    pub stem: String,
+    pub plays: u32,
+    pub secs: u64,
+    pub last_day: i64,
+    pub last_secs: u64,
+    pub favorite: bool,
+}
+
+/// Totals for one of Slot's systems.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemStat {
+    pub platform: Platform,
+    pub plays: u32,
+    pub secs: u64,
+    pub last_day: i64,
+    pub games: u32,
+}
+
+/// Days in a row with play, and the longest such run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Streak {
+    pub last_day: i64,
+    pub current: u32,
+    pub longest: u32,
+    pub total_days: u32,
+    pub start_day: i64,
+}
+
+impl Default for Streak {
+    fn default() -> Self {
+        Streak {
+            last_day: 0,
+            current: 0,
+            longest: 0,
+            total_days: 0,
+            start_day: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,10 +226,19 @@ pub struct Companion {
     pub missions: Vec<Mission>,
     pub history: Vec<DoneMission>,
     pub sessions: Vec<Session>,
+    pub games: Vec<GameStat>,
+    pub systems: Vec<SystemStat>,
+    pub streak: Streak,
+    /// How many missions have ever been finished, even after the history list is trimmed.
+    pub finished: u32,
+    pub last_visit: i64,
+    pub face: Mood,
     open: Option<OpenSession>,
     suggest: Option<(Platform, String)>,
     /// Set for a short while after a level-up so the screen can celebrate.
     pub celebrating: bool,
+    /// An achievement just unlocked. Not saved; the next launch clears it.
+    pub pumped: bool,
 }
 
 impl Default for Companion {
@@ -179,17 +256,42 @@ impl Default for Companion {
             missions: Vec::new(),
             history: Vec::new(),
             sessions: Vec::new(),
+            games: Vec::new(),
+            systems: Vec::new(),
+            streak: Streak::default(),
+            finished: 0,
+            last_visit: 0,
+            face: Mood::Happy,
             open: None,
             suggest: None,
             celebrating: false,
+            pumped: false,
         }
     }
 }
 
 impl Companion {
     pub fn read(root: &Path) -> Companion {
-        let text = std::fs::read_to_string(root.join(FILE)).unwrap_or_default();
-        let mut companion = Companion::parse(&text);
+        let path = root.join(FILE);
+        let bak = backup_path(&path);
+        let mut companion = if let Some(companion) = load_sound(&path) {
+            if !bak.is_file() {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    let _ = atomic_write(&bak, &bytes);
+                }
+            }
+            companion
+        } else if let Some(companion) = load_sound(&bak) {
+            let _ = companion.write(root);
+            companion
+        } else if let Some(companion) = load_legacy(&path) {
+            companion
+        } else if let Some(companion) = load_legacy(&bak) {
+            let _ = companion.write(root);
+            companion
+        } else {
+            Companion::default()
+        };
         // A session left open by a crash or a power loss keeps only the seconds already
         // counted. The gap until now is not play.
         if let Some(open) = companion.open.take() {
@@ -199,32 +301,274 @@ impl Companion {
     }
 
     pub fn write(&self, root: &Path) -> std::io::Result<()> {
-        atomic_write(&root.join(FILE), self.text().as_bytes())
+        let path = root.join(FILE);
+        let bak = backup_path(&path);
+        if let Ok(bytes) = std::fs::read(&path) {
+            if load_sound_bytes(&bytes).is_some() {
+                atomic_write(&bak, &bytes)?;
+            }
+        }
+        let bytes = self.text().into_bytes();
+        atomic_write(&path, &bytes)?;
+        // The first good save has no earlier generation. Keep a spare of this one so a
+        // later tear still has something to read.
+        if !bak.is_file() {
+            atomic_write(&bak, &bytes)?;
+        }
+        Ok(())
     }
 
+    /// Remember the face for this day, and which games are favorites, before a save.
+    pub fn stamp(&mut self, day: i64, games: &[GameSeen], favorites: &[(Platform, &str)]) {
+        self.face = self.mood(day, games);
+        self.last_visit = day;
+        self.absorb_library(games);
+        self.sync_favorites(favorites);
+    }
+
+    /// Copy time the library already recorded into this file. Later play only raises those
+    /// totals, so a save cannot count the same minute twice.
+    fn absorb_library(&mut self, games: &[GameSeen]) {
+        for seen in games {
+            if seen.played_secs == 0 && seen.last_played <= 0 {
+                continue;
+            }
+            let day = if seen.last_played > 0 {
+                seen.last_played / 86_400
+            } else {
+                0
+            };
+            if let Some(game) = self
+                .games
+                .iter_mut()
+                .find(|g| g.platform == seen.platform && g.stem == seen.stem)
+            {
+                if seen.played_secs > game.secs {
+                    game.secs = seen.played_secs;
+                }
+                if day > game.last_day {
+                    game.last_day = day;
+                }
+                if game.plays == 0 && game.secs > 0 {
+                    game.plays = 1;
+                }
+            } else {
+                self.games.push(GameStat {
+                    platform: seen.platform,
+                    stem: seen.stem.clone(),
+                    plays: u32::from(seen.played_secs > 0),
+                    secs: seen.played_secs,
+                    last_day: day,
+                    last_secs: 0,
+                    favorite: false,
+                });
+            }
+        }
+        let platforms: Vec<Platform> = self.games.iter().map(|g| g.platform).collect();
+        for platform in platforms {
+            let secs = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform)
+                .map(|g| g.secs)
+                .sum();
+            let games_with_time = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform && g.secs > 0)
+                .count() as u32;
+            let last_day = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform)
+                .map(|g| g.last_day)
+                .max()
+                .unwrap_or(0);
+            if let Some(system) = self.systems.iter_mut().find(|s| s.platform == platform) {
+                if secs > system.secs {
+                    system.secs = secs;
+                }
+                system.games = system.games.max(games_with_time);
+                if last_day > system.last_day {
+                    system.last_day = last_day;
+                }
+                if system.plays == 0 && system.secs > 0 {
+                    system.plays = games_with_time.max(1);
+                }
+            } else if secs > 0 {
+                self.systems.push(SystemStat {
+                    platform,
+                    plays: games_with_time.max(1),
+                    secs,
+                    last_day,
+                    games: games_with_time,
+                });
+            }
+        }
+    }
+
+    pub fn sync_favorites(&mut self, favorites: &[(Platform, &str)]) {
+        for game in &mut self.games {
+            game.favorite = favorites
+                .iter()
+                .any(|(platform, stem)| *platform == game.platform && *stem == game.stem);
+        }
+        for (platform, stem) in favorites {
+            if self
+                .games
+                .iter()
+                .any(|g| g.platform == *platform && g.stem == *stem)
+            {
+                continue;
+            }
+            self.games.push(GameStat {
+                platform: *platform,
+                stem: (*stem).to_string(),
+                plays: 0,
+                secs: 0,
+                last_day: 0,
+                last_secs: 0,
+                favorite: true,
+            });
+        }
+    }
+
+    /// Each level asks for more than the one before: 100, then 150, then 200.
     pub fn level(&self) -> u32 {
-        1 + self.xp / LEVEL_XP
+        let mut left = self.xp;
+        let mut level = 1u32;
+        loop {
+            let cost = self.cost_of(level);
+            if left < cost || level >= 99 {
+                break;
+            }
+            left -= cost;
+            level += 1;
+        }
+        level
     }
 
     pub fn toward_next(&self) -> u32 {
-        self.xp % LEVEL_XP
+        let mut left = self.xp;
+        let mut level = 1u32;
+        loop {
+            let cost = self.cost_of(level);
+            if left < cost || level >= 99 {
+                return left;
+            }
+            left -= cost;
+            level += 1;
+        }
     }
 
-    pub fn mood(&self, day: i64, games: &[GameSeen]) -> Mood {
+    pub fn next_cost(&self) -> u32 {
+        self.cost_of(self.level())
+    }
+
+    fn cost_of(&self, level: u32) -> u32 {
+        let step = LEVEL_XP / 2;
+        level.max(1).saturating_mul(step).saturating_add(step)
+    }
+
+    /// A short hello. The words are Slot's own, and they change with the day, the hour,
+    /// the streak, and the game in front of Pip.
+    pub fn say(&self, day: i64, hour: u32, games: &[GameSeen]) -> String {
+        let mood = self.mood_at(day, hour, games);
+        let (stem, system) = self.topic();
+        let seed = (day as u64)
+            .wrapping_mul(17)
+            ^ u64::from(hour / 4)
+            ^ u64::from(self.streak.current).wrapping_mul(9)
+            ^ u64::from(self.level())
+            ^ fold(&stem);
+        let line = pick(seed, lines(mood, hour));
+        if stem.is_empty() || seed % 3 != 0 {
+            return line.to_string();
+        }
+        match seed % 5 {
+            0 => format!("{stem} next?"),
+            1 => format!("{system} today?"),
+            2 if self.streak.current >= 2 => format!("{} days running", self.streak.current),
+            _ => format!("{line} {stem}"),
+        }
+    }
+
+    pub fn greeting(&self, day: i64) -> String {
+        self.say(day, 12, &[])
+    }
+
+    fn topic(&self) -> (String, String) {
+        if let Some((platform, stem)) = &self.suggest {
+            return (short(stem), short_system(platform.name()));
+        }
+        if let Some(open) = &self.open {
+            return (short(&open.stem), short_system(open.platform.name()));
+        }
+        if let Some(s) = self.sessions.last() {
+            return (short(&s.stem), short_system(s.platform.name()));
+        }
+        (String::new(), String::new())
+    }
+
+    /// What Pip is feeling. `hour` is 0–23 in the player's local time.
+    pub fn mood_at(&self, day: i64, hour: u32, games: &[GameSeen]) -> Mood {
         if self.celebrating {
             return Mood::Celebrating;
         }
-        let last = self.sessions.iter().map(|s| s.day).max().unwrap_or(0);
-        if last > 0 && day > last + 2 {
-            return Mood::Sleepy;
-        }
-        if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() {
-            return Mood::Curious;
-        }
-        if self.history.last().is_some_and(|d| d.day == day) {
+        if self.pumped || self.history.last().is_some_and(|d| d.day == day) {
             return Mood::Excited;
         }
+        if self.streak.current >= 3 && self.streak.last_day == day {
+            return Mood::Excited;
+        }
+        let last = self.last_play_day();
+        if last > 0 && day >= last + 3 {
+            return Mood::Sad;
+        }
+        if self.short_day(day) {
+            return Mood::Frustrated;
+        }
+        if hour >= 23 || hour < 6 {
+            return Mood::Sleepy;
+        }
+        if last > 0 && last + 1 == day {
+            return Mood::Sleepy;
+        }
+        if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() && self.open.is_none()
+        {
+            return Mood::Curious;
+        }
+        if self.sessions.is_empty() && self.open.is_none() {
+            return Mood::Neutral;
+        }
         Mood::Happy
+    }
+
+    pub fn mood(&self, day: i64, games: &[GameSeen]) -> Mood {
+        self.mood_at(day, 12, games)
+    }
+
+    /// An achievement unlocked. Cleared when the next game is launched.
+    pub fn note_cheer(&mut self) {
+        self.pumped = true;
+    }
+
+    fn last_play_day(&self) -> i64 {
+        self.sessions
+            .iter()
+            .map(|s| s.day)
+            .chain(self.open.as_ref().map(|o| o.day))
+            .chain((self.streak.last_day > 0).then_some(self.streak.last_day))
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn short_day(&self, day: i64) -> bool {
+        let today: Vec<_> = self.sessions.iter().filter(|s| s.day == day).collect();
+        if today.is_empty() || self.open.is_some() {
+            return false;
+        }
+        today.iter().all(|s| s.secs > 0 && s.secs < 180)
     }
 
     pub fn suggestion(&self) -> Option<(Platform, String)> {
@@ -273,6 +617,9 @@ impl Companion {
         self.advance(platform, stem, secs, day, &mut awards);
         self.ensure_missions(games, day);
         self.pick_suggestion(games, day);
+        self.note_streak(day);
+        self.face = self.mood(day, games);
+        self.last_visit = day;
         awards
     }
 
@@ -384,7 +731,9 @@ impl Companion {
             .open
             .as_ref()
             .is_some_and(|o| o.platform == platform && o.stem == stem);
+        self.record_play(platform, stem, secs, day, !same);
         if !same {
+            self.pumped = false;
             if let Some(open) = self.open.take() {
                 self.push_session(open);
             }
@@ -435,19 +784,32 @@ impl Companion {
                 MissionKind::TryNew
                 | MissionKind::HiddenGem
                 | MissionKind::Forgotten
-                | MissionKind::OneMore => {
-                    if mission.platform == Some(platform) && mission.stem == stem {
-                        mission.progress = 1;
-                    }
-                }
-                MissionKind::Marathon => {
-                    if mission.platform == Some(platform) && mission.stem == stem {
-                        mission.progress = mission
-                            .progress
-                            .saturating_add(secs.min(u32::MAX as u64) as u32);
+                | MissionKind::OneMore
+                | MissionKind::Marathon => {
+                    let hit = if mission.stem.is_empty() {
+                        mission.platform == Some(platform)
+                    } else {
+                        mission.platform == Some(platform) && mission.stem == stem
+                    };
+                    if hit {
+                        if mission.need >= 60 {
+                            mission.progress = mission
+                                .progress
+                                .saturating_add(secs.min(u32::MAX as u64) as u32);
+                        } else {
+                            mission.progress = 1;
+                        }
                     }
                 }
                 MissionKind::Tourist => {
+                    if mission.need >= 60 {
+                        if mission.platform == Some(platform) {
+                            mission.progress = mission
+                                .progress
+                                .saturating_add(secs.min(u32::MAX as u64) as u32);
+                        }
+                        continue;
+                    }
                     let tag = platform.dir_name();
                     if !mission.extra.split(',').any(|s| s == tag) {
                         if !mission.extra.is_empty() {
@@ -486,9 +848,14 @@ impl Companion {
             "Mission",
             &format!("{}  +{} XP", mission.title, mission.xp),
         );
+        self.finished = self.finished.saturating_add(1);
         self.history.push(DoneMission {
             title: mission.title.clone(),
             day,
+            finished: day,
+            xp: mission.xp,
+            platform: mission.platform,
+            stem: mission.stem.clone(),
         });
         if self.history.len() > 20 {
             let extra = self.history.len() - 20;
@@ -523,16 +890,14 @@ impl Companion {
                 .any(|m| m.done && m.platform == Some(platform) && m.stem == stem)
     }
 
-    fn spawn(&mut self, games: &[GameSeen], day: i64) -> bool {
+    fn spawn(&mut self, games: &[GameSeen], _day: i64) -> bool {
         let used: Vec<(MissionKind, String)> = self
             .missions
             .iter()
             .filter(|m| !m.done)
             .map(|m| (m.kind, m.stem.clone()))
             .collect();
-        let want = |kind: MissionKind| {
-            self.categories.contains(&kind) && !used.iter().any(|(k, _)| *k == kind)
-        };
+        let _ = used;
         let unplayed: Vec<&GameSeen> = games
             .iter()
             .filter(|g| {
@@ -563,88 +928,165 @@ impl Companion {
                     extra: String::new(),
                 }
             };
-        let pick = unplayed.get((id as usize).wrapping_mul(3) % unplayed.len().max(1));
-        if want(MissionKind::TryNew) {
-            if let Some(game) = pick.filter(|_| !unplayed.is_empty()) {
-                self.missions.push(mission(
-                    MissionKind::TryNew,
-                    "Try something new",
-                    &format!("Launch {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::HiddenGem) && unplayed.len() > 1 {
-            let game = unplayed[(id as usize).wrapping_add(1) % unplayed.len()];
-            if !used.iter().any(|(_, stem)| stem == &game.stem) {
-                self.missions.push(mission(
-                    MissionKind::HiddenGem,
-                    "Hidden gem",
-                    &format!("Try {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::Marathon) {
-            let game = played.first().or(unplayed.first());
-            if let Some(game) = game {
-                self.missions.push(mission(
-                    MissionKind::Marathon,
-                    "Retro marathon",
-                    &format!("Play {} for 20 minutes", game.stem),
-                    Some(game),
-                    20 * 60,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::Forgotten) {
-            let old = played
+        // Three at a time, when the library allows: one from games already played,
+        // one about playing different systems, and one about a game not yet played.
+        let filled = |slot: u8| {
+            self.missions
                 .iter()
-                .filter(|g| g.last_played > 0)
-                .min_by_key(|g| g.last_played);
-            if let Some(game) = old {
-                self.missions.push(mission(
-                    MissionKind::Forgotten,
-                    "Forgotten favorite",
-                    &format!("Revisit {}", game.stem),
-                    Some(game),
-                    1,
-                ));
+                .any(|m| !m.done && Self::mission_slot(m.kind) == Some(slot))
+        };
+        let missing: Vec<u8> = [0, 1, 2]
+            .into_iter()
+            .filter(|slot| !filled(*slot))
+            .collect();
+        let pick = unplayed.get((id as usize).wrapping_mul(3) % unplayed.len().max(1));
+        for slot in missing {
+            if self.fill_slot(slot, &unplayed, &played, pick.copied(), &mission) {
                 return true;
             }
         }
-        if want(MissionKind::OneMore) {
-            if let Some(game) = played.first() {
-                self.missions.push(mission(
-                    MissionKind::OneMore,
-                    "One more round",
-                    &format!("Return to {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
+        self.fill_slot(3, &unplayed, &played, pick.copied(), &mission)
+    }
+
+    /// Turn the mission just added into a timed one. Reward is minutes times `per_minute`.
+    fn time_the_last(&mut self, per_minute: u32) {
+        let seed = self.next_id.max(1);
+        let mins = match per_minute {
+            8 => 10 + seed % 15,
+            5 => {
+                let rare = self
+                    .missions
+                    .last()
+                    .is_some_and(|m| m.kind == MissionKind::Forgotten);
+                if rare {
+                    5 + seed % 10
+                } else {
+                    10 + seed % 15
+                }
+            }
+            _ => 5 + seed % 15,
+        };
+        if let Some(mission) = self.missions.last_mut() {
+            mission.need = mins * 60;
+            mission.xp = mins * per_minute;
+            mission.detail = format!("About {mins} minutes");
+        }
+    }
+
+    fn wants(&self, kind: MissionKind) -> bool {
+        self.categories.contains(&kind) && !self.missions.iter().any(|m| !m.done && m.kind == kind)
+    }
+
+    fn fill_slot(
+        &mut self,
+        slot: u8,
+        unplayed: &[&GameSeen],
+        played: &[&GameSeen],
+        pick: Option<&GameSeen>,
+        mission: &impl Fn(MissionKind, &str, &str, Option<&GameSeen>, u32) -> Mission,
+    ) -> bool {
+        if slot == 0 {
+            if self.wants(MissionKind::Forgotten) {
+                let old = played
+                    .iter()
+                    .copied()
+                    .filter(|g| g.last_played > 0)
+                    .min_by_key(|g| g.last_played);
+                if let Some(game) = old {
+                    self.missions.push(mission(
+                        MissionKind::Forgotten,
+                        MissionKind::Forgotten.plain(),
+                        &format!("Revisit {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    self.time_the_last(5);
+                    return true;
+                }
+            }
+            if self.wants(MissionKind::OneMore) {
+                if let Some(game) = played.first() {
+                    self.missions.push(mission(
+                        MissionKind::OneMore,
+                        MissionKind::OneMore.plain(),
+                        &format!("Return to {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    self.time_the_last(5);
+                    return true;
+                }
+            }
+            if self.wants(MissionKind::Marathon) {
+                let game = played.first().copied().or(unplayed.first().copied());
+                if let Some(game) = game {
+                    self.missions.push(mission(
+                        MissionKind::Marathon,
+                        MissionKind::Marathon.plain(),
+                        &format!("Play {} for 20 minutes", game.stem),
+                        Some(game),
+                        20 * 60,
+                    ));
+                    self.time_the_last(5);
+                    return true;
+                }
+            }
+            return false;
+        }
+        if slot == 1 && self.wants(MissionKind::Tourist) {
+            let pool: Vec<&GameSeen> = played.iter().chain(unplayed.iter()).copied().collect();
+            if let Some(game) = pool
+                .get((self.next_id as usize) % pool.len().max(1))
+                .copied()
+            {
+                if !pool.is_empty() {
+                    self.missions.push(mission(
+                        MissionKind::Tourist,
+                        MissionKind::Tourist.plain(),
+                        &format!("Any game on {}", game.platform.name()),
+                        Some(game),
+                        3,
+                    ));
+                    self.missions.last_mut().map(|m| m.stem.clear());
+                    self.time_the_last(6);
+                    return true;
+                }
             }
         }
-        if want(MissionKind::Tourist) {
-            self.missions.push(mission(
-                MissionKind::Tourist,
-                "Console tourist",
-                "Play three different systems",
-                None,
-                3,
-            ));
-            return true;
+        if slot == 2 {
+            if self.wants(MissionKind::TryNew) {
+                if let Some(game) = pick.filter(|_| !unplayed.is_empty()) {
+                    self.missions.push(mission(
+                        MissionKind::TryNew,
+                        MissionKind::TryNew.plain(),
+                        &format!("Launch {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    self.time_the_last(7);
+                    return true;
+                }
+            }
+            if self.wants(MissionKind::HiddenGem) && unplayed.len() > 1 {
+                let game = unplayed[(self.next_id as usize).wrapping_add(1) % unplayed.len()];
+                if !self.missions.iter().any(|m| !m.done && m.stem == game.stem) {
+                    self.missions.push(mission(
+                        MissionKind::HiddenGem,
+                        MissionKind::HiddenGem.plain(),
+                        &format!("Try {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    self.time_the_last(8);
+                    return true;
+                }
+            }
+            return false;
         }
-        if want(MissionKind::Weekend) {
-            let _ = day;
+        if slot == 3 && self.wants(MissionKind::Weekend) {
             self.missions.push(mission(
                 MissionKind::Weekend,
-                "Weekend adventure",
+                MissionKind::Weekend.plain(),
                 "Play four different games over a weekend",
                 None,
                 4,
@@ -652,6 +1094,15 @@ impl Companion {
             return true;
         }
         false
+    }
+
+    fn mission_slot(kind: MissionKind) -> Option<u8> {
+        match kind {
+            MissionKind::Forgotten | MissionKind::OneMore | MissionKind::Marathon => Some(0),
+            MissionKind::Tourist => Some(1),
+            MissionKind::TryNew | MissionKind::HiddenGem => Some(2),
+            MissionKind::Weekend => None,
+        }
     }
 
     fn pick_suggestion(&mut self, games: &[GameSeen], salt: i64) {
@@ -743,11 +1194,26 @@ impl Companion {
                     }
                 }
                 "done" => {
-                    if let Some((title, day)) = value.rsplit_once('\t') {
-                        companion.history.push(DoneMission {
-                            title: title.to_string(),
-                            day: day.parse().unwrap_or(0),
-                        });
+                    if let Some(done) = parse_done(value) {
+                        companion.history.push(done);
+                    }
+                }
+                "game" => {
+                    if let Some(game) = parse_game(value) {
+                        companion.games.push(game);
+                    }
+                }
+                "system" => {
+                    if let Some(system) = parse_system(value) {
+                        companion.systems.push(system);
+                    }
+                }
+                "streak" => companion.streak = parse_streak(value),
+                "finished" => companion.finished = value.parse().unwrap_or(0),
+                "last_visit" => companion.last_visit = value.parse().unwrap_or(0),
+                "mood" => {
+                    if let Some(mood) = parse_mood(value) {
+                        companion.face = mood;
                     }
                 }
                 _ => {}
@@ -760,7 +1226,7 @@ impl Companion {
     }
 
     pub fn text(&self) -> String {
-        let mut out = String::from("slot-companion 1\n");
+        let mut out = String::from("slot-companion 2\n");
         let flag = |on: bool| if on { "1" } else { "0" };
         out.push_str(&format!(
             "enabled={}\ntoasts={}\nsounds={}\nanimate={}\nxp={}\nnext_id={}\n",
@@ -826,9 +1292,401 @@ impl Companion {
             ));
         }
         for done in &self.history {
-            out.push_str(&format!("done={}\t{}\n", flat(&done.title), done.day));
+            out.push_str(&format!(
+                "done={}\t{}\t{}\t{}\t{}\t{}\n",
+                flat(&done.title),
+                done.day,
+                done.finished,
+                done.xp,
+                done.platform.map(|p| p.dir_name()).unwrap_or("-"),
+                flat(&done.stem)
+            ));
         }
+        for game in &self.games {
+            out.push_str(&format!(
+                "game={}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                game.platform.dir_name(),
+                flat(&game.stem),
+                game.plays,
+                game.secs,
+                game.last_day,
+                game.last_secs,
+                u8::from(game.favorite)
+            ));
+        }
+        for system in &self.systems {
+            out.push_str(&format!(
+                "system={}\t{}\t{}\t{}\t{}\n",
+                system.platform.dir_name(),
+                system.plays,
+                system.secs,
+                system.last_day,
+                system.games
+            ));
+        }
+        out.push_str(&format!(
+            "streak={}\t{}\t{}\t{}\t{}\n",
+            self.streak.last_day,
+            self.streak.current,
+            self.streak.longest,
+            self.streak.total_days,
+            self.streak.start_day
+        ));
+        out.push_str(&format!(
+            "finished={}\nlast_visit={}\nmood={}\n",
+            self.finished,
+            self.last_visit,
+            self.face.name()
+        ));
+        let sum = checksum(out.as_bytes());
+        out.push_str(&format!("sum={sum:016x}\n"));
         out
+    }
+
+    fn record_play(
+        &mut self,
+        platform: Platform,
+        stem: &str,
+        secs: u64,
+        day: i64,
+        new_launch: bool,
+    ) {
+        if let Some(game) = self
+            .games
+            .iter_mut()
+            .find(|g| g.platform == platform && g.stem == stem)
+        {
+            if new_launch {
+                game.plays = game.plays.saturating_add(1);
+                game.last_secs = secs;
+            } else {
+                game.last_secs = game.last_secs.saturating_add(secs);
+            }
+            game.secs = game.secs.saturating_add(secs);
+            game.last_day = day;
+        } else {
+            self.games.push(GameStat {
+                platform,
+                stem: stem.to_string(),
+                plays: u32::from(new_launch),
+                secs,
+                last_day: day,
+                last_secs: secs,
+                favorite: false,
+            });
+        }
+        let games = self
+            .games
+            .iter()
+            .filter(|g| g.platform == platform && g.secs > 0)
+            .count() as u32;
+        if let Some(system) = self.systems.iter_mut().find(|s| s.platform == platform) {
+            if new_launch {
+                system.plays = system.plays.saturating_add(1);
+            }
+            system.secs = system.secs.saturating_add(secs);
+            system.last_day = day;
+            system.games = games;
+        } else {
+            self.systems.push(SystemStat {
+                platform,
+                plays: u32::from(new_launch),
+                secs,
+                last_day: day,
+                games,
+            });
+        }
+    }
+
+    fn note_streak(&mut self, day: i64) {
+        if self.streak.last_day == day {
+            return;
+        }
+        if self.streak.last_day == 0 {
+            self.streak.current = 1;
+            self.streak.start_day = day;
+        } else if day == self.streak.last_day + 1 {
+            self.streak.current = self.streak.current.saturating_add(1);
+        } else if day > self.streak.last_day {
+            self.streak.current = 1;
+            self.streak.start_day = day;
+        }
+        self.streak.longest = self.streak.longest.max(self.streak.current);
+        if day != self.streak.last_day {
+            self.streak.total_days = self.streak.total_days.saturating_add(1);
+        }
+        self.streak.last_day = day;
+    }
+}
+
+fn backup_path(path: &Path) -> std::path::PathBuf {
+    path.with_file_name("companion.txt.bak")
+}
+
+fn checksum(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn load_sound(path: &Path) -> Option<Companion> {
+    let bytes = std::fs::read(path).ok()?;
+    load_sound_bytes(&bytes)
+}
+
+fn load_sound_bytes(bytes: &[u8]) -> Option<Companion> {
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let mut body = String::new();
+    let mut sum = None;
+    for line in text.lines() {
+        if let Some(hex) = line.trim().strip_prefix("sum=") {
+            sum = u64::from_str_radix(hex.trim(), 16).ok();
+        } else {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    let sum = sum?;
+    if checksum(body.as_bytes()) != sum {
+        return None;
+    }
+    let header = body.lines().next()?.trim();
+    if header != "slot-companion 2" {
+        return None;
+    }
+    Some(Companion::parse(&body))
+}
+
+fn load_legacy(path: &Path) -> Option<Companion> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let header = text.lines().next()?.trim();
+    if header == "slot-companion 1" || header.starts_with("enabled=") {
+        Some(Companion::parse(&text))
+    } else {
+        None
+    }
+}
+
+fn parse_done(value: &str) -> Option<DoneMission> {
+    let mut f = value.split('\t');
+    let title = f.next()?.to_string();
+    let day = f.next()?.parse().ok()?;
+    let finished = f.next().and_then(|v| v.parse().ok()).unwrap_or(day);
+    let xp = f.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let platform = f.next().and_then(platform_named);
+    let stem = f.next().unwrap_or("").to_string();
+    Some(DoneMission {
+        title,
+        day,
+        finished,
+        xp,
+        platform,
+        stem,
+    })
+}
+
+fn parse_game(value: &str) -> Option<GameStat> {
+    let mut f = value.split('\t');
+    let platform = platform_named(f.next()?)?;
+    let stem = f.next()?.to_string();
+    let plays = f.next()?.parse().ok()?;
+    let secs = f.next()?.parse().ok()?;
+    let last_day = f.next()?.parse().ok()?;
+    let last_secs = f.next()?.parse().ok()?;
+    let favorite = f.next().unwrap_or("0") == "1";
+    Some(GameStat {
+        platform,
+        stem,
+        plays,
+        secs,
+        last_day,
+        last_secs,
+        favorite,
+    })
+}
+
+fn parse_system(value: &str) -> Option<SystemStat> {
+    let mut f = value.split('\t');
+    let platform = platform_named(f.next()?)?;
+    Some(SystemStat {
+        platform,
+        plays: f.next()?.parse().ok()?,
+        secs: f.next()?.parse().ok()?,
+        last_day: f.next()?.parse().ok()?,
+        games: f.next()?.parse().ok()?,
+    })
+}
+
+fn parse_streak(value: &str) -> Streak {
+    let mut f = value.split('\t');
+    Streak {
+        last_day: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        current: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        longest: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        total_days: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        start_day: f.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+    }
+}
+
+fn parse_mood(value: &str) -> Option<Mood> {
+    Some(match value {
+        "Happy" => Mood::Happy,
+        "Excited" => Mood::Excited,
+        "Sleepy" => Mood::Sleepy,
+        "Curious" => Mood::Curious,
+        "Celebrating" => Mood::Celebrating,
+        "Neutral" => Mood::Neutral,
+        "Sad" => Mood::Sad,
+        "Frustrated" => Mood::Frustrated,
+        _ => return None,
+    })
+}
+
+fn short(name: &str) -> String {
+    let name = name.trim();
+    let mut out: String = name.chars().take(12).collect();
+    if name.chars().count() > 12 {
+        out.push('…');
+    }
+    out
+}
+
+fn short_system(name: &str) -> String {
+    match name {
+        "Game Boy Advance" => "GBA".into(),
+        "Game Boy Color" => "GBC".into(),
+        "Game Boy" => "GB".into(),
+        "Nintendo Entertainment System" => "NES".into(),
+        "Super Nintendo Entertainment System" => "SNES".into(),
+        "PlayStation" => "PS1".into(),
+        other => short(other),
+    }
+}
+
+fn fold(text: &str) -> u64 {
+    let mut n = 0u64;
+    for b in text.bytes() {
+        n = n.wrapping_mul(33).wrapping_add(u64::from(b));
+    }
+    n
+}
+
+fn pick<'a>(seed: u64, lines: &'a [&'a str]) -> &'a str {
+    lines[seed as usize % lines.len()]
+}
+
+fn lines(mood: Mood, hour: u32) -> &'static [&'static str] {
+    let morning = (6..12).contains(&hour);
+    let evening = (17..23).contains(&hour);
+    let night = hour >= 23 || hour < 6;
+    match mood {
+        Mood::Happy if morning => &[
+            "Morning. A cart is calling",
+            "Up already? Good",
+            "First game of the day",
+            "I kept the slot warm",
+            "Breakfast can wait",
+            "New day, same Pip",
+        ],
+        Mood::Happy if evening => &[
+            "Evening session?",
+            "The good hour for one more",
+            "I was hoping you'd stop by",
+            "Lights low, game on",
+            "A calm one before bed",
+            "Still here. Still ready",
+        ],
+        Mood::Happy => &[
+            "Good to see you",
+            "Ready when you are",
+            "Pick a game and play",
+            "I saved you a spot",
+            "That label looks lucky",
+            "Want to press start?",
+            "I like this shelf",
+            "Your call",
+        ],
+        Mood::Excited => &[
+            "Yes. That one counts",
+            "Look at us go",
+            "Again? I'm in",
+            "That was a good one",
+            "Keep that energy",
+            "I felt that unlock",
+            "The streak is alive",
+            "One more would be rude to skip",
+        ],
+        Mood::Sad => &[
+            "It's been quiet",
+            "I kept your place",
+            "The shelf missed you",
+            "A short visit still counts",
+            "I didn't go anywhere",
+            "Dust on the carts. Not on me",
+            "Welcome back, truly",
+            "We can start small",
+        ],
+        Mood::Frustrated => &[
+            "That was a short one",
+            "Stay a little longer?",
+            "Blink and it was over",
+            "The cart barely warmed up",
+            "One more minute?",
+            "I had just sat down",
+            "A snack, not a session",
+            "We can do better than that",
+        ],
+        Mood::Sleepy if night => &[
+            "Up late. I'm here",
+            "Yawn. Your turn",
+            "The moon can wait",
+            "One quiet game",
+            "I'll wake up if you play",
+            "Zzz. Almost",
+        ],
+        Mood::Sleepy => &[
+            "A yawn, then a game",
+            "I got bored waiting",
+            "Poke me with a cart",
+            "Sleepy, not gone",
+            "Yesterday was nice",
+            "A slow start is fine",
+            "Eyes open. Mostly",
+            "You came back. Good",
+        ],
+        Mood::Celebrating => &[
+            "Level up. Look at us",
+            "That did it",
+            "I knew we had it",
+            "New level. Same Pip",
+            "Worth the wait",
+            "Write that one down",
+            "The bar just moved",
+            "Celebrate, then play",
+        ],
+        Mood::Curious => &[
+            "So many unopened carts",
+            "Pick any of them",
+            "I haven't met that one",
+            "A new label. Please",
+            "Surprise me",
+            "Which one is first?",
+            "They all look ready",
+            "I'm curious. You pick",
+        ],
+        Mood::Neutral => &[
+            "Hello",
+            "Whenever you're ready",
+            "No rush",
+            "I'm just standing here",
+            "A game would be nice",
+            "The slot is empty",
+            "Your move",
+            "I can wait",
+        ],
     }
 }
 
@@ -924,6 +1782,14 @@ mod tests {
             || m.kind == MissionKind::TryNew
             || m.kind == MissionKind::HiddenGem));
         assert_eq!(pip.active().count(), 3);
+        let kinds: Vec<_> = pip.active().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&MissionKind::Forgotten)
+                || kinds.contains(&MissionKind::OneMore)
+                || kinds.contains(&MissionKind::Marathon)
+        );
+        assert!(kinds.contains(&MissionKind::Tourist));
+        assert!(kinds.contains(&MissionKind::TryNew) || kinds.contains(&MissionKind::HiddenGem));
         let mut empty = Companion::default();
         empty.ensure_missions(&[], 100);
         let kinds: Vec<_> = empty.active().map(|m| m.kind).collect();
@@ -939,18 +1805,166 @@ mod tests {
     }
 
     #[test]
+    fn a_version_one_file_migrates_and_a_torn_file_comes_back_from_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Config")).unwrap();
+        let old = "slot-companion 1\nenabled=1\ntoasts=1\nsounds=1\nanimate=1\nxp=40\nnext_id=3\ncats=try,marathon\n";
+        std::fs::write(dir.path().join(FILE), old).unwrap();
+        let pip = Companion::read(dir.path());
+        assert_eq!(pip.xp, 40);
+        assert!(pip.categories.contains(&MissionKind::TryNew));
+        pip.write(dir.path()).unwrap();
+        let saved = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
+        assert!(saved.starts_with("slot-companion 2\n"));
+        assert!(saved.lines().any(|line| line.starts_with("sum=")));
+        let again = Companion::read(dir.path());
+        assert_eq!(again.xp, 40);
+
+        let mut tracked = Companion::default();
+        tracked.note_play(Platform::Gb, "Tetris", 30, 10, &library());
+        tracked.note_play(Platform::Gb, "Tetris", 12, 11, &library());
+        tracked.sync_favorites(&[(Platform::Gba, "Emerald")]);
+        tracked.write(dir.path()).unwrap();
+        tracked.write(dir.path()).unwrap();
+        let sound = Companion::read(dir.path());
+        let game = sound.games.iter().find(|g| g.stem == "Tetris").unwrap();
+        assert_eq!(game.plays, 1);
+        assert_eq!(game.secs, 42);
+        assert_eq!(game.last_day, 11);
+        assert!(sound
+            .systems
+            .iter()
+            .any(|s| s.platform == Platform::Gb && s.secs == 42));
+        assert_eq!(sound.streak.current, 2);
+        assert_eq!(sound.streak.longest, 2);
+        assert!(sound
+            .games
+            .iter()
+            .any(|g| g.stem == "Emerald" && g.favorite));
+
+        std::fs::write(dir.path().join(FILE), "slot-companion 2\nxp=1\n").unwrap();
+        std::fs::write(dir.path().join("Config/.companion.txt.9.tmp"), b"torn").unwrap();
+        let recovered = Companion::read(dir.path());
+        assert_eq!(recovered.xp, sound.xp);
+        assert!(recovered.games.iter().any(|g| g.stem == "Tetris"));
+
+        std::fs::remove_file(dir.path().join(FILE)).unwrap();
+        let from_bak = Companion::read(dir.path());
+        assert!(from_bak.games.iter().any(|g| g.stem == "Tetris"));
+
+        let mut done = Companion::default();
+        done.history.push(DoneMission {
+            title: "Play one game for 20 minutes".into(),
+            day: 4,
+            finished: 5,
+            xp: 100,
+            platform: Some(Platform::Gba),
+            stem: "Emerald".into(),
+        });
+        done.finished = 1;
+        done.write(dir.path()).unwrap();
+        let history = Companion::read(dir.path());
+        assert_eq!(history.finished, 1);
+        assert_eq!(history.history[0].xp, 100);
+        assert_eq!(history.history[0].stem, "Emerald");
+        assert_eq!(history.history[0].platform, Some(Platform::Gba));
+
+        let mut seeded = Companion::default();
+        seeded.stamp(
+            12,
+            &[GameSeen {
+                platform: Platform::Snes,
+                stem: "Link".into(),
+                played_secs: 90,
+                last_played: 12 * 86_400,
+            }],
+            &[],
+        );
+        assert_eq!(seeded.games[0].secs, 90);
+        assert_eq!(seeded.games[0].plays, 1);
+        assert_eq!(seeded.games[0].last_day, 12);
+        seeded.note_play(Platform::Snes, "Link", 10, 12, &[]);
+        seeded.stamp(
+            12,
+            &[GameSeen {
+                platform: Platform::Snes,
+                stem: "Link".into(),
+                played_secs: 100,
+                last_played: 12 * 86_400,
+            }],
+            &[],
+        );
+        assert_eq!(seeded.games[0].secs, 100);
+        assert_eq!(seeded.games[0].plays, 2);
+    }
+
+    #[test]
+    fn pip_reacts_to_a_streak_a_long_gap_and_a_short_session() {
+        let mut pip = Companion::default();
+        assert_eq!(pip.mood(4, &[]), Mood::Neutral);
+        pip.streak.current = 4;
+        pip.streak.last_day = 10;
+        assert_eq!(pip.mood(10, &[]), Mood::Excited);
+        pip.streak.current = 0;
+        pip.streak.last_day = 1;
+        pip.sessions.push(Session {
+            platform: Platform::Gb,
+            stem: "Tetris".into(),
+            secs: 40,
+            day: 1,
+        });
+        assert_eq!(pip.mood(6, &[]), Mood::Sad);
+        pip.sessions[0].day = 7;
+        pip.sessions[0].secs = 600;
+        assert_eq!(pip.mood_at(8, 1, &[]), Mood::Sleepy);
+        pip.sessions[0].day = 8;
+        pip.sessions[0].secs = 40;
+        assert_eq!(pip.mood(8, &[]), Mood::Frustrated);
+        pip.note_cheer();
+        assert_eq!(pip.mood(8, &[]), Mood::Excited);
+        let mut seen = std::collections::BTreeSet::new();
+        for day in 0..24 {
+            seen.insert(pip.say(day, 15, &[]));
+        }
+        assert!(seen.len() > 4, "the lines should not repeat every day");
+        let named = pip.say(3, 9, &[]);
+        assert!(named.contains("Tetris") || named.contains("GB") || named.contains("days") || !named.is_empty());
+    }
+
+    #[test]
+    fn each_level_asks_for_more_xp_than_the_last() {
+        let mut pip = Companion::default();
+        assert_eq!(
+            (pip.level(), pip.toward_next(), pip.next_cost()),
+            (1, 0, 100)
+        );
+        pip.xp = 100;
+        assert_eq!(
+            (pip.level(), pip.toward_next(), pip.next_cost()),
+            (2, 0, 150)
+        );
+        pip.xp = 140;
+        assert_eq!(pip.toward_next(), 40);
+        pip.xp = 250;
+        assert_eq!(pip.level(), 3);
+        assert_eq!(pip.next_cost(), 200);
+    }
+
+    #[test]
     fn a_first_launch_and_a_mission_award_xp_once() {
         let games = library();
         let mut pip = Companion::default();
         pip.categories = vec![MissionKind::TryNew];
         pip.ensure_missions(&games, 100);
         let target = pip.active().next().unwrap().stem.clone();
-        let awards = pip.note_play(Platform::Gba, &target, 5, 100, &games);
+        let need = pip.active().next().unwrap().need as u64;
+        let reward = pip.active().next().unwrap().xp;
+        let awards = pip.note_play(Platform::Gba, &target, need.max(5), 100, &games);
         assert!(awards.iter().any(|a| a.xp == XP_FIRST));
         assert!(awards.iter().any(|a| a.title == "Mission"));
         let again = pip.note_play(Platform::Gba, &target, 5, 100, &games);
         assert!(again.iter().all(|a| a.title != "First launch"));
-        assert_eq!(pip.xp, XP_FIRST + XP_SHORT);
+        assert_eq!(pip.xp, XP_FIRST + reward);
     }
 
     #[test]
@@ -1016,6 +2030,9 @@ mod tests {
             };
             pip.note_play(platform, stem, 1, 2, &library());
         }
-        assert!(pip.history.iter().any(|d| d.title == "Weekend adventure"));
+        assert!(pip
+            .history
+            .iter()
+            .any(|d| d.title == MissionKind::Weekend.plain()));
     }
 }

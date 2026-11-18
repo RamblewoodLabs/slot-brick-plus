@@ -13,12 +13,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use slot_gfx::{OUT_H, OUT_W};
+use slot_gfx::OUT_W;
 use slot_input::{Action, Btn};
 use slot_ui::{TexId, UndoFace};
 
 use crate::sheet::Sheet;
-use crate::youtube::{self, AuthState, Channel, Video};
+use crate::youtube::{self, Channel, Video};
 
 pub const FRAME_W: u32 = 480;
 /// 16:9, so a 360p picture fills the window. Short enough to leave room for the title and the keys.
@@ -27,7 +27,13 @@ const FPS: u32 = 12;
 const AUDIO_HZ: u32 = 22_050;
 const MAX_VIDEO: u64 = 250 * 1024 * 1024;
 const KEEP_FREE: u64 = 256 * 1024 * 1024;
-const LIMITS_MB: [u32; 5] = [512, 1024, 1536, 2048, 4096];
+/// 0 is no cap. The rest are the Video space limit row, up to 16 GB.
+const LIMITS_MB: [u32; 6] = [0, 1024, 2048, 4096, 8192, 16384];
+/// HOME menu type, on the 640×480 screen the Brick scales to 1024×768.
+const MENU_PX: f32 = 30.0;
+const MENU_H: u32 = 40;
+const MENU_PITCH: u32 = 48;
+const MENU_LEGEND: u32 = 432;
 
 const KEYS: [&str; 3] = [
     "1234567890qwertyuiopasdfghjkl-zxcvbnm_. ",
@@ -87,7 +93,6 @@ enum View {
     Library,
     Queue,
     Player,
-    Account,
 }
 
 struct KeysState {
@@ -178,7 +183,7 @@ impl VideoMenu {
             player: None,
             playing: None,
             volume: 8,
-            limit_mb: 1536,
+            limit_mb: 0,
             armed: None,
             shown_sec: u64::MAX,
             shown_pct: u64::MAX,
@@ -372,12 +377,12 @@ impl VideoMenu {
             }
             Action::GbaDown(Btn::Down) => self.row = (self.row + 1) % self.rows().max(1),
             Action::GbaDown(Btn::Left) | Action::ShelfLeft
-                if self.view == View::Home && self.row == self.storage_row() =>
+                if self.view == View::Home && self.row == self.limit_row() =>
             {
                 self.step_limit(false)
             }
             Action::GbaDown(Btn::Right) | Action::ShelfRight
-                if self.view == View::Home && self.row == self.storage_row() =>
+                if self.view == View::Home && self.row == self.limit_row() =>
             {
                 self.step_limit(true)
             }
@@ -406,24 +411,23 @@ impl VideoMenu {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         if self.view != View::Player {
-            sheet.text("VIDEOS", 24, 16, w, 36, 28.0, false);
+            sheet.text("VIDEOS", 16, 8, w, MENU_H, MENU_PX, false);
         }
         if !self.status.is_empty() && self.view != View::Player {
-            sheet.text(&self.status, 24, 56, w, 28, 16.0, true);
+            sheet.text(&self.status, 16, 48, w, MENU_H, 24.0, true);
         }
         match self.view {
             View::Search => self.render_keys(&mut sheet),
             View::Player => self.render_player(&mut sheet),
-            View::Account => self.render_account(&mut sheet),
             _ => self.render_rows(&mut sheet),
         }
         sheet.text(
             &self.legend(),
             16,
-            OUT_H.saturating_sub(36),
+            MENU_LEGEND,
             OUT_W.saturating_sub(32),
-            28,
-            15.0,
+            MENU_H,
+            MENU_PX,
             false,
         );
         sheet.finish()
@@ -431,22 +435,23 @@ impl VideoMenu {
 
     fn render_rows(&self, sheet: &mut Sheet) {
         let rows = self.row_labels();
-        let first = self.row.saturating_sub(6);
-        for (line, row) in (first..rows.len().min(first + 7)).enumerate() {
-            let y = 96 + line as u32 * 42;
+        let visible = ((MENU_LEGEND - 96) / MENU_PITCH) as usize;
+        let first = self.row.saturating_sub(visible.saturating_sub(1));
+        for (line, row) in (first..rows.len().min(first + visible)).enumerate() {
+            let y = 96 + line as u32 * MENU_PITCH;
             if row == self.row {
-                sheet.rect(0, y, OUT_W, 38, slot_ui::edge());
+                sheet.rect(0, y, OUT_W, MENU_H, slot_ui::edge());
             }
-            let mut x = 24;
-            let mut text_w = OUT_W.saturating_sub(48);
+            let mut x = 16;
+            let mut text_w = OUT_W.saturating_sub(32);
             if self.view == View::Videos {
                 if let Some(px) = self.row_thumbs.get(row).and_then(|t| t.as_ref()) {
-                    sheet.image(16, y + 4, 56, 32, px);
-                    x = 80;
-                    text_w = OUT_W.saturating_sub(96);
+                    sheet.image(12, y + 4, 64, 32, px);
+                    x = 84;
+                    text_w = OUT_W.saturating_sub(100);
                 }
             }
-            sheet.text(&rows[row], x, y + 2, text_w, 34, 20.0, false);
+            sheet.text(&rows[row], x, y, text_w, MENU_H, MENU_PX, false);
         }
     }
 
@@ -454,31 +459,35 @@ impl VideoMenu {
         let Some(keys) = &self.keys else {
             return;
         };
-        sheet.text(
+        sheet.text_case(
             &keys.query,
-            24,
+            16,
             96,
-            OUT_W.saturating_sub(48),
-            32,
-            22.0,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
+            false,
             false,
         );
-        let margin = 20u32;
-        let gap = 4u32;
+        let margin = 16u32;
+        let gap = 6u32;
         let key_w = (OUT_W - margin * 2 - gap * 9) / 10;
         let page = KEYS[keys.page];
         for i in 0..40 {
             let x = margin + (i as u32 % 10) * (key_w + gap);
-            let y = 150 + (i as u32 / 10) * 44;
+            let y = 148 + (i as u32 / 10) * 52;
+            if y + MENU_H > MENU_LEGEND {
+                break;
+            }
             if i == keys.key {
-                sheet.rect(x, y, key_w, 40, slot_ui::edge());
+                sheet.rect(x, y, key_w, MENU_H, slot_ui::edge());
             }
             let label = match page.chars().nth(i) {
                 Some(' ') => "SPC".to_string(),
                 Some(c) => c.to_string(),
                 None => continue,
             };
-            sheet.text_case(&label, x, y + 4, key_w, 32, 18.0, false, false);
+            sheet.text_case(&label, x, y, key_w, MENU_H, 26.0, false, false);
         }
     }
 
@@ -490,7 +499,15 @@ impl VideoMenu {
             .as_ref()
             .map(|s| s.title.as_str())
             .unwrap_or("VIDEO");
-        sheet.text(title, 24, 16, OUT_W.saturating_sub(48), 32, 20.0, false);
+        sheet.text(
+            title,
+            16,
+            8,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
+            false,
+        );
         if self.player.is_none() {
             let note = if self.status.is_empty() {
                 "NO PICTURE"
@@ -499,11 +516,11 @@ impl VideoMenu {
             };
             sheet.text(
                 note,
-                x + 16,
+                x + 8,
                 y + FRAME_H / 2 - 20,
-                FRAME_W.saturating_sub(32),
-                40,
-                15.0,
+                FRAME_W.saturating_sub(16),
+                MENU_H,
+                MENU_PX,
                 true,
             );
         }
@@ -525,40 +542,13 @@ impl VideoMenu {
         let state = if paused { "PAUSED" } else { "PLAYING" };
         sheet.text(
             &format!("{state}    {clock}"),
-            24,
+            16,
             y + FRAME_H + 8,
-            OUT_W.saturating_sub(48),
-            28,
-            16.0,
+            OUT_W.saturating_sub(32),
+            MENU_H,
+            MENU_PX,
             false,
         );
-    }
-
-    fn render_account(&self, sheet: &mut Sheet) {
-        let lines = [
-            "Sign-in is not available.",
-            "Subscriptions need a Google account.",
-            "A device code would need an OAuth client",
-            "of Slot's own, and a Google token still",
-            "does not unlock video addresses.",
-            "Search works without an account.",
-            "",
-            match youtube::auth_status(&self.root) {
-                AuthState::SignedOut => "No sign-in is stored on the card.",
-                AuthState::SavedUnused => "A saved sign-in is on the card, unused.",
-            },
-        ];
-        for (i, line) in lines.iter().enumerate() {
-            sheet.text(
-                line,
-                24,
-                100 + i as u32 * 28,
-                OUT_W.saturating_sub(48),
-                26,
-                15.0,
-                i == 0,
-            );
-        }
     }
 
     fn legend(&self) -> String {
@@ -567,7 +557,7 @@ impl VideoMenu {
             View::Player => "A PLAY/PAUSE    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into(),
             View::Library => "A PLAY    Y DELETE    B BACK".into(),
             View::Queue => "X CANCEL    B BACK".into(),
-            View::Home if self.row == self.storage_row() => "LEFT/RIGHT SIZE    B BACK".into(),
+            View::Home if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    B BACK".into(),
             View::Home if self.channel_row().is_some() => "A LATEST 5    Y REMOVE    B BACK".into(),
             _ => "A SELECT    B BACK".into(),
         }
@@ -592,12 +582,8 @@ impl VideoMenu {
                         + usize::from(self.active.is_some())
                         + usize::from(self.retry.is_some())
                 ));
-                rows.push(format!(
-                    "Storage  {} / {} MB",
-                    self.used_mb(),
-                    self.limit_mb
-                ));
-                rows.push("Sign-in".into());
+                rows.push(self.space_label());
+                rows.push(self.limit_label());
                 rows
             }
             View::Channels => {
@@ -628,12 +614,10 @@ impl VideoMenu {
                             } else {
                                 ""
                             };
-                            format!(
-                                "{mark}{}  {}  {}",
-                                v.title,
-                                clock(v.duration_ms),
-                                v.published
-                            )
+                            match v.duration_ms {
+                                0 => format!("{mark}{}  {}", v.title, v.published),
+                                ms => format!("{mark}{}  {}  {}", v.title, clock(ms), v.published),
+                            }
                         })
                         .collect()
                 }
@@ -675,7 +659,7 @@ impl VideoMenu {
                 }
                 rows
             }
-            View::Search | View::Player | View::Account => Vec::new(),
+            View::Search | View::Player => Vec::new(),
         }
     }
 
@@ -741,8 +725,8 @@ impl VideoMenu {
         }
     }
 
-    fn storage_row(&self) -> usize {
-        self.subs.len() + 3
+    fn limit_row(&self) -> usize {
+        self.subs.len() + 4
     }
 
     fn channel_row(&self) -> Option<usize> {
@@ -761,7 +745,7 @@ impl VideoMenu {
                 key: 0,
                 page: 0,
             });
-            self.status = "Channel link or id, then START".into();
+            self.status = "Name, @handle, or channel link, then START".into();
             return;
         }
         if let Some(at) = self.channel_row() {
@@ -774,9 +758,6 @@ impl VideoMenu {
             self.row = 0;
             self.library = read_index(&self.root);
             self.status = "Saved on the card. Plays with Wi-Fi off.".into();
-        } else if self.row == self.subs.len() + 4 {
-            self.view = View::Account;
-            self.status = String::new();
         } else if self.row == self.subs.len() + 2 {
             self.view = View::Queue;
             self.row = 0;
@@ -935,10 +916,10 @@ impl VideoMenu {
                 match youtube::channel_ref(&query) {
                     Err(e) => self.status = e,
                     Ok(youtube::ChannelRef::Id(id)) => self.subscribe(id, query),
-                    Ok(youtube::ChannelRef::Name(name)) => {
-                        self.status = format!("Looking up {name}…");
+                    Ok(youtube::ChannelRef::Handle(_)) | Ok(youtube::ChannelRef::Name(_)) => {
+                        self.status = format!("Looking up {query}…");
                         self.spawn_lookup(move || {
-                            youtube::search_channels(&name).map(Found::Channels)
+                            youtube::find_channels(&query).map(Found::Channels)
                         });
                     }
                 }
@@ -1131,7 +1112,7 @@ impl VideoMenu {
         let at = LIMITS_MB
             .iter()
             .position(|n| *n == self.limit_mb)
-            .unwrap_or(2);
+            .unwrap_or(0);
         let at = if up {
             (at + 1).min(LIMITS_MB.len() - 1)
         } else {
@@ -1139,10 +1120,33 @@ impl VideoMenu {
         };
         self.limit_mb = LIMITS_MB[at];
         let _ = write_limit(&self.root, self.limit_mb);
-        if self.used() > self.limit_bytes() {
+        if self.limit_mb > 0 && self.used() > self.limit_bytes() {
             self.make_room();
         }
-        self.status = format!("Cache holds up to {} MB", self.limit_mb);
+        self.status = match self.limit_mb {
+            0 => "Video space limit: No limit".into(),
+            mb => format!("Video space limit: {}", gb_label(mb)),
+        };
+    }
+
+    fn space_label(&self) -> String {
+        let free = slot_store::free_space(&self.root.join("Videos"))
+            .or_else(|| slot_store::free_space(&self.root));
+        match free {
+            Some(free) => format!(
+                "Videos {} used · {} free",
+                human_bytes(self.used()),
+                human_bytes(free)
+            ),
+            None => format!("Videos {} used", human_bytes(self.used())),
+        }
+    }
+
+    fn limit_label(&self) -> String {
+        match self.limit_mb {
+            0 => "Video space limit  No limit".into(),
+            mb => format!("Video space limit  {}", gb_label(mb)),
+        }
     }
 
     fn make_room(&mut self) {
@@ -1158,12 +1162,11 @@ impl VideoMenu {
         self.library.iter().map(|s| s.bytes).sum()
     }
 
-    fn used_mb(&self) -> u64 {
-        self.used() / 1_000_000
-    }
-
     fn limit_bytes(&self) -> u64 {
-        u64::from(self.limit_mb) * 1_000_000
+        match self.limit_mb {
+            0 => u64::MAX,
+            mb => u64::from(mb) * 1_000_000,
+        }
     }
 }
 
@@ -1800,12 +1803,14 @@ fn flat(s: &str) -> String {
 
 fn read_limit(root: &Path) -> u32 {
     let Ok(text) = std::fs::read_to_string(root.join("Config/videos.txt")) else {
-        return 1536;
+        return 0;
     };
+    // 1536 was the old default, written before anyone chose a limit.
     text.lines()
         .find_map(|line| line.strip_prefix("limit_mb=")?.trim().parse().ok())
-        .filter(|n| LIMITS_MB.contains(n))
-        .unwrap_or(1536)
+        .filter(|n| *n == 0 || LIMITS_MB.contains(n))
+        .filter(|n| *n != 1536)
+        .unwrap_or(0)
 }
 
 fn write_limit(root: &Path, limit_mb: u32) -> std::io::Result<()> {
@@ -1827,10 +1832,30 @@ fn clock(ms: u64) -> String {
 }
 
 fn mb(bytes: u64) -> String {
-    if bytes >= 1_000_000 {
-        format!("{} MB", bytes / 1_000_000)
+    human_bytes(bytes)
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const K: u64 = 1024;
+    if bytes >= K * K * K {
+        let gb = bytes as f64 / (K * K * K) as f64;
+        if gb >= 10.0 {
+            format!("{gb:.0} GB")
+        } else {
+            format!("{gb:.1} GB")
+        }
+    } else if bytes >= K * K {
+        format!("{} MB", bytes / (K * K))
     } else {
-        format!("{} KB", bytes / 1000)
+        format!("{} KB", bytes / K.max(1))
+    }
+}
+
+fn gb_label(mb: u32) -> String {
+    if mb % 1024 == 0 {
+        format!("{} GB", mb / 1024)
+    } else {
+        format!("{mb} MB")
     }
 }
 
@@ -1982,14 +2007,22 @@ mod tests {
     fn the_cache_limit_steps_and_is_remembered() {
         let root = tempfile::tempdir().unwrap();
         let mut menu = VideoMenu::open(root.path().to_path_buf(), false);
-        assert_eq!(menu.limit_mb, 1536);
-        menu.input(Action::GbaDown(Btn::Down));
-        menu.input(Action::GbaDown(Btn::Down));
-        menu.input(Action::GbaDown(Btn::Down));
+        assert_eq!(menu.limit_mb, 0);
+        assert!(menu
+            .row_labels()
+            .iter()
+            .any(|row| row.contains("used") && row.contains("free")));
+        for _ in 0..4 {
+            menu.input(Action::GbaDown(Btn::Down));
+        }
+        menu.input(Action::ShelfRight);
+        assert_eq!(menu.limit_mb, 1024);
         menu.input(Action::ShelfRight);
         assert_eq!(menu.limit_mb, 2048);
         let again = VideoMenu::open(root.path().to_path_buf(), false);
         assert_eq!(again.limit_mb, 2048);
+        std::fs::write(root.path().join("Config/videos.txt"), "limit_mb=1536\n").unwrap();
+        assert_eq!(read_limit(root.path()), 0);
     }
 
     #[test]
@@ -2051,8 +2084,6 @@ mod tests {
             write_png(&dir.join("videos-home.png"), &home);
             write_png(&dir.join("videos-keyboard.png"), &keys);
             write_png(&dir.join("videos-player.png"), &player);
-            menu.view = View::Account;
-            write_png(&dir.join("videos-account.png"), &menu.render());
         }
     }
 

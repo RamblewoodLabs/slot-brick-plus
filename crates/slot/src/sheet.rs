@@ -66,15 +66,27 @@ impl Sheet {
         } else {
             words.to_string()
         };
-        while text::line_width(font, &words, px, 0.0) > w as f32 && !words.is_empty() {
-            words.pop();
+        // The HOME menu's type is 30px. Long lines shrink toward 18px before any letters are cut.
+        let mut size = px;
+        let min = 18.0_f32.min(px);
+        while size > min && text::line_width(font, &words, size, 0.0) > w as f32 {
+            size -= 1.0;
+        }
+        if text::line_width(font, &words, size, 0.0) > w as f32 {
+            while text::line_width(font, &words, size, 0.0) > w as f32 && words.len() > 1 {
+                words.pop();
+            }
+            if !words.is_empty() {
+                words.pop();
+                words.push('…');
+            }
         }
         if words.is_empty() {
             return;
         }
         let layout = text::Layout {
             lines: vec![words],
-            px,
+            px: size,
             tracking: 0.0,
         };
         let mut face = vec![0u8; (w * h * 4) as usize];

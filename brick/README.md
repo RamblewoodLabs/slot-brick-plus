@@ -160,14 +160,20 @@ scan of each, but which is which isn't recorded, so all its discs share one.
 `Slot/Logs/cart-art.txt` lists each game and what it got. Below GET CART ART, every game with a
 label is listed: press A twice on one to delete its label, then GET CART ART fetches a new one.
 
-**RetroAchievements:** **HOME → Online → RetroAchievements** (greyed out while Wi-Fi is off) logs in to
+**RetroAchievements:** **HOME → Online → RetroAchievements** logs in to
 your [RetroAchievements](https://retroachievements.org) account and tests the connection.
+The screen still opens with Wi-Fi off, so a saved set can be read. Logging in, testing the
+connection and **Cache achievement sets** need Wi-Fi.
 Your password is sent once, over HTTPS, and never stored: Slot keeps only the login token, in `Slot/Config/retroachievements.txt`; delete that file or choose **LOG OUT** to forget
 it. While logged in, games earn achievements in softcore mode (save states, rewind and
 fast-forward stay allowed): a small toast slides into the top-right corner with how many a
 game has when it starts, and with each unlock and its badge as it happens. A game's badges
-are fetched when it starts and kept in `Slot/System/Cache/Badges`. Unlocks made offline are sent once the Brick is back online, while the game is
-still running. Hardcore mode isn't available.
+are fetched when it starts and kept in `Slot/System/Cache/Badges`. **Cache achievement sets**
+does that for the whole library, and keeps each set in `Slot/Config/Achievements`. Unlocks
+made offline are kept there too, with the time they happened, and sent when Wi-Fi returns
+even if the Brick was powered off in between. If that file is torn, the spare copy is used.
+The server is asked in softcore only. A hardcore unlock is not stored to send later, because
+RetroAchievements does not accept those from an offline session. Hardcore mode isn't available.
 
 **Library:** when you pick a game, a title card under its cart names it for a moment (**HOME → Library → Title Card** turns it off).
 Beside the battery, the shelf shows how long you have played it: in minutes ("200M"), or in hours and minutes ("3H20M", **HOME → Library → Play Time**). `Y` stars a game as a

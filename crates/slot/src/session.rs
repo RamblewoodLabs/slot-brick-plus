@@ -537,7 +537,7 @@ impl Session {
                 Platform::Snes => slot_cheevos::Console::Snes,
                 Platform::Ps1 => slot_cheevos::Console::Ps1,
             };
-            emu.achievements(&account.user, &account.token, console);
+            emu.achievements(&self.root, &account.user, &account.token, console);
         }
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);

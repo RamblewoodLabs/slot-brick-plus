@@ -38,6 +38,60 @@ extern "C" {
     fn slot_cheevos_console_nes() -> c_uint;
     fn slot_cheevos_console_snes() -> c_uint;
     fn slot_cheevos_console_ps1() -> c_uint;
+    fn slot_cheevos_hash(path: *const c_char, console: c_uint, out: *mut c_char) -> c_int;
+    fn slot_cheevos_award_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, id: c_uint, hardcore: c_int, hash: *const c_char, seconds: c_uint) -> c_int;
+    fn slot_cheevos_sets_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, hash: *const c_char) -> c_int;
+    fn slot_cheevos_session_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, game_id: c_uint, hash: *const c_char) -> c_int;
+}
+
+fn c_body(fill: impl FnOnce(*mut c_char, usize) -> c_int) -> Option<String> {
+    let mut buf = vec![0u8; 2048];
+    let n = fill(buf.as_mut_ptr() as *mut c_char, buf.len());
+    if n < 0 {
+        return None;
+    }
+    let n = n as usize;
+    if n >= buf.len() {
+        return None;
+    }
+    String::from_utf8(buf[..n].to_vec()).ok()
+}
+
+/// The ROM's RetroAchievements hash, from rcheevos. None if the file cannot be hashed.
+pub fn hash_rom(console: Console, path: &Path) -> Option<String> {
+    let path = CString::new(path.to_string_lossy().as_bytes()).ok()?;
+    let mut buf = [0u8; 33];
+    let ok = unsafe { slot_cheevos_hash(path.as_ptr(), console.id(), buf.as_mut_ptr() as *mut c_char) };
+    if ok == 0 {
+        return None;
+    }
+    CStr::from_bytes_until_nul(&buf).ok()?.to_str().ok().map(str::to_string)
+}
+
+/// `dorequest.php` body for a softcore or hardcore award, signed by rcheevos.
+pub fn award_body(user: &str, token: &str, id: u32, hardcore: bool, hash: &str, seconds: u32) -> Option<String> {
+    let user = CString::new(user).ok()?;
+    let token = CString::new(token).ok()?;
+    let hash = CString::new(hash).ok()?;
+    c_body(|out, cap| unsafe {
+        slot_cheevos_award_body(out, cap, user.as_ptr(), token.as_ptr(), id, c_int::from(hardcore), hash.as_ptr(), seconds)
+    })
+}
+
+/// `dorequest.php` body that asks for the achievement set of a hashed ROM.
+pub fn sets_body(user: &str, token: &str, hash: &str) -> Option<String> {
+    let user = CString::new(user).ok()?;
+    let token = CString::new(token).ok()?;
+    let hash = CString::new(hash).ok()?;
+    c_body(|out, cap| unsafe { slot_cheevos_sets_body(out, cap, user.as_ptr(), token.as_ptr(), hash.as_ptr()) })
+}
+
+/// `dorequest.php` body that starts a softcore session for a game id.
+pub fn session_body(user: &str, token: &str, game_id: u32, hash: &str) -> Option<String> {
+    let user = CString::new(user).ok()?;
+    let token = CString::new(token).ok()?;
+    let hash = CString::new(hash).ok()?;
+    c_body(|out, cap| unsafe { slot_cheevos_session_body(out, cap, user.as_ptr(), token.as_ptr(), game_id, hash.as_ptr()) })
 }
 
 /// rcheevos' version, for the User-Agent RetroAchievements asks clients to send.

@@ -74,8 +74,16 @@ pub fn forget(root: &Path) -> std::io::Result<()> {
     }
 }
 
-/// rcheevos' requests, over slot's own HTTPS.
-pub struct Http;
+/// rcheevos' requests, over slot's own HTTPS. A saved set answers when the network does not.
+pub struct Http {
+    root: std::path::PathBuf,
+}
+
+impl Http {
+    pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+}
 
 impl slot_cheevos::Http for Http {
     fn send(&self, request: &slot_cheevos::HttpRequest) -> Result<(u16, Vec<u8>), String> {
@@ -85,16 +93,19 @@ impl slot_cheevos::Http for Http {
             return Err(format!("refused, not HTTPS: {}", request.url));
         }
         let method = if request.post.is_some() { "POST" } else { "GET" };
-        let reply = net::send(&net::Request {
+        let live = net::send(&net::Request {
             tls,
             server: &server,
             method,
             path: &path,
             form: request.post.as_deref(),
             json: None,
+            agent: None,
             limit: 4 << 20,
-        })?;
-        Ok((reply.status, reply.body))
+        })
+        .map(|reply| (reply.status, reply.body));
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        crate::offline_ra::exchange(&self.root, request.post.as_deref(), live, now)
     }
 }
 
@@ -134,6 +145,7 @@ fn login2(form: &str) -> Result<(Profile, Option<String>), String> {
         path: PATH,
         form: Some(form),
         json: None,
+        agent: None,
         limit: 1 << 16,
     })?;
     let ms = started.elapsed().as_millis();

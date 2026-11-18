@@ -1,14 +1,17 @@
-//! HOME → Companion. Pip, an original pixel creature, and the missions it keeps.
-//! Not PakUI's companion: different name, different drawing, Slot's own plate.
-use slot_gfx::{OUT_H, OUT_W};
+//! HOME → Companion. Pip is an original walking cartridge: orange shell, cream label, a face.
+//! Not PakUI's companion: different name, different drawing, Slot's own lines.
+use slot_gfx::OUT_W;
 use slot_input::{Action, Btn};
-use slot_store::{Companion, GameSeen, MissionKind, Mood, Platform};
+use slot_store::{Companion, GameSeen, MissionKind, Platform};
 use slot_ui::{TexId, UndoFace};
 
 use crate::sheet::Sheet;
 
-const SCALE: u32 = 3;
-const CELL: u32 = 32;
+/// The HOME menu's type size and row, on Slot's 640×480 screen (the Brick draws that at 1024×768).
+const ROW_PX: f32 = 30.0;
+const ROW_H: u32 = 40;
+const ROW_PITCH: u32 = 46;
+const LEGEND_TOP: u32 = 432;
 
 pub struct PipLaunch {
     pub platform: Platform,
@@ -29,6 +32,8 @@ pub struct PipMenu {
     pub dirty: bool,
     pub face: Option<TexId>,
     launch: Option<PipLaunch>,
+    /// Last animation tick already drawn, so a still Pip is not redrawn every frame.
+    shown: u64,
 }
 
 impl PipMenu {
@@ -40,7 +45,17 @@ impl PipMenu {
             dirty: true,
             face: None,
             launch: None,
+            shown: u64::MAX,
         }
+    }
+
+    pub fn needs_frame(&self, tick: u64, animate: bool) -> bool {
+        self.dirty || (animate && self.shown != tick)
+    }
+
+    pub fn mark_drawn(&mut self, tick: u64) {
+        self.shown = tick;
+        self.dirty = false;
     }
 
     pub fn take_launch(&mut self) -> Option<PipLaunch> {
@@ -170,11 +185,18 @@ impl PipMenu {
         .max(1)
     }
 
-    pub fn render(&self, pip: &Companion, day: i64, games: &[GameSeen], frame: u64) -> UndoFace {
+    pub fn render(
+        &self,
+        pip: &Companion,
+        day: i64,
+        hour: u32,
+        games: &[GameSeen],
+        frame: u64,
+    ) -> UndoFace {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         match self.page {
-            Page::Main => self.render_main(&mut sheet, pip, day, games, frame, w),
+            Page::Main => self.render_main(&mut sheet, pip, day, hour, games, frame, w),
             Page::History => self.render_history(&mut sheet, pip, w),
             Page::Settings => self.render_settings(&mut sheet, pip, w),
         }
@@ -186,49 +208,62 @@ impl PipMenu {
         sheet: &mut Sheet,
         pip: &Companion,
         day: i64,
+        hour: u32,
         games: &[GameSeen],
         frame: u64,
         w: u32,
     ) {
-        let mood = pip.mood(day, games);
-        let blink = pip.animate && frame % 8 > 5;
-        let sprite = sprite(mood, blink);
-        let size = CELL * SCALE;
-        sheet.image((OUT_W - size) / 2, 8, size, size, &sprite);
-        sheet.text("PIP", 24, 8, 80, 24, 16.0, false);
-        sheet.text(mood.name(), 24, 112, w, 22, 15.0, true);
+        let mood = pip.mood_at(day, hour, games);
+        let sprite = crate::pip_art::frame(mood, frame, pip.animate);
+        let size = crate::pip_art::CELL * crate::pip_art::SCALE;
+        sheet.image(8, 4, size, size, &sprite);
+        let text_x = 16 + size;
         sheet.text(
-            &format!("LEVEL {}    {} / 100 XP", pip.level(), pip.toward_next()),
-            24,
-            134,
-            w,
-            22,
-            15.0,
+            &format!(
+                "{}   L{} {}/{}",
+                pip.say(day, hour, games),
+                pip.level(),
+                pip.toward_next(),
+                pip.next_cost()
+            ),
+            text_x,
+            28,
+            OUT_W.saturating_sub(text_x + 12),
+            ROW_H,
+            ROW_PX,
             false,
         );
         let mut row = 0usize;
-        let mut y = 164u32;
+        let mut y = 12 + size;
+        let pitch = 44u32;
         for mission in pip.active() {
             if row == self.row {
-                sheet.rect(0, y, OUT_W, 36, slot_ui::edge());
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
+            let name = if !mission.stem.is_empty() {
+                format!("{} · {}", mission.kind.plain(), mission.stem)
+            } else if let Some(platform) = mission.platform {
+                format!("{} · {}", mission.kind.plain(), platform.name())
+            } else {
+                mission.kind.plain().to_string()
+            };
+            let (done, goal) = if mission.need >= 60 {
+                (mission.progress.min(mission.need) / 60, mission.need / 60)
+            } else {
+                (mission.progress.min(mission.need), mission.need)
+            };
             sheet.text(
-                &format!(
-                    "{}  {}/{}",
-                    mission.title,
-                    mission.progress.min(mission.need),
-                    mission.need
-                ),
+                &format!("{name}  {done}/{goal}"),
                 16,
-                y + 2,
+                y,
                 w,
-                32,
-                15.0,
+                ROW_H,
+                ROW_PX,
                 false,
             );
             row += 1;
-            y += 38;
-            if y > 360 {
+            y += pitch;
+            if y + pitch > LEGEND_TOP {
                 break;
             }
         }
@@ -237,44 +272,50 @@ impl PipMenu {
             .map(|(_, stem)| format!("Next: {stem}"))
             .unwrap_or_else(|| "Next: nothing new".into());
         if row == self.row {
-            sheet.rect(0, y, OUT_W, 32, slot_ui::edge());
+            sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
         }
-        sheet.text(&suggest, 16, y, w, 28, 15.0, false);
-        y += 34;
+        sheet.text(&suggest, 16, y, w, ROW_H, ROW_PX, false);
+        y += pitch;
         row += 1;
         for (label, at) in [("History", row), ("Settings", row + 1)] {
-            if self.row == at {
-                sheet.rect(0, y, OUT_W, 28, slot_ui::edge());
+            if y + ROW_H > LEGEND_TOP {
+                break;
             }
-            sheet.text(label, 16, y, w, 26, 15.0, false);
-            y += 30;
+            if self.row == at {
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
+            }
+            sheet.text(label, 16, y, w, ROW_H, ROW_PX, false);
+            y += pitch;
         }
         sheet.text(
-            "A PLAY    X ANOTHER    Y I DID IT    L SKIP SYSTEM    B BACK",
-            8,
-            OUT_H.saturating_sub(28),
-            OUT_W.saturating_sub(16),
-            24,
-            12.0,
+            "A PLAY    X ANOTHER    Y DONE    B BACK",
+            16,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
             false,
         );
     }
 
     fn render_history(&self, sheet: &mut Sheet, pip: &Companion, w: u32) {
-        sheet.text("RECENTLY", 24, 20, w, 32, 24.0, false);
+        sheet.text("RECENTLY", 16, 8, w, ROW_H, ROW_PX, false);
         if pip.history.is_empty() && pip.sessions.is_empty() {
             sheet.text(
                 "No outings yet. Pip is happy to wait.",
-                24,
-                80,
+                16,
+                64,
                 w,
-                28,
-                15.0,
+                ROW_H,
+                ROW_PX,
                 true,
             );
         }
-        let mut y = 70u32;
-        for session in pip.sessions.iter().rev().take(6) {
+        let mut y = 56u32;
+        for session in pip.sessions.iter().rev().take(5) {
+            if y + ROW_H > LEGEND_TOP {
+                break;
+            }
             sheet.text(
                 &format!(
                     "{}  {}  {}s",
@@ -282,25 +323,43 @@ impl PipMenu {
                     session.stem,
                     session.secs
                 ),
-                24,
+                16,
                 y,
                 w,
-                24,
-                14.0,
+                ROW_H,
+                ROW_PX,
                 false,
             );
-            y += 26;
+            y += ROW_PITCH;
         }
-        y += 8;
-        for done in pip.history.iter().rev().take(4) {
-            sheet.text(&format!("Done  {}", done.title), 24, y, w, 24, 14.0, true);
-            y += 26;
+        for done in pip.history.iter().rev().take(3) {
+            if y + ROW_H > LEGEND_TOP {
+                break;
+            }
+            sheet.text(
+                &format!("Done  {}", done.title),
+                16,
+                y,
+                w,
+                ROW_H,
+                ROW_PX,
+                true,
+            );
+            y += ROW_PITCH;
         }
-        sheet.text("B BACK", 16, OUT_H.saturating_sub(28), w, 24, 15.0, false);
+        sheet.text(
+            "B BACK",
+            16,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
+            false,
+        );
     }
 
     fn render_settings(&self, sheet: &mut Sheet, pip: &Companion, w: u32) {
-        sheet.text("PIP'S SETTINGS", 24, 16, w, 28, 20.0, false);
+        sheet.text("SETTINGS", 16, 8, w, ROW_H, ROW_PX, false);
         let mut rows = vec![
             format!("Pip  {}", on(pip.enabled)),
             format!("Toasts  {}", on(pip.toasts)),
@@ -308,36 +367,33 @@ impl PipMenu {
             format!("Animations  {}", on(pip.animate)),
         ];
         for kind in MissionKind::ALL {
-            let name = match kind {
-                MissionKind::TryNew => "Try something new",
-                MissionKind::Marathon => "Retro marathon",
-                MissionKind::Forgotten => "Forgotten favorite",
-                MissionKind::Tourist => "Console tourist",
-                MissionKind::OneMore => "One more round",
-                MissionKind::HiddenGem => "Hidden gem",
-                MissionKind::Weekend => "Weekend adventure",
-            };
-            rows.push(format!("{name}  {}", on(pip.categories.contains(&kind))));
+            rows.push(format!(
+                "{}  {}",
+                kind.plain(),
+                on(pip.categories.contains(&kind))
+            ));
         }
         rows.push(if self.reset_armed {
-            "Reset progress?  A AGAIN".into()
+            "Reset progress?  A again".into()
         } else {
             "Reset progress".into()
         });
-        for (i, label) in rows.iter().enumerate() {
-            let y = 52 + i as u32 * 28;
-            if i == self.row {
-                sheet.rect(0, y, OUT_W, 26, slot_ui::edge());
+        let visible = ((LEGEND_TOP - 56) / ROW_PITCH) as usize;
+        let first = self.row.saturating_sub(visible.saturating_sub(1));
+        for (line, label) in rows.iter().enumerate().skip(first).take(visible) {
+            let y = 56 + (line - first) as u32 * ROW_PITCH;
+            if line == self.row {
+                sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
-            sheet.text(label, 16, y, w, 24, 13.0, false);
+            sheet.text(label, 16, y, w, ROW_H, ROW_PX, false);
         }
         sheet.text(
             "A CHANGE    B BACK",
             16,
-            OUT_H.saturating_sub(24),
-            w,
-            22,
-            14.0,
+            LEGEND_TOP,
+            OUT_W.saturating_sub(32),
+            ROW_H,
+            ROW_PX,
             false,
         );
     }
@@ -349,84 +405,6 @@ fn on(flag: bool) -> &'static str {
     } else {
         "Off"
     }
-}
-
-/// Pip, drawn here. A round little creature with a slot-shaped mark. Original.
-fn sprite(mood: Mood, blink: bool) -> Vec<u8> {
-    let n = CELL * SCALE;
-    let mut rgba = vec![0u8; (n * n * 4) as usize];
-    let sand = [0xef, 0xc8, 0x8a, 255];
-    let ink = [0x2a, 0x22, 0x18, 255];
-    let blush = [0xe0, 0x78, 0x68, 255];
-    let mark = [0xc4, 0x48, 0x2a, 255];
-    for y in 0..CELL {
-        for x in 0..CELL {
-            let dx = x as i32 - 16;
-            let dy = y as i32 - 15;
-            let body = dx * dx + (dy * dy * 3) / 2 < 120;
-            let edge = dx * dx + (dy * dy * 3) / 2 > 96;
-            let mut color = if body {
-                if edge {
-                    ink
-                } else {
-                    sand
-                }
-            } else {
-                [0, 0, 0, 0]
-            };
-            // Feet.
-            if (8..12).contains(&x) && (26..30).contains(&y)
-                || (20..24).contains(&x) && (26..30).contains(&y)
-            {
-                color = ink;
-            }
-            // Belly slot.
-            if (13..19).contains(&x) && (16..22).contains(&y) && body {
-                color = if x == 13 || x == 18 || y == 16 || y == 21 {
-                    ink
-                } else {
-                    mark
-                };
-            }
-            // Eyes.
-            let eye_y = 12;
-            let shut = blink || mood == Mood::Sleepy;
-            for ex in [11, 19] {
-                if (ex..ex + 3).contains(&x)
-                    && (eye_y..eye_y + if shut { 1 } else { 3 }).contains(&y)
-                {
-                    color = ink;
-                }
-            }
-            // Mouth.
-            let smile = matches!(mood, Mood::Happy | Mood::Excited | Mood::Celebrating);
-            if smile && (12..20).contains(&x) && y == 24 {
-                color = ink;
-            }
-            if mood == Mood::Curious && (14..18).contains(&x) && y == 23 {
-                color = ink;
-            }
-            if matches!(mood, Mood::Excited | Mood::Celebrating)
-                && ((8..11).contains(&x) || (21..24).contains(&x))
-                && (14..17).contains(&y)
-            {
-                color = blush;
-            }
-            if mood == Mood::Celebrating && (x + y) % 9 == 0 && !body {
-                color = [0xff, 0xd8, 0x6a, 255];
-            }
-            if color[3] == 0 {
-                continue;
-            }
-            for sy in 0..SCALE {
-                for sx in 0..SCALE {
-                    let at = (((y * SCALE + sy) * n + x * SCALE + sx) * 4) as usize;
-                    rgba[at..at + 4].copy_from_slice(&color);
-                }
-            }
-        }
-    }
-    rgba
 }
 
 #[cfg(test)]
@@ -471,7 +449,7 @@ mod tests {
         pip.xp = 40;
         menu.input(Action::GbaDown(Btn::A), &mut pip, &games(), 1);
         assert_eq!(pip.xp, 0);
-        let face = menu.render(&pip, 1, &games(), 0);
+        let face = menu.render(&pip, 1, 12, &games(), 0);
         assert_eq!(face.w, OUT_W);
         assert!(face.rgba.iter().any(|b| *b != 0));
         if let Ok(dir) = std::env::var("SLOT_FEATURE_PREVIEW") {
@@ -481,11 +459,14 @@ mod tests {
             let mut pip = Companion::default();
             pip.xp = 140;
             pip.ensure_missions(&games(), 3);
-            write_png(&dir.join("pip.png"), &shown.render(&pip, 3, &games(), 0));
+            write_png(
+                &dir.join("pip.png"),
+                &shown.render(&pip, 3, 12, &games(), 0),
+            );
             shown.page = Page::Settings;
             write_png(
                 &dir.join("pip-settings.png"),
-                &shown.render(&pip, 3, &games(), 2),
+                &shown.render(&pip, 3, 12, &games(), 2),
             );
         }
     }

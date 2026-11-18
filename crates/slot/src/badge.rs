@@ -61,6 +61,22 @@ pub fn prefetch(root: &Path, urls: Vec<String>) {
     }
 }
 
+/// Fetches any of `urls` that are not already cached. How many were saved.
+pub fn ensure(root: &Path, urls: &[String]) -> usize {
+    let mut saved = 0;
+    for url in urls {
+        let Some(path) = path(root, url) else { continue };
+        if path.exists() {
+            continue;
+        }
+        match fetch(url, &path) {
+            Ok(()) => saved += 1,
+            Err(e) => eprintln!("slot: badge {url}: {e}"),
+        }
+    }
+    saved
+}
+
 fn fetch(url: &str, path: &Path) -> Result<(), String> {
     let (_, server, tail) = net::split_url(url).ok_or("bad URL")?;
     let reply = net::send(&net::Request {
@@ -70,6 +86,7 @@ fn fetch(url: &str, path: &Path) -> Result<(), String> {
         path: &tail,
         form: None,
         json: None,
+        agent: None,
         limit: BADGE_MAX,
     })?;
     if reply.status != 200 {
