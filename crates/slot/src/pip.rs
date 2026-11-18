@@ -216,7 +216,8 @@ impl PipMenu {
         let mood = pip.mood_at(day, hour, games);
         let sprite = crate::pip_art::frame(mood, frame, pip.animate);
         let size = crate::pip_art::CELL * crate::pip_art::SCALE;
-        sheet.image((OUT_W - size) / 2, 4, size, size, &sprite);
+        sheet.image(8, 4, size, size, &sprite);
+        let text_x = 16 + size;
         sheet.text(
             &format!(
                 "{}   L{} {}/{}",
@@ -225,15 +226,16 @@ impl PipMenu {
                 pip.toward_next(),
                 pip.next_cost()
             ),
-            16,
-            104,
-            w,
+            text_x,
+            28,
+            OUT_W.saturating_sub(text_x + 12),
             ROW_H,
             ROW_PX,
             false,
         );
         let mut row = 0usize;
-        let mut y = 152u32;
+        let mut y = 12 + size;
+        let pitch = 44u32;
         for mission in pip.active() {
             if row == self.row {
                 sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
@@ -260,8 +262,8 @@ impl PipMenu {
                 false,
             );
             row += 1;
-            y += ROW_PITCH;
-            if y + ROW_PITCH > LEGEND_TOP {
+            y += pitch;
+            if y + pitch > LEGEND_TOP {
                 break;
             }
         }
@@ -273,7 +275,7 @@ impl PipMenu {
             sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
         }
         sheet.text(&suggest, 16, y, w, ROW_H, ROW_PX, false);
-        y += ROW_PITCH;
+        y += pitch;
         row += 1;
         for (label, at) in [("History", row), ("Settings", row + 1)] {
             if y + ROW_H > LEGEND_TOP {
@@ -283,7 +285,7 @@ impl PipMenu {
                 sheet.rect(0, y, OUT_W, ROW_H, slot_ui::edge());
             }
             sheet.text(label, 16, y, w, ROW_H, ROW_PX, false);
-            y += ROW_PITCH;
+            y += pitch;
         }
         sheet.text(
             "A PLAY    X ANOTHER    Y DONE    B BACK",
