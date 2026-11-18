@@ -250,7 +250,8 @@ impl Companion {
     }
 
     fn cost_of(&self, level: u32) -> u32 {
-        level.max(1).saturating_mul(50).saturating_add(50)
+        let step = LEVEL_XP / 2;
+        level.max(1).saturating_mul(step).saturating_add(step)
     }
 
     /// A short hello. The words are Slot's own.
@@ -593,7 +594,7 @@ impl Companion {
                 .any(|m| m.done && m.platform == Some(platform) && m.stem == stem)
     }
 
-    fn spawn(&mut self, games: &[GameSeen], day: i64) -> bool {
+    fn spawn(&mut self, games: &[GameSeen], _day: i64) -> bool {
         let used: Vec<(MissionKind, String)> = self
             .missions
             .iter()
