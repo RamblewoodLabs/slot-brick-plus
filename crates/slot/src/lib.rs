@@ -30,6 +30,7 @@ pub mod link_screen;
 pub mod link_start;
 pub mod link_state;
 pub mod net;
+pub mod offline_ra;
 pub mod overlay;
 pub mod persist;
 pub mod prefetch;

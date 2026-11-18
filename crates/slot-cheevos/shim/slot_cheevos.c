@@ -11,6 +11,10 @@
 #include "rc_consoles.h"
 #include "rc_libretro.h"
 #include "rc_version.h"
+#include "rc_hash.h"
+#include "rc_error.h"
+#include "rc_api_runtime.h"
+#include "rc_api_user.h"
 
 typedef void (*slot_http_fn)(void* host, const char* url, const char* post_data,
                              const char* content_type, void* call);
@@ -280,3 +284,78 @@ unsigned slot_cheevos_console_gbc(void) { return RC_CONSOLE_GAMEBOY_COLOR; }
 unsigned slot_cheevos_console_nes(void) { return RC_CONSOLE_NINTENDO; }
 unsigned slot_cheevos_console_snes(void) { return RC_CONSOLE_SUPER_NINTENDO; }
 unsigned slot_cheevos_console_ps1(void) { return RC_CONSOLE_PLAYSTATION; }
+
+/* The ROM's RetroAchievements hash, using rcheevos' own hasher. 1 on success. */
+int slot_cheevos_hash(const char* path, unsigned console, char out[33]) {
+  if (!path || !out)
+    return 0;
+  slot_cheevos_use_chd_reader();
+  return rc_hash_generate_from_file(out, console, path);
+}
+
+/* Copies a dorequest.php body built by rcheevos. The signature on an award is theirs. */
+static int copy_post(rc_api_request_t* request, char* out, size_t cap) {
+  size_t n;
+  if (!request->post_data) {
+    rc_api_destroy_request(request);
+    return -1;
+  }
+  n = strlen(request->post_data);
+  if (n + 1 > cap) {
+    rc_api_destroy_request(request);
+    return -1;
+  }
+  memcpy(out, request->post_data, n + 1);
+  rc_api_destroy_request(request);
+  return (int)n;
+}
+
+int slot_cheevos_award_body(char* out, size_t cap, const char* user, const char* token,
+                            unsigned id, int hardcore, const char* hash, unsigned seconds) {
+  rc_api_award_achievement_request_t params;
+  rc_api_request_t request;
+  if (!out || !user || !token || id == 0)
+    return -1;
+  memset(&params, 0, sizeof(params));
+  params.username = user;
+  params.api_token = token;
+  params.achievement_id = id;
+  params.hardcore = hardcore ? 1 : 0;
+  params.game_hash = (hash && hash[0]) ? hash : NULL;
+  params.seconds_since_unlock = seconds;
+  if (rc_api_init_award_achievement_request(&request, &params) != RC_OK)
+    return -1;
+  return copy_post(&request, out, cap);
+}
+
+int slot_cheevos_sets_body(char* out, size_t cap, const char* user, const char* token, const char* hash) {
+  rc_api_fetch_game_sets_request_t params;
+  rc_api_request_t request;
+  if (!out || !user || !token || !hash || !hash[0])
+    return -1;
+  memset(&params, 0, sizeof(params));
+  params.username = user;
+  params.api_token = token;
+  params.game_hash = hash;
+  if (rc_api_init_fetch_game_sets_request(&request, &params) != RC_OK)
+    return -1;
+  return copy_post(&request, out, cap);
+}
+
+int slot_cheevos_session_body(char* out, size_t cap, const char* user, const char* token,
+                              unsigned game_id, const char* hash) {
+  rc_api_start_session_request_t params;
+  rc_api_request_t request;
+  if (!out || !user || !token || game_id == 0)
+    return -1;
+  memset(&params, 0, sizeof(params));
+  params.username = user;
+  params.api_token = token;
+  params.game_id = game_id;
+  params.game_hash = (hash && hash[0]) ? hash : NULL;
+  /* Softcore. Offline hardcore submissions are not accepted. */
+  params.hardcore = 0;
+  if (rc_api_init_start_session_request(&request, &params) != RC_OK)
+    return -1;
+  return copy_post(&request, out, cap);
+}

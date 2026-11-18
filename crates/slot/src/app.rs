@@ -1805,7 +1805,7 @@ impl App {
 
     fn quick_disabled(&self, row: QuickRow) -> bool {
         #[cfg(feature = "brick")]
-        if matches!(row, QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update) {
+        if matches!(row, QuickRow::CartArt | QuickRow::Update) {
             return !self.net_up;
         }
         let _ = row;
@@ -2849,7 +2849,7 @@ impl App {
             },
             QuickRow::Achievements => {
                 #[cfg(feature = "brick")]
-                if self.net_up {self.wifi=Some(crate::brick_wifi::WifiMenu::achievements());}
+                {self.wifi=Some(crate::brick_wifi::WifiMenu::achievements());}
             },
             QuickRow::Update => {
                 #[cfg(feature = "brick")]
@@ -3539,6 +3539,16 @@ impl App {
             // Just connected: a good moment to set the clock.
             if self.net_up && !was_up {
                 self.clock_sync_at = 0;
+            }
+            if self.net_up {
+                if let Some(root) = &self.root {
+                    if let Some(account) = crate::ra::load(root) {
+                        crate::offline_ra::poke(root, &account.user, &account.token);
+                    }
+                }
+            }
+            if let Some(note) = crate::offline_ra::take_note() {
+                self.announce("RetroAchievements", &note);
             }
             self.net_on = self.net_up || crate::brick_wifi::radio_on();
             let in_game = matches!(self.phase, Phase::Playing { .. } | Phase::Inserting { .. });

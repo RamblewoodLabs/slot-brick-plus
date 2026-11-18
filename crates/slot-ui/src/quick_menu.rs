@@ -818,7 +818,7 @@ pub struct QuickMenu<'a> {
     /// its faces, dim and lit.
     pub texts: [Option<[(TexId, u32, u32); 2]>; QuickRow::ALL.len()],
     pub faces: Option<&'a QuickMenuFaces>,
-    /// Rows shown greyed out that do nothing, such as Cart Art and RetroAchievements with Wi-Fi off.
+    /// Rows shown greyed out that do nothing, such as Cart Art and Update with Wi-Fi off.
     pub disabled: [bool; QuickRow::ALL.len()],
 }
 

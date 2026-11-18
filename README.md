@@ -259,7 +259,7 @@ The cart changes as you go. `A` saves, `B` puts it back, and **Reset to original
 Both need Wi-Fi and are greyed out in the `HOME` menu while it is off.
 
 - **Cart Art:** **GET CART ART** gives every game without a label a scan of its real cartridge label. Labels you already have are never replaced. GB, GBC and GBA labels come from the art set behind Cart Studio, NES and SNES labels from the LaunchBox Games Database. Below the button, every game with a label is listed: press `A` twice on one to delete its label. It is quick but basic; use [Choosing a label](#choosing-a-label) for more control.
-- **RetroAchievements:** log in to your [RetroAchievements](https://retroachievements.org) account. Only the login token is kept, never your password. Games then earn achievements in softcore mode, with a small toast for each unlock. Hardcore mode isn't available.
+- **RetroAchievements:** log in to your [RetroAchievements](https://retroachievements.org) account. Only the login token is kept, never your password. Games then earn achievements in softcore mode, with a small toast for each unlock. Hardcore mode isn't available. While online, **Cache achievement sets** saves each game's set and badges. Away from Wi-Fi those sets still unlock, the list is still there to read, and the unlocks are sent when Wi-Fi returns. A hardcore unlock is not queued: the server does not accept those from an offline session.
 
 
 </details>
