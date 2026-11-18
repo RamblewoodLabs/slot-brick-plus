@@ -45,7 +45,7 @@ The file holds every fact above, and more:
 | History | words, day, XP, system, game. The list is trimmed; the finished count is not |
 | Also | first-play awards, systems the player turned off, the suggested game |
 
-Favorites and per-system totals are not separate files in the other project. Slot keeps them in this record so a crash cannot lose them independently of the play log.
+Favorites and per-system totals are not separate files in the other project. Slot keeps them in this record so a crash cannot lose them independently of the play log. Time already stored in the library is copied in on the next save. Launch counts from before this version are kept as at least one for each game that has time; a streak cannot be rebuilt from a single last-played time, so it starts from the next day Pip sees play.
 
 ## Missions
 

@@ -315,7 +315,89 @@ impl Companion {
     pub fn stamp(&mut self, day: i64, games: &[GameSeen], favorites: &[(Platform, &str)]) {
         self.face = self.mood(day, games);
         self.last_visit = day;
+        self.absorb_library(games);
         self.sync_favorites(favorites);
+    }
+
+    /// Copy time the library already recorded into this file. Later play only raises those
+    /// totals, so a save cannot count the same minute twice.
+    fn absorb_library(&mut self, games: &[GameSeen]) {
+        for seen in games {
+            if seen.played_secs == 0 && seen.last_played <= 0 {
+                continue;
+            }
+            let day = if seen.last_played > 0 {
+                seen.last_played / 86_400
+            } else {
+                0
+            };
+            if let Some(game) = self
+                .games
+                .iter_mut()
+                .find(|g| g.platform == seen.platform && g.stem == seen.stem)
+            {
+                if seen.played_secs > game.secs {
+                    game.secs = seen.played_secs;
+                }
+                if day > game.last_day {
+                    game.last_day = day;
+                }
+                if game.plays == 0 && game.secs > 0 {
+                    game.plays = 1;
+                }
+            } else {
+                self.games.push(GameStat {
+                    platform: seen.platform,
+                    stem: seen.stem.clone(),
+                    plays: u32::from(seen.played_secs > 0),
+                    secs: seen.played_secs,
+                    last_day: day,
+                    last_secs: 0,
+                    favorite: false,
+                });
+            }
+        }
+        let platforms: Vec<Platform> = self.games.iter().map(|g| g.platform).collect();
+        for platform in platforms {
+            let secs = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform)
+                .map(|g| g.secs)
+                .sum();
+            let games_with_time = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform && g.secs > 0)
+                .count() as u32;
+            let last_day = self
+                .games
+                .iter()
+                .filter(|g| g.platform == platform)
+                .map(|g| g.last_day)
+                .max()
+                .unwrap_or(0);
+            if let Some(system) = self.systems.iter_mut().find(|s| s.platform == platform) {
+                if secs > system.secs {
+                    system.secs = secs;
+                }
+                system.games = system.games.max(games_with_time);
+                if last_day > system.last_day {
+                    system.last_day = last_day;
+                }
+                if system.plays == 0 && system.secs > 0 {
+                    system.plays = games_with_time.max(1);
+                }
+            } else if secs > 0 {
+                self.systems.push(SystemStat {
+                    platform,
+                    plays: games_with_time.max(1),
+                    secs,
+                    last_day,
+                    games: games_with_time,
+                });
+            }
+        }
     }
 
     pub fn sync_favorites(&mut self, favorites: &[(Platform, &str)]) {
@@ -1561,6 +1643,34 @@ mod tests {
         assert_eq!(history.history[0].xp, 100);
         assert_eq!(history.history[0].stem, "Emerald");
         assert_eq!(history.history[0].platform, Some(Platform::Gba));
+
+        let mut seeded = Companion::default();
+        seeded.stamp(
+            12,
+            &[GameSeen {
+                platform: Platform::Snes,
+                stem: "Link".into(),
+                played_secs: 90,
+                last_played: 12 * 86_400,
+            }],
+            &[],
+        );
+        assert_eq!(seeded.games[0].secs, 90);
+        assert_eq!(seeded.games[0].plays, 1);
+        assert_eq!(seeded.games[0].last_day, 12);
+        seeded.note_play(Platform::Snes, "Link", 10, 12, &[]);
+        seeded.stamp(
+            12,
+            &[GameSeen {
+                platform: Platform::Snes,
+                stem: "Link".into(),
+                played_secs: 100,
+                last_played: 12 * 86_400,
+            }],
+            &[],
+        );
+        assert_eq!(seeded.games[0].secs, 100);
+        assert_eq!(seeded.games[0].plays, 2);
     }
 
     #[test]
