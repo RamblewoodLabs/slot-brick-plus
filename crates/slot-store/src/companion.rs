@@ -215,12 +215,54 @@ impl Companion {
         atomic_write(&root.join(FILE), self.text().as_bytes())
     }
 
+    /// Each level asks for more than the one before: 100, then 200, then 300.
     pub fn level(&self) -> u32 {
-        1 + self.xp / LEVEL_XP
+        let mut left = self.xp;
+        let mut level = 1u32;
+        loop {
+            let cost = self.cost_of(level);
+            if left < cost || level >= 99 {
+                break;
+            }
+            left -= cost;
+            level += 1;
+        }
+        level
     }
 
     pub fn toward_next(&self) -> u32 {
-        self.xp % LEVEL_XP
+        let mut left = self.xp;
+        let mut level = 1u32;
+        loop {
+            let cost = self.cost_of(level);
+            if left < cost || level >= 99 {
+                return left;
+            }
+            left -= cost;
+            level += 1;
+        }
+    }
+
+    pub fn next_cost(&self) -> u32 {
+        self.cost_of(self.level())
+    }
+
+    fn cost_of(&self, level: u32) -> u32 {
+        LEVEL_XP.saturating_mul(level.max(1))
+    }
+
+    /// A short hello. The words are Slot's own.
+    pub fn greeting(&self, day: i64) -> &'static str {
+        if self.celebrating {
+            return "That one is done";
+        }
+        const LINES: [&str; 4] = [
+            "Good to see you",
+            "Ready when you are",
+            "Pick a game and play",
+            "A short session still counts",
+        ];
+        LINES[day.rem_euclid(LINES.len() as i64) as usize]
     }
 
     pub fn mood(&self, day: i64, games: &[GameSeen]) -> Mood {
@@ -543,9 +585,7 @@ impl Companion {
             .filter(|m| !m.done)
             .map(|m| (m.kind, m.stem.clone()))
             .collect();
-        let want = |kind: MissionKind| {
-            self.categories.contains(&kind) && !used.iter().any(|(k, _)| *k == kind)
-        };
+        let _ = used;
         let unplayed: Vec<&GameSeen> = games
             .iter()
             .filter(|g| {
@@ -576,74 +616,84 @@ impl Companion {
                     extra: String::new(),
                 }
             };
-        let pick = unplayed.get((id as usize).wrapping_mul(3) % unplayed.len().max(1));
-        if want(MissionKind::TryNew) {
-            if let Some(game) = pick.filter(|_| !unplayed.is_empty()) {
-                self.missions.push(mission(
-                    MissionKind::TryNew,
-                    MissionKind::TryNew.plain(),
-                    &format!("Launch {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::HiddenGem) && unplayed.len() > 1 {
-            let game = unplayed[(id as usize).wrapping_add(1) % unplayed.len()];
-            if !used.iter().any(|(_, stem)| stem == &game.stem) {
-                self.missions.push(mission(
-                    MissionKind::HiddenGem,
-                    MissionKind::HiddenGem.plain(),
-                    &format!("Try {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::Marathon) {
-            let game = played.first().or(unplayed.first());
-            if let Some(game) = game {
-                self.missions.push(mission(
-                    MissionKind::Marathon,
-                    MissionKind::Marathon.plain(),
-                    &format!("Play {} for 20 minutes", game.stem),
-                    Some(game),
-                    20 * 60,
-                ));
-                return true;
-            }
-        }
-        if want(MissionKind::Forgotten) {
-            let old = played
+        // Three at a time, when the library allows: one from games already played,
+        // one about playing different systems, and one about a game not yet played.
+        let filled = |slot: u8| {
+            self.missions
                 .iter()
-                .filter(|g| g.last_played > 0)
-                .min_by_key(|g| g.last_played);
-            if let Some(game) = old {
-                self.missions.push(mission(
-                    MissionKind::Forgotten,
-                    MissionKind::Forgotten.plain(),
-                    &format!("Revisit {}", game.stem),
-                    Some(game),
-                    1,
-                ));
+                .any(|m| !m.done && Self::mission_slot(m.kind) == Some(slot))
+        };
+        let missing: Vec<u8> = [0, 1, 2]
+            .into_iter()
+            .filter(|slot| !filled(*slot))
+            .collect();
+        let pick = unplayed.get((id as usize).wrapping_mul(3) % unplayed.len().max(1));
+        for slot in missing {
+            if self.fill_slot(slot, &unplayed, &played, pick.copied(), &mission) {
                 return true;
             }
         }
-        if want(MissionKind::OneMore) {
-            if let Some(game) = played.first() {
-                self.missions.push(mission(
-                    MissionKind::OneMore,
-                    MissionKind::OneMore.plain(),
-                    &format!("Return to {}", game.stem),
-                    Some(game),
-                    1,
-                ));
-                return true;
+        self.fill_slot(3, &unplayed, &played, pick.copied(), &mission)
+    }
+
+    fn wants(&self, kind: MissionKind) -> bool {
+        self.categories.contains(&kind) && !self.missions.iter().any(|m| !m.done && m.kind == kind)
+    }
+
+    fn fill_slot(
+        &mut self,
+        slot: u8,
+        unplayed: &[&GameSeen],
+        played: &[&GameSeen],
+        pick: Option<&GameSeen>,
+        mission: &impl Fn(MissionKind, &str, &str, Option<&GameSeen>, u32) -> Mission,
+    ) -> bool {
+        if slot == 0 {
+            if self.wants(MissionKind::Forgotten) {
+                let old = played
+                    .iter()
+                    .copied()
+                    .filter(|g| g.last_played > 0)
+                    .min_by_key(|g| g.last_played);
+                if let Some(game) = old {
+                    self.missions.push(mission(
+                        MissionKind::Forgotten,
+                        MissionKind::Forgotten.plain(),
+                        &format!("Revisit {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    return true;
+                }
             }
+            if self.wants(MissionKind::OneMore) {
+                if let Some(game) = played.first() {
+                    self.missions.push(mission(
+                        MissionKind::OneMore,
+                        MissionKind::OneMore.plain(),
+                        &format!("Return to {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    return true;
+                }
+            }
+            if self.wants(MissionKind::Marathon) {
+                let game = played.first().copied().or(unplayed.first().copied());
+                if let Some(game) = game {
+                    self.missions.push(mission(
+                        MissionKind::Marathon,
+                        MissionKind::Marathon.plain(),
+                        &format!("Play {} for 20 minutes", game.stem),
+                        Some(game),
+                        20 * 60,
+                    ));
+                    return true;
+                }
+            }
+            return false;
         }
-        if want(MissionKind::Tourist) {
+        if slot == 1 && self.wants(MissionKind::Tourist) {
             self.missions.push(mission(
                 MissionKind::Tourist,
                 MissionKind::Tourist.plain(),
@@ -653,8 +703,35 @@ impl Companion {
             ));
             return true;
         }
-        if want(MissionKind::Weekend) {
-            let _ = day;
+        if slot == 2 {
+            if self.wants(MissionKind::TryNew) {
+                if let Some(game) = pick.filter(|_| !unplayed.is_empty()) {
+                    self.missions.push(mission(
+                        MissionKind::TryNew,
+                        MissionKind::TryNew.plain(),
+                        &format!("Launch {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    return true;
+                }
+            }
+            if self.wants(MissionKind::HiddenGem) && unplayed.len() > 1 {
+                let game = unplayed[(self.next_id as usize).wrapping_add(1) % unplayed.len()];
+                if !self.missions.iter().any(|m| !m.done && m.stem == game.stem) {
+                    self.missions.push(mission(
+                        MissionKind::HiddenGem,
+                        MissionKind::HiddenGem.plain(),
+                        &format!("Try {}", game.stem),
+                        Some(game),
+                        1,
+                    ));
+                    return true;
+                }
+            }
+            return false;
+        }
+        if slot == 3 && self.wants(MissionKind::Weekend) {
             self.missions.push(mission(
                 MissionKind::Weekend,
                 MissionKind::Weekend.plain(),
@@ -665,6 +742,15 @@ impl Companion {
             return true;
         }
         false
+    }
+
+    fn mission_slot(kind: MissionKind) -> Option<u8> {
+        match kind {
+            MissionKind::Forgotten | MissionKind::OneMore | MissionKind::Marathon => Some(0),
+            MissionKind::Tourist => Some(1),
+            MissionKind::TryNew | MissionKind::HiddenGem => Some(2),
+            MissionKind::Weekend => None,
+        }
     }
 
     fn pick_suggestion(&mut self, games: &[GameSeen], salt: i64) {
@@ -937,6 +1023,14 @@ mod tests {
             || m.kind == MissionKind::TryNew
             || m.kind == MissionKind::HiddenGem));
         assert_eq!(pip.active().count(), 3);
+        let kinds: Vec<_> = pip.active().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&MissionKind::Forgotten)
+                || kinds.contains(&MissionKind::OneMore)
+                || kinds.contains(&MissionKind::Marathon)
+        );
+        assert!(kinds.contains(&MissionKind::Tourist));
+        assert!(kinds.contains(&MissionKind::TryNew) || kinds.contains(&MissionKind::HiddenGem));
         let mut empty = Companion::default();
         empty.ensure_missions(&[], 100);
         let kinds: Vec<_> = empty.active().map(|m| m.kind).collect();
@@ -949,6 +1043,25 @@ mod tests {
         assert!(empty.active().all(|m| m.stem.is_empty()
             || m.kind == MissionKind::Tourist
             || m.kind == MissionKind::Weekend));
+    }
+
+    #[test]
+    fn each_level_asks_for_more_xp_than_the_last() {
+        let mut pip = Companion::default();
+        assert_eq!(
+            (pip.level(), pip.toward_next(), pip.next_cost()),
+            (1, 0, 100)
+        );
+        pip.xp = 100;
+        assert_eq!(
+            (pip.level(), pip.toward_next(), pip.next_cost()),
+            (2, 0, 200)
+        );
+        pip.xp = 140;
+        assert_eq!(pip.toward_next(), 40);
+        pip.xp = 300;
+        assert_eq!(pip.level(), 3);
+        assert_eq!(pip.next_cost(), 300);
     }
 
     #[test]

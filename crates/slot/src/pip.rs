@@ -202,10 +202,11 @@ impl PipMenu {
         sheet.image((OUT_W - size) / 2, 4, size, size, &sprite);
         sheet.text(
             &format!(
-                "{}    LEVEL {}    {}/100 XP",
-                mood.name(),
+                "{}    LEVEL {}    {}/{} XP",
+                pip.greeting(day),
                 pip.level(),
-                pip.toward_next()
+                pip.toward_next(),
+                pip.next_cost()
             ),
             16,
             104,
