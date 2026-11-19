@@ -288,12 +288,71 @@ fn player_clients(video_id: &str) -> Vec<(&'static str, String)> {
             ),
         ),
         (
+            "TV",
+            format!(
+                r#"{{"context":{{"client":{{"clientName":"TVHTML5_SIMPLY_EMBEDDED_PLAYER","clientVersion":"2.0","hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
+            ),
+        ),
+        (
+            "MWEB",
+            format!(
+                r#"{{"context":{{"client":{{"clientName":"MWEB","clientVersion":"2.20241202.07.00","hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
+            ),
+        ),
+        (
             "ANDROID",
             format!(
                 r#"{{"context":{{"client":{{"clientName":"ANDROID","clientVersion":"19.17.34","androidSdkVersion":30,"hl":"en","gl":"US"}}}},"videoId":"{id}","contentCheckOk":true,"racyCheckOk":true}}"#
             ),
         ),
     ]
+}
+
+/// One stream address in the rotation a download uses after a drop: Innertube clients
+/// first (IOS, ANDROID_VR, the TV embed, MWEB, ANDROID), then Piped, then Invidious.
+/// `None` when `index` is past the end.
+pub fn media_at(video_id: &str, index: usize) -> Option<Result<(String, Media), String>> {
+    if !valid_id(video_id) {
+        return Some(Err("That video address cannot be used".into()));
+    }
+    let clients = player_clients(video_id);
+    if let Some((name, body)) = clients.get(index) {
+        return Some(match innertube("player", body) {
+            Ok(body) => progressive_mp4(&body)
+                .or_else(|| parse_innertube_player(&body))
+                .map(|media| ((*name).to_string(), media))
+                .ok_or_else(|| format!("{name} sent no direct MP4 address")),
+            Err(e) => Err(format!("{name}: {e}")),
+        });
+    }
+    let mut at = index - clients.len();
+    for base in piped_bases() {
+        if at == 0 {
+            let url = format!("{base}/streams/{video_id}");
+            let name = format!("Piped {base}");
+            return Some(match get_text(&url, 2 << 20) {
+                Ok(body) => parse_piped_streams(&body)
+                    .map(|media| (name.clone(), media))
+                    .ok_or_else(|| format!("{base} had no 360p MP4")),
+                Err(e) => Err(format!("{base}: {e}")),
+            });
+        }
+        at -= 1;
+    }
+    for base in invidious_bases() {
+        if at == 0 {
+            let url = format!("{base}/api/v1/videos/{video_id}");
+            let name = format!("Invidious {base}");
+            return Some(match get_text(&url, 2 << 20) {
+                Ok(body) => parse_invidious_video(&body)
+                    .map(|media| (name.clone(), media))
+                    .ok_or_else(|| format!("{base} had no 360p MP4")),
+                Err(e) => Err(format!("{base}: {e}")),
+            });
+        }
+        at -= 1;
+    }
+    None
 }
 
 /// A direct progressive MP4 (itag 18, else 22) from a player response. Signature
@@ -925,7 +984,8 @@ pub fn parse_youtube_search(html: &str) -> Vec<Channel> {
         rest = &rest[at + key.len()..];
         let Some(id_end) = rest.find('"') else { break };
         let id = &rest[..id_end];
-        let window = &rest[..rest.len().min(800)];
+        // 800 bytes, but not through the middle of a character such as 気.
+        let window = &rest[..rest.floor_char_boundary(800.min(rest.len()))];
         let name = between(window, "\"simpleText\":\"", "\"").unwrap_or("");
         let handle = between(window, "\"canonicalBaseUrl\":\"/", "\"").unwrap_or("");
         if valid_channel_id(id) && !name.is_empty() {
@@ -1428,6 +1488,19 @@ mod tests {
         .unwrap();
         assert!(media.muxed && media.height == 360);
         assert!(media.video_url.ends_with("360.mp4"));
+    }
+
+    #[test]
+    fn a_search_snippet_does_not_split_a_multibyte_character() {
+        let key = "\"channelRenderer\":{\"channelId\":\"";
+        let mut rest = String::from("UCabcdefghij\"\"simpleText\":\"気になる\"");
+        while rest.len() < 799 {
+            rest.push('x');
+        }
+        rest.push('気');
+        let html = format!("{key}{rest}");
+        let found = parse_youtube_search(&html);
+        assert!(found.iter().any(|c| c.id == "UCabcdefghij"));
     }
 
     #[test]

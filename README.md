@@ -388,14 +388,9 @@ Brick and Brick Hammer code is gated behind the `brick` Cargo feature.
 
 ### Making a release
 
-Pushing a `vX.Y` tag builds the card from that tag and publishes it as a release holding only
-what people download: `slot-stock-vX.Y.zip`, `slot-os-brick-vX.Y.img.xz` and
-`slot-os-brickpro-vX.Y.img.xz`. What **HOME → Online → Update** downloads goes to the
-[Updates](../../releases/tag/updates) release (`brick/updates-release.sh`): `update.txt` and
-`update.txt.sig`, naming the zip, and the zip itself.
-`update.txt` is signed with the release key, kept in the `UPDATE_SIGNING_KEY` repository
-secret (an Ed25519 private key, PEM); its public half is in `crates/slot/src/update.rs`, and
-Slot installs nothing it doesn't verify. Without the secret, a release refuses to build.
+Pushing a `vX.Y` tag builds the Brick `slot` binary and publishes it, with `slot.sha256`,
+on this repository's release. **HOME → Online → Update** downloads those two files and
+nothing else. How to cut one is in [`docs/releasing.md`](docs/releasing.md).
 The same release carries Slot OS, built from the same card (`brick/os/build.sh`, see
 [`brick/os/README.md`](brick/os/README.md)): `slot-os-brick-vX.Y.img.xz` to flash, and in
 Updates `slot-os-brick-vX.Y-update.zip` with its own signed `update-os.txt`, which Slot OS's Update reads, and the

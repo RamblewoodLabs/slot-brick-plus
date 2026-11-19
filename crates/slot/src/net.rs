@@ -42,7 +42,9 @@ impl Response {
     pub fn header(&self, name: &str) -> Option<String> {
         self.head.lines().skip(1).find_map(|l| {
             let (k, v) = l.split_once(':')?;
-            k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+            k.trim()
+                .eq_ignore_ascii_case(name)
+                .then(|| v.trim().to_string())
         })
     }
 }
@@ -58,7 +60,9 @@ pub fn split_url(url: &str) -> Option<(bool, String, String)> {
         (None, Some(rest)) => (false, rest),
         _ => return None,
     };
-    let (host, path) = rest.split_once('/').map_or((rest, "/".to_string()), |(h, p)| (h, format!("/{p}")));
+    let (host, path) = rest
+        .split_once('/')
+        .map_or((rest, "/".to_string()), |(h, p)| (h, format!("/{p}")));
     if host.is_empty() {
         return None;
     }
@@ -107,11 +111,14 @@ pub fn send(req: &Request) -> Result<Response, String> {
         let conn = rustls::ClientConnection::new(tls_config(), name).map_err(|e| e.to_string())?;
         let mut stream = rustls::StreamOwned::new(conn, tcp);
         // One write: a request split over several packets can be answered and reset early.
-        stream.write_all(text.as_bytes()).map_err(|e| tls_error(&e))?;
+        stream
+            .write_all(text.as_bytes())
+            .map_err(|e| tls_error(&e))?;
         read_all(stream, cap).map_err(|e| tls_error(&e))?
     } else {
         let mut tcp = tcp;
-        tcp.write_all(text.as_bytes()).map_err(|e| format!("send failed: {e}"))?;
+        tcp.write_all(text.as_bytes())
+            .map_err(|e| format!("send failed: {e}"))?;
         read_all(tcp, cap).map_err(|e| format!("download failed: {e}"))?
     };
     parse(&raw, req.limit)
@@ -127,9 +134,110 @@ fn dial(server: &str) -> Result<TcpStream, String> {
         .iter()
         .find_map(|a| TcpStream::connect_timeout(a, Duration::from_secs(8)).ok())
         .ok_or_else(|| format!("cannot connect to {host}"))?;
-    let _ = tcp.set_read_timeout(Some(Duration::from_secs(20)));
-    let _ = tcp.set_write_timeout(Some(Duration::from_secs(8)));
+    let _ = tcp.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = tcp.set_write_timeout(Some(Duration::from_secs(15)));
+    tune_keepalive(&tcp);
     Ok(tcp)
+}
+
+/// A read that comes back too soon (EAGAIN / WouldBlock, or a timeout reported that way)
+/// is not a failure. Callers retry it.
+pub fn is_again(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+    ) || error.raw_os_error() == Some(11)
+        || {
+            let text = error.to_string().to_lowercase();
+            text.contains("temporarily unavailable")
+                || text.contains("would block")
+                || text.contains("eagain")
+        }
+}
+
+/// A name for the log: what kind of drop this was, not the whole OS sentence.
+pub fn error_kind(error: &std::io::Error) -> &'static str {
+    if is_again(error) {
+        return "again";
+    }
+    let text = error.to_string().to_lowercase();
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof
+    ) || text.contains("closed")
+        || text.contains("reset")
+        || text.contains("broken pipe")
+    {
+        return "closed";
+    }
+    "io"
+}
+
+fn tune_keepalive(tcp: &TcpStream) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = tcp.as_raw_fd();
+        let yes: libc::c_int = 1;
+        let idle: libc::c_int = 30;
+        let gap: libc::c_int = 10;
+        let n: libc::c_int = 3;
+        unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_KEEPALIVE,
+                &yes as *const _ as *const libc::c_void,
+                4,
+            );
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPIDLE,
+                &idle as *const _ as *const libc::c_void,
+                4,
+            );
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPINTVL,
+                &gap as *const _ as *const libc::c_void,
+                4,
+            );
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPCNT,
+                &n as *const _ as *const libc::c_void,
+                4,
+            );
+        }
+    }
+}
+
+/// Read once, waiting through a temporary refusal. A lasting timeout is returned as TimedOut.
+pub fn read_soft(reader: &mut dyn Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut waits = 0u32;
+    loop {
+        match reader.read(buf) {
+            Err(e) if is_again(&e) => {
+                waits += 1;
+                if waits >= 6 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "read timed out",
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            other => return other,
+        }
+    }
 }
 
 /// A body being downloaded: its length, if the server said, and the bytes as they come.
@@ -141,15 +249,31 @@ pub struct Body {
 /// GET `url`, following redirects (a GitHub download is one, to its file server), with the
 /// body left to be read as it arrives rather than held in memory. Only a 200 is a body.
 pub fn get_stream(url: &str) -> Result<Body, String> {
-    get_stream_as(url, None)
+    get_stream_as(url, None, &|_| true)
 }
 
-fn get_stream_as(url: &str, agent: Option<&str>) -> Result<Body, String> {
+/// Like `get_stream`, but each address, including one a redirect points at, has to pass `allow`.
+pub fn get_stream_allowed(url: &str, allow: &dyn Fn(&str) -> bool) -> Result<Body, String> {
+    get_stream_as(url, None, allow)
+}
+
+fn get_stream_as(
+    url: &str,
+    agent: Option<&str>,
+    allow: &dyn Fn(&str) -> bool,
+) -> Result<Body, String> {
     let mut url = url.to_string();
     for _ in 0..5 {
+        if !allow(&url) {
+            return Err("Refusing a download from anywhere but this Slot's GitHub releases".into());
+        }
         let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
-        let (status, head, reader) = open_get(tls, &server, &path, agent)?;
-        let reply = Response { status, head, body: Vec::new() };
+        let (status, head, reader) = open_get(tls, &server, &path, agent, "")?;
+        let reply = Response {
+            status,
+            head,
+            body: Vec::new(),
+        };
         match status {
             200 => {
                 let len = reply.header("content-length").and_then(|v| v.parse().ok());
@@ -180,7 +304,7 @@ pub fn get(url: &str, limit: usize) -> Result<Vec<u8>, String> {
 
 /// GET `url` whole, saying `agent` instead of Slot's own name.
 pub fn get_as(url: &str, limit: usize, agent: Option<&str>) -> Result<Vec<u8>, String> {
-    let body = get_stream_as(url, agent)?;
+    let body = get_stream_as(url, agent, &|_| true)?;
     if body.len.is_some_and(|n| n > limit as u64) {
         return Err("reply too large".into());
     }
@@ -201,11 +325,88 @@ pub fn get_as(url: &str, limit: usize, agent: Option<&str>) -> Result<Vec<u8>, S
 
 /// Sends a GET and reads up to the end of its headers: the status, the headers, and the
 /// connection, at the body's first byte.
+/// A GET that asks for the bytes from `start` onward. A 206 is the tail. A 200 means the
+/// server sent the whole file from the beginning, so the caller should replace what it has.
+pub struct Ranged {
+    pub from_start: bool,
+    pub status: u16,
+    /// The whole file, from Content-Range, when the server sent one.
+    pub total: Option<u64>,
+    /// Bytes in this reply, from Content-Length.
+    pub content_length: Option<u64>,
+    pub reader: Box<dyn Read + Send>,
+}
+
+pub fn get_ranged(url: &str, start: u64) -> Result<Ranged, String> {
+    get_range(url, start, None)
+}
+
+/// `end` is inclusive, as in `Range: bytes=start-end`. `None` asks for the rest of the file.
+pub fn get_range(url: &str, start: u64, end: Option<u64>) -> Result<Ranged, String> {
+    let mut url = url.to_string();
+    let range = match end {
+        Some(end) => format!("Range: bytes={start}-{end}\r\n"),
+        None => format!("Range: bytes={start}-\r\n"),
+    };
+    for _ in 0..5 {
+        let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
+        let (status, head, reader) = open_get(tls, &server, &path, None, &range)?;
+        let reply = Response {
+            status,
+            head,
+            body: Vec::new(),
+        };
+        match status {
+            206 => {
+                let total = reply
+                    .header("content-range")
+                    .as_deref()
+                    .and_then(range_total);
+                let content_length = reply.header("content-length").and_then(|v| v.parse().ok());
+                return Ok(Ranged {
+                    from_start: false,
+                    status,
+                    total,
+                    content_length,
+                    reader,
+                });
+            }
+            200 => {
+                let content_length = reply.header("content-length").and_then(|v| v.parse().ok());
+                return Ok(Ranged {
+                    from_start: true,
+                    status,
+                    total: content_length,
+                    content_length,
+                    reader,
+                });
+            }
+            403 => return Err("denied: server said 403".into()),
+            416 => return Err("already complete".into()),
+            301 | 302 | 303 | 307 | 308 => {
+                let to = reply.header("location").ok_or("bad redirect from server")?;
+                url = match to.starts_with('/') {
+                    true => format!("{}://{server}{to}", if tls { "https" } else { "http" }),
+                    false => to,
+                };
+            }
+            _ => return Err(format!("server said {status}")),
+        }
+    }
+    Err("too many redirects".into())
+}
+
+fn range_total(header: &str) -> Option<u64> {
+    let (_, total) = header.split_once('/')?;
+    total.trim().parse().ok()
+}
+
 fn open_get(
     tls: bool,
     server: &str,
     path: &str,
     agent: Option<&str>,
+    extra: &str,
 ) -> Result<(u16, String, Box<dyn Read + Send>), String> {
     let host = host_of(server);
     if !(plain(server) && plain(path) && path.starts_with('/')) {
@@ -213,7 +414,7 @@ fn open_get(
     }
     let tcp = dial(server)?;
     let text = format!(
-        "GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {}\r\nConnection: close\r\n\r\n",
+        "GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {}\r\n{extra}Connection: close\r\n\r\n",
         agent.unwrap_or(&user_agent())
     );
     let mut stream: Box<dyn Read + Send> = if tls {
@@ -221,11 +422,14 @@ fn open_get(
             .map_err(|_| format!("bad host name {host}"))?;
         let conn = rustls::ClientConnection::new(tls_config(), name).map_err(|e| e.to_string())?;
         let mut stream = rustls::StreamOwned::new(conn, tcp);
-        stream.write_all(text.as_bytes()).map_err(|e| tls_error(&e))?;
+        stream
+            .write_all(text.as_bytes())
+            .map_err(|e| tls_error(&e))?;
         Box::new(stream)
     } else {
         let mut tcp = tcp;
-        tcp.write_all(text.as_bytes()).map_err(|e| format!("send failed: {e}"))?;
+        tcp.write_all(text.as_bytes())
+            .map_err(|e| format!("send failed: {e}"))?;
         Box::new(tcp)
     };
     // A byte at a time, so nothing of the body is read here: the caller reads all of it.
@@ -235,7 +439,7 @@ fn open_get(
         if head.len() > 64 * 1024 {
             return Err("bad reply from server".into());
         }
-        match stream.read(&mut byte) {
+        match read_soft(&mut *stream, &mut byte) {
             Ok(1) => head.push(byte[0]),
             Ok(_) => return Err("bad reply from server".into()),
             Err(e) if tls => return Err(tls_error(&e)),
@@ -272,7 +476,8 @@ fn tls_error(e: &std::io::Error) -> String {
     let text = e.to_string();
     let lower = text.to_lowercase();
     // A certificate checked against a wrong clock: the Brick's clock is the usual cause.
-    if lower.contains("notvalidyet") || lower.contains("not valid yet") || lower.contains("expired") {
+    if lower.contains("notvalidyet") || lower.contains("not valid yet") || lower.contains("expired")
+    {
         return "secure connection refused: check Date & Time in settings".into();
     }
     format!("secure connection failed: {text}")
@@ -313,7 +518,10 @@ pub fn parse(raw: &[u8], limit: usize) -> Result<Response, String> {
     if reply.body.len() > limit {
         return Err("reply too large".into());
     }
-    if let Some(len) = reply.header("content-length").and_then(|v| v.parse::<usize>().ok()) {
+    if let Some(len) = reply
+        .header("content-length")
+        .and_then(|v| v.parse::<usize>().ok())
+    {
         if reply.body.len() < len {
             return Err("download cut short".into());
         }
@@ -326,7 +534,9 @@ pub fn form_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3 / 2);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -345,31 +555,73 @@ mod tests {
     #[test]
     fn a_reply_shorter_than_its_length_is_refused() {
         assert!(parse(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc", 100).is_err());
-        let ok = parse(b"HTTP/1.1 401 No\r\nContent-Length: 3\r\nX-A: b\r\n\r\nabc", 100).unwrap();
-        assert_eq!((ok.status, ok.body.as_slice(), ok.header("x-a").as_deref()), (401, &b"abc"[..], Some("b")));
+        let ok = parse(
+            b"HTTP/1.1 401 No\r\nContent-Length: 3\r\nX-A: b\r\n\r\nabc",
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            (ok.status, ok.body.as_slice(), ok.header("x-a").as_deref()),
+            (401, &b"abc"[..], Some("b"))
+        );
     }
 
     #[test]
     fn urls_split_into_server_and_path() {
-        assert_eq!(split_url("https://a.org/x?y=1"), Some((true, "a.org:443".into(), "/x?y=1".into())));
-        assert_eq!(split_url("http://h:8080"), Some((false, "h:8080".into(), "/".into())));
+        assert_eq!(
+            split_url("https://a.org/x?y=1"),
+            Some((true, "a.org:443".into(), "/x?y=1".into()))
+        );
+        assert_eq!(
+            split_url("http://h:8080"),
+            Some((false, "h:8080".into(), "/".into()))
+        );
         assert_eq!(split_url("ftp://h/x"), None);
         assert_eq!(split_url("https:///x"), None);
     }
 
     #[test]
     fn a_request_line_cannot_carry_extra_headers() {
-        for (server, path) in [("h:80", "/a\r\nX: y"), ("h:80", "/a b"), ("h\r\n:80", "/"), ("h:80", "a")] {
-            let req = Request { tls: false, server, method: "GET", path, form: None, json: None, agent: None, limit: 1 };
-            assert_eq!(send(&req).err().as_deref(), Some("bad request address"), "{path:?}");
+        for (server, path) in [
+            ("h:80", "/a\r\nX: y"),
+            ("h:80", "/a b"),
+            ("h\r\n:80", "/"),
+            ("h:80", "a"),
+        ] {
+            let req = Request {
+                tls: false,
+                server,
+                method: "GET",
+                path,
+                form: None,
+                json: None,
+                agent: None,
+                limit: 1,
+            };
+            assert_eq!(
+                send(&req).err().as_deref(),
+                Some("bad request address"),
+                "{path:?}"
+            );
         }
     }
 
     #[test]
     fn only_an_unreachable_server_counts_as_unreachable() {
-        let req = |server| Request { tls: false, server, method: "GET", path: "/", form: None, json: None, agent: None, limit: 1 };
+        let req = |server| Request {
+            tls: false,
+            server,
+            method: "GET",
+            path: "/",
+            form: None,
+            json: None,
+            agent: None,
+            limit: 1,
+        };
         assert!(unreachable(&send(&req("127.0.0.1:1")).err().unwrap()));
-        assert!(unreachable(&send(&req("no-such-host.invalid:80")).err().unwrap()));
+        assert!(unreachable(
+            &send(&req("no-such-host.invalid:80")).err().unwrap()
+        ));
         assert!(!unreachable("server said 403") && !unreachable("reply too large"));
     }
 
@@ -397,6 +649,11 @@ mod tests {
             limit: 1 << 16,
         })
         .unwrap();
-        assert_eq!(reply.status, 422, "{}", String::from_utf8_lossy(&reply.body));
+        assert_eq!(
+            reply.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
     }
 }

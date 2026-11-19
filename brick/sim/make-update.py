@@ -1,37 +1,34 @@
-"""A stand-in release for the simulator to update to: a card zip holding a pretend Slot, and the
-update.txt describing it, in a folder laid out as GitHub's Updates release is. brick/sim.sh signs
-update.txt with the simulator's key; SLOT_UPDATE_URL points the Update screen at the folder.
-Usage: python3 make-update.py RELEASES_DIR"""
+"""A stand-in release for the simulator's Update screen: a Brick `slot` binary, its
+sha256, and the releases list. SLOT_UPDATE_URL points at this folder.
+Usage: python3 make-update.py RELEASES_DIR
+"""
 import hashlib
 import os
 import sys
-import zipfile
 
-root = sys.argv[1]
-os.makedirs(os.path.join(root, "download/updates"), exist_ok=True)
-zip_path = os.path.join(root, "download/updates/slot-stock-v9.9.zip")
-with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-    for name, text in [("Slot/System/slot", "#!/bin/sh\nexit 0\n"), ("Slot/System/launch.sh", "exit 0\n")]:
-        info = zipfile.ZipInfo("SD-CARD/" + name, (2026, 1, 1, 0, 0, 0))
-        info.external_attr = 0o100755 << 16
-        info.compress_type = zipfile.ZIP_DEFLATED
-        z.writestr(info, text)
-data = open(zip_path, "rb").read()
+root = os.path.abspath(sys.argv[1])
+os.makedirs(root, exist_ok=True)
+# The simulator reads the card through Docker, where the repo is mounted at /src.
+rel = os.path.relpath(root, os.getcwd()).replace(os.sep, "/")
+base = "file:///src/" + rel
+binary = b"#!/bin/sh\nexit 0\n"
+digest = hashlib.sha256(binary).hexdigest()
+with open(os.path.join(root, "slot"), "wb") as f:
+    f.write(binary)
+with open(os.path.join(root, "slot.sha256"), "w") as f:
+    f.write(f"{digest}  slot\n")
 notes = [
     "- Something new on the shelf, with a line long enough that it has to be wrapped onto a second one.",
     "- A fix for something that was broken.",
     *[f"- Change number {n}, one of many, so the notes run past the bottom of the screen." for n in range(3, 13)],
 ]
-manifest = "\n".join([
-    "slot-update 1",
-    "channel=release",
-    "version=v9.9",
-    "commit=0123456789abcdef0123456789abcdef01234567",
-    "zip=slot-stock-v9.9.zip",
-    f"size={len(data)}",
-    f"sha256={hashlib.sha256(data).hexdigest()}",
-    "",
-    *notes,
-]) + "\n"
-with open(os.path.join(root, "download/updates/update.txt"), "w") as f:
-    f.write(manifest)
+body = "\\n".join(notes)
+# The title matches the version, so the screen's first line stays "v9.9 is out".
+listing = (
+    '[{"tag_name":"v9.9","name":"v9.9","draft":false,"body":"' + body + '","assets":['
+    f'{{"name":"slot","size":{len(binary)},"browser_download_url":"{base}/slot"}},'
+    f'{{"name":"slot.sha256","size":70,"browser_download_url":"{base}/slot.sha256"}}'
+    "]}]"
+)
+with open(os.path.join(root, "releases.json"), "w") as f:
+    f.write(listing)

@@ -66,10 +66,8 @@ fresh() {
     python3 -I brick/sim/make-overlay.py "$1/card/Slot/Overlays/GB/Sim Frame.png"
     cp "$1/card/Slot/Overlays/GB/Sim Frame.png" \
         "$1/card/Slot/Overlays/GBA/Sim Frame with a name far too long to fit beside its label.png"
-    # A release to update to, signed with the simulator's key, which only a simulator build takes.
+    # A release to update to: this fork's slot binary and its checksum, in a folder.
     python3 -I brick/sim/make-update.py "$1/releases"
-    openssl pkeyutl -sign -rawin -inkey brick/sim/update-key.pem \
-        -in "$1/releases/download/updates/update.txt" -out "$1/releases/download/updates/update.txt.sig"
 }
 
 # Where the cart art and label servers live. Docker looks names up with this machine's DNS;

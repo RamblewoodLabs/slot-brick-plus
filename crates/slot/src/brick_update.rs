@@ -5,20 +5,16 @@ use std::thread;
 
 use slot_input::{Action, Btn};
 
-use crate::update::{self, Channel, Installed, Manifest, Offer, Progress};
+use crate::update::{self, Installed, Manifest, Offer, Progress};
 
 /// Below this, unplugged, an update is not started: a Brick that dies halfway through the
 /// swap has to be put right from a computer.
 const LOW_BATTERY: u8 = 20;
 
-/// Presses that show the channel row, for those testing Dev builds.
-const CODE: [Btn; 10] = [Btn::Up, Btn::Up, Btn::Down, Btn::Down, Btn::Left, Btn::Right, Btn::Left, Btn::Right, Btn::B, Btn::A];
-
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Row {
     Check,
     Install,
-    Channel,
 }
 
 struct Installing {
@@ -34,15 +30,12 @@ pub struct UpdateScreen {
     root: PathBuf,
     base: String,
     installed: Installed,
-    channel: Channel,
-    unlocked: bool,
     row: usize,
     pub status: String,
     found: Option<(Manifest, Offer)>,
     check: Option<mpsc::Receiver<Result<Manifest, String>>>,
     installing: Option<Installing>,
     armed: bool,
-    pressed: Vec<Btn>,
     /// Percent and whether it is charging, as the app last read it.
     pub battery: Option<(u8, bool)>,
     restart: bool,
@@ -61,9 +54,8 @@ impl UpdateScreen {
     /// `known`: the newer Slot this boot's check found, shown straight away rather than asked
     /// for again.
     pub fn open(root: &Path, known: Option<Manifest>) -> Self {
-        let channel = update::saved_channel(root);
-        let mut s = Self::with(root, update::base(), Installed::current(), channel);
-        match known.filter(|m| m.channel == channel) {
+        let mut s = Self::with(root, update::source(), Installed::current());
+        match known {
             Some(m) => {
                 s.show(m);
             }
@@ -72,20 +64,17 @@ impl UpdateScreen {
         s
     }
 
-    fn with(root: &Path, base: String, installed: Installed, channel: Channel) -> Self {
+    fn with(root: &Path, base: String, installed: Installed) -> Self {
         Self {
             root: root.to_path_buf(),
             base,
             installed,
-            channel,
-            unlocked: channel == Channel::Dev,
             row: 0,
             status: String::new(),
             found: None,
             check: None,
             installing: None,
             armed: false,
-            pressed: Vec::new(),
             battery: None,
             restart: false,
             scroll: 0,
@@ -96,11 +85,12 @@ impl UpdateScreen {
 
     fn rows(&self) -> Vec<Row> {
         let mut rows = vec![Row::Check];
-        if self.found.as_ref().is_some_and(|(_, o)| *o != Offer::UpToDate) {
+        if self
+            .found
+            .as_ref()
+            .is_some_and(|(_, o)| *o != Offer::UpToDate)
+        {
             rows.push(Row::Install);
-        }
-        if self.unlocked {
-            rows.push(Row::Channel);
         }
         rows
     }
@@ -135,9 +125,9 @@ impl UpdateScreen {
 
     fn start_check(&mut self) {
         let (tx, rx) = mpsc::channel();
-        let (base, channel) = (self.base.clone(), self.channel);
+        let base = self.base.clone();
         thread::spawn(move || {
-            let _ = tx.send(update::check(&base, channel));
+            let _ = tx.send(update::check(&base));
         });
         self.check = Some(rx);
         self.found = None;
@@ -165,7 +155,9 @@ impl UpdateScreen {
             }
             return true;
         }
-        let Some(job) = &mut self.installing else { return false };
+        let Some(job) = &mut self.installing else {
+            return false;
+        };
         match job.rx.try_recv() {
             Ok(Ok(Some(m))) => {
                 self.installing = None;
@@ -191,8 +183,15 @@ impl UpdateScreen {
                 true
             }
             Err(mpsc::TryRecvError::Empty) => {
-                let (unpacking, done) = (job.progress.unpacking.load(Ordering::Relaxed), job.progress.downloaded.load(Ordering::Relaxed));
-                let at = if unpacking { u64::MAX } else { (done * 10) >> 20 };
+                let (unpacking, done) = (
+                    job.progress.unpacking.load(Ordering::Relaxed),
+                    job.progress.downloaded.load(Ordering::Relaxed),
+                );
+                let at = if unpacking {
+                    u64::MAX
+                } else {
+                    (done * 10) >> 20
+                };
                 if at == job.shown || job.progress.cancel.load(Ordering::Relaxed) {
                     return false;
                 }
@@ -218,20 +217,11 @@ impl UpdateScreen {
     }
 
     fn found_line(&self, m: &Manifest, offer: Offer) -> String {
-        let have = self.have();
-        match (m.channel, offer) {
-            (Channel::Release, Offer::Newer) => format!("{} is out. You have {have}", m.version),
-            (Channel::Release, Offer::Back) => format!("{} replaces this Dev build ({})", m.version, self.installed.commit),
-            (Channel::Release, Offer::UpToDate) => format!("Slot is up to date ({have})"),
-            (Channel::Dev, Offer::UpToDate) => format!("This is the latest Dev build ({})", m.short()),
-            (Channel::Dev, _) => format!("Dev build {} is ready. It may have bugs", m.short()),
-        }
-    }
-
-    fn have(&self) -> String {
-        match self.installed.channel {
-            Channel::Release => self.installed.version.clone(),
-            Channel::Dev => format!("Dev build {}", self.installed.commit),
+        let have = self.installed.version.clone();
+        let name = release_name(m);
+        match offer {
+            Offer::Newer => format!("{name} is out. You have {have}"),
+            Offer::UpToDate => format!("Slot is up to date ({have})"),
         }
     }
 
@@ -253,21 +243,6 @@ impl UpdateScreen {
             Action::ShelfRight => Btn::Right,
             _ => return false,
         };
-        self.pressed.push(btn);
-        if self.pressed.len() > CODE.len() {
-            self.pressed.remove(0);
-        }
-        if self.pressed == CODE {
-            self.pressed.clear();
-            self.unlocked = true;
-            self.status = "Update channel unlocked".into();
-            self.armed = false;
-            return false;
-        }
-        // The B in the code: kept, not taken for Back.
-        if btn == Btn::B && self.pressed.ends_with(&CODE[..CODE.len() - 1]) {
-            return false;
-        }
         let rows = self.rows();
         let row = rows.get(self.row).copied().unwrap_or(Row::Check);
         match btn {
@@ -287,31 +262,20 @@ impl UpdateScreen {
                 self.row = (self.row + 1) % rows.len();
                 self.armed = false;
             }
-            Btn::Left | Btn::Right if row == Row::Channel => self.switch_channel(),
-            Btn::L1 => self.scroll = self.scroll.min(self.scroll_max.get()).saturating_sub(SCROLL_STEP),
+            Btn::L1 => {
+                self.scroll = self
+                    .scroll
+                    .min(self.scroll_max.get())
+                    .saturating_sub(SCROLL_STEP)
+            }
             Btn::R1 => self.scroll = (self.scroll + SCROLL_STEP).min(self.scroll_max.get()),
             Btn::A => match row {
                 Row::Check => self.start_check(),
                 Row::Install => self.install(),
-                Row::Channel => self.switch_channel(),
             },
             _ => {}
         }
         false
-    }
-
-    fn switch_channel(&mut self) {
-        let to = match self.channel {
-            Channel::Release => Channel::Dev,
-            Channel::Dev => Channel::Release,
-        };
-        if let Err(e) = update::save_channel(&self.root, to) {
-            self.status = format!("Cannot save the channel: {e}");
-            return;
-        }
-        self.channel = to;
-        self.start_check();
-        self.row = self.rows().len() - 1;
     }
 
     fn install(&mut self) {
@@ -330,13 +294,25 @@ impl UpdateScreen {
         self.armed = false;
         let progress = Arc::new(Progress::default());
         let (tx, rx) = mpsc::channel();
-        let (base, m, card, shared) = (self.base.clone(), m.clone(), update::card_of(&self.root), progress.clone());
+        let (base, m, root, shared) = (
+            self.base.clone(),
+            m.clone(),
+            self.root.clone(),
+            progress.clone(),
+        );
         let size = m.size;
         thread::spawn(move || {
-            let latest = update::check(&base, m.channel);
-            let _ = tx.send(install_latest(&m, latest, || update::install(&base, &m, &card, &shared)));
+            let latest = update::check(&base);
+            let _ = tx.send(install_latest(&m, latest, || {
+                update::install(&m, &root, &shared)
+            }));
         });
-        self.installing = Some(Installing { rx, progress, size, shown: u64::MAX - 1 });
+        self.installing = Some(Installing {
+            rx,
+            progress,
+            size,
+            shown: u64::MAX - 1,
+        });
         self.status = format!("Downloading 0.0 of {}", mb(size));
     }
 
@@ -347,18 +323,9 @@ impl UpdateScreen {
             .map(|row| match row {
                 Row::Check => "CHECK FOR UPDATES".into(),
                 Row::Install => match &self.found {
-                    Some((m, Offer::Back)) => format!("GO BACK TO {}", m.version.to_uppercase()),
-                    Some((m, _)) if m.channel == Channel::Dev => format!("INSTALL DEV BUILD {}", m.short().to_uppercase()),
                     Some((m, _)) => format!("INSTALL {}", m.version.to_uppercase()),
                     None => String::new(),
                 },
-                Row::Channel => format!(
-                    "CHANNEL                    {}",
-                    match self.channel {
-                        Channel::Release => "RELEASE",
-                        Channel::Dev => "DEV BUILD",
-                    }
-                ),
             })
             .collect()
     }
@@ -373,9 +340,16 @@ impl UpdateScreen {
 
     /// What is installed, and what the update found brings, for under the rows.
     pub fn about(&self) -> (String, Vec<String>) {
-        let have = format!("Installed: {}", self.have());
+        let have = format!("Installed: {}", self.installed.version);
         let notes = match &self.found {
-            Some((m, offer)) if *offer != Offer::UpToDate => m.notes.iter().map(|l| plain(l)).collect(),
+            Some((m, offer)) if *offer != Offer::UpToDate => {
+                let mut lines = Vec::new();
+                if !m.title.is_empty() && !m.title.eq_ignore_ascii_case(&m.version) {
+                    lines.push(m.title.clone());
+                }
+                lines.extend(m.notes.iter().map(|l| plain(l)));
+                lines
+            }
             _ => Vec::new(),
         };
         (have, notes)
@@ -384,7 +358,13 @@ impl UpdateScreen {
     pub fn legend(&self) -> &'static str {
         match () {
             _ if self.restart => "",
-            _ if self.installing.as_ref().is_some_and(|j| j.progress.unpacking.load(Ordering::Relaxed)) => "",
+            _ if self
+                .installing
+                .as_ref()
+                .is_some_and(|j| j.progress.unpacking.load(Ordering::Relaxed)) =>
+            {
+                ""
+            }
             _ if self.busy() => "B CANCEL",
             _ if self.armed => "B KEEP THIS ONE    A INSTALL",
             _ => "B BACK    A SELECT",
@@ -413,8 +393,8 @@ impl AutoCheck {
     /// running), and takes its answer. True when the symbol is to come or go.
     pub fn poll(&mut self, root: &Path, now: u64, allowed: bool) -> bool {
         if allowed && self.answer.is_none() && now >= self.due {
-            let (base, channel) = (update::base(), update::saved_channel(root));
-            self.start(now, move || update::check(&base, channel));
+            let base = update::source();
+            self.start(now, move || update::check(&base));
         }
         let Some(rx) = &self.answer else { return false };
         let got = match rx.try_recv() {
@@ -431,12 +411,18 @@ impl AutoCheck {
         self.due = 0;
     }
 
-    fn start(&mut self, now: u64, check: impl FnOnce() -> Result<Manifest, String> + Send + 'static) {
+    fn start(
+        &mut self,
+        now: u64,
+        check: impl FnOnce() -> Result<Manifest, String> + Send + 'static,
+    ) {
         self.due = now + RECHECK_MS;
         let (tx, rx) = mpsc::channel();
-        let spawned = thread::Builder::new().name("slot-update-check".into()).spawn(move || {
-            let _ = tx.send(check());
-        });
+        let spawned = thread::Builder::new()
+            .name("slot-update-check".into())
+            .spawn(move || {
+                let _ = tx.send(check());
+            });
         match spawned {
             Ok(_) => self.answer = Some(rx),
             Err(e) => eprintln!("slot: update check: {e}"),
@@ -488,10 +474,22 @@ fn mb(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / (1 << 20) as f64)
 }
 
+/// The release title when GitHub gave it one, otherwise the version tag.
+fn release_name(m: &Manifest) -> String {
+    if m.title.is_empty() || m.title.eq_ignore_ascii_case(&m.version) {
+        m.version.clone()
+    } else {
+        format!("{} ({})", m.title, m.version)
+    }
+}
+
 /// A changelog line without its Markdown.
 fn plain(line: &str) -> String {
     let line = line.trim();
-    let line = line.strip_prefix("- ").map(|l| format!("- {l}")).unwrap_or_else(|| line.to_string());
+    let line = line
+        .strip_prefix("- ")
+        .map(|l| format!("- {l}"))
+        .unwrap_or_else(|| line.to_string());
     line.chars().filter(|c| !matches!(c, '*' | '`')).collect()
 }
 
@@ -500,36 +498,34 @@ mod tests {
     use super::*;
 
     fn screen(dir: &Path) -> UpdateScreen {
-        let installed = Installed { version: "v0.43".into(), commit: "1111111".into(), channel: Channel::Release };
-        UpdateScreen::with(dir, "file:///nowhere".into(), installed, Channel::Release)
+        let installed = Installed {
+            version: "v0.43".into(),
+            commit: "1111111".into(),
+            channel: crate::update::Channel::Release,
+        };
+        UpdateScreen::with(dir, "file:///nowhere".into(), installed)
     }
 
     fn press(s: &mut UpdateScreen, buttons: &[Btn]) -> bool {
-        buttons.iter().fold(false, |_, b| s.input(Action::GbaDown(*b)))
+        buttons
+            .iter()
+            .fold(false, |_, b| s.input(Action::GbaDown(*b)))
     }
 
     fn found(s: &mut UpdateScreen) {
-        let m = Manifest {
-            channel: Channel::Release,
-            version: "v0.44".into(),
-            commit: "abcdef0123".into(),
-            zip: "z.zip".into(),
-            size: 1,
-            sha256: [0; 32],
-            notes: vec!["- *New*: `this`.".into()],
-        };
-        s.found = Some((m, Offer::Newer));
-        s.row = 1;
+        let mut m = release("v0.44");
+        m.title = "Pictures stay put".into();
+        m.notes = vec!["- *New*: `this`.".into()];
+        s.show(m);
     }
 
     fn release(version: &str) -> Manifest {
         Manifest {
-            channel: Channel::Release,
             version: version.into(),
-            commit: "abcdef0123".into(),
-            zip: "z.zip".into(),
+            title: version.into(),
             size: 1,
             sha256: [0; 32],
+            binary_url: format!("https://github.com/jfink22-design/slot-brick-plus/releases/download/{version}/slot"),
             notes: Vec::new(),
         }
     }
@@ -544,7 +540,11 @@ mod tests {
 
     #[test]
     fn the_symbol_shows_only_for_a_newer_slot_and_goes_once_up_to_date() {
-        let installed = Installed { version: "v0.43".into(), commit: "1111111".into(), channel: Channel::Release };
+        let installed = Installed {
+            version: "v0.43".into(),
+            commit: "1111111".into(),
+            channel: crate::update::Channel::Release,
+        };
         let mut b = AutoCheck::default();
         assert!(!b.found(Ok(release("v0.43")), &installed));
         assert!(b.newer().is_none());
@@ -590,17 +590,26 @@ mod tests {
     fn install_takes_a_newer_update_out_since_the_check_instead() {
         let (old, new) = (release("v0.44"), release("v0.45"));
         let mut ran = false;
-        assert_eq!(install_latest(&old, Ok(new.clone()), || {
-            ran = true;
-            Ok(())
-        }), Ok(Some(new)));
+        assert_eq!(
+            install_latest(&old, Ok(new.clone()), || {
+                ran = true;
+                Ok(())
+            }),
+            Ok(Some(new))
+        );
         assert!(!ran, "installed the old one");
-        assert_eq!(install_latest(&old, Ok(old.clone()), || {
-            ran = true;
-            Ok(())
-        }), Ok(None));
+        assert_eq!(
+            install_latest(&old, Ok(old.clone()), || {
+                ran = true;
+                Ok(())
+            }),
+            Ok(None)
+        );
         assert!(ran);
-        assert!(install_latest(&old, Err("no internet".into()), || panic!("installed unchecked")).is_err());
+        assert!(install_latest(&old, Err("no internet".into()), || panic!(
+            "installed unchecked"
+        ))
+        .is_err());
     }
 
     #[test]
@@ -609,12 +618,20 @@ mod tests {
         let mut s = screen(dir.path());
         found(&mut s);
         let (tx, rx) = mpsc::channel();
-        s.installing = Some(Installing { rx, progress: Arc::new(Progress::default()), size: 1, shown: 0 });
+        s.installing = Some(Installing {
+            rx,
+            progress: Arc::new(Progress::default()),
+            size: 1,
+            shown: 0,
+        });
         tx.send(Ok(Some(release("v0.45")))).unwrap();
         assert!(s.poll());
         assert!(!s.busy());
         assert_eq!(s.lines()[1], "INSTALL V0.45");
-        assert_eq!(s.take_verdict().flatten().map(|m| m.version), Some("v0.45".into()));
+        assert_eq!(
+            s.take_verdict().flatten().map(|m| m.version),
+            Some("v0.45".into())
+        );
     }
 
     #[test]
@@ -627,43 +644,12 @@ mod tests {
     }
 
     #[test]
-    fn a_found_update_for_another_channel_is_checked_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut dev = release("v99.0");
-        dev.channel = Channel::Dev;
-        assert!(UpdateScreen::open(dir.path(), Some(dev)).busy());
-    }
-
-    #[test]
-    fn the_channel_row_shows_only_after_the_code() {
+    fn b_goes_back_and_there_is_no_other_update_channel() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = screen(dir.path());
         assert_eq!(s.lines(), ["CHECK FOR UPDATES"]);
-        assert!(!press(&mut s, &CODE));
-        assert_eq!(s.lines().last().unwrap(), "CHANNEL                    RELEASE");
-    }
-
-    #[test]
-    fn b_alone_still_goes_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = screen(dir.path());
         assert!(press(&mut s, &[Btn::Up, Btn::Down, Btn::B]));
         assert!(!press(&mut s, &[Btn::L1, Btn::R1]));
-        assert!(press(&mut s, &CODE[..9].iter().chain(&[Btn::B]).copied().collect::<Vec<_>>()));
-    }
-
-    #[test]
-    fn the_dev_channel_is_chosen_kept_and_checked() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("Config")).unwrap();
-        let mut s = screen(dir.path());
-        press(&mut s, &CODE);
-        press(&mut s, &[Btn::Up, Btn::Right]);
-        assert_eq!(s.channel, Channel::Dev);
-        assert!(s.busy());
-        assert_eq!(update::saved_channel(dir.path()), Channel::Dev);
-        let reopened = UpdateScreen::with(dir.path(), String::new(), s.installed.clone(), update::saved_channel(dir.path()));
-        assert!(reopened.unlocked);
     }
 
     #[test]
@@ -687,7 +673,8 @@ mod tests {
         let mut s = screen(dir.path());
         found(&mut s);
         assert_eq!(s.lines()[1], "INSTALL V0.44");
-        assert_eq!(s.about().1, ["- New: this."]);
+        assert_eq!(s.status, "Pictures stay put (v0.44) is out. You have v0.43");
+        assert_eq!(s.about().1, ["Pictures stay put", "- New: this."]);
         s.battery = Some((12, false));
         press(&mut s, &[Btn::A]);
         assert!(s.status.contains("Charge") && !s.busy());

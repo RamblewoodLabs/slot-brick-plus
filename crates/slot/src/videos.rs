@@ -5,7 +5,6 @@
 //! window at 12 frames a second. That is small enough for the H700 to decode in
 //! software, and it fills Slot's 640×480 screen once the Brick scales it up to
 //! 1024×768. Playback needs `Slot/System/ffmpeg` (or `ffmpeg` on the path).
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -25,8 +24,6 @@ pub const FRAME_W: u32 = 480;
 pub const FRAME_H: u32 = 270;
 const FPS: u32 = 12;
 const AUDIO_HZ: u32 = 22_050;
-const MAX_VIDEO: u64 = 250 * 1024 * 1024;
-const KEEP_FREE: u64 = 256 * 1024 * 1024;
 /// 0 is no cap. The rest are the Video space limit row, up to 16 GB.
 const LIMITS_MB: [u32; 6] = [0, 1024, 2048, 4096, 8192, 16384];
 /// HOME menu type, on the 640×480 screen the Brick scales to 1024×768.
@@ -42,13 +39,13 @@ const KEYS: [&str; 3] = [
 ];
 
 #[derive(Clone, Debug)]
-struct Saved {
-    id: String,
-    title: String,
-    channel: String,
-    bytes: u64,
-    duration_ms: u64,
-    position_ms: u64,
+pub(crate) struct Saved {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) channel: String,
+    pub(crate) bytes: u64,
+    pub(crate) duration_ms: u64,
+    pub(crate) position_ms: u64,
 }
 
 #[derive(Clone)]
@@ -61,13 +58,10 @@ struct Sub {
 struct Job {
     id: String,
     title: String,
+    #[allow(dead_code)]
     channel: String,
+    #[allow(dead_code)]
     duration_ms: u64,
-}
-
-enum Note {
-    Done(Saved),
-    Failed { id: String, message: String },
 }
 
 enum Found {
@@ -79,12 +73,7 @@ enum Found {
     },
 }
 
-struct Worker {
-    rx: mpsc::Receiver<Note>,
-    cancel: Arc<AtomicBool>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum View {
     Home,
     Search,
@@ -130,7 +119,6 @@ pub struct VideoMenu {
     /// Channels the player asked to follow. `channels` is a search result, not this list.
     subs: Vec<Sub>,
     retry: Option<Job>,
-    pause_dl: Arc<AtomicBool>,
     channels: Vec<Channel>,
     videos: Vec<Video>,
     /// Small pictures for the channel's rows, one per video, already RGBA.
@@ -139,7 +127,6 @@ pub struct VideoMenu {
     keys: Option<KeysState>,
     waiting: Vec<Job>,
     active: Option<Job>,
-    worker: Option<Worker>,
     lookup: Option<mpsc::Receiver<Result<Found, String>>>,
     progress: Arc<AtomicU64>,
     progress_total: Arc<AtomicU64>,
@@ -170,7 +157,6 @@ impl VideoMenu {
             library: Vec::new(),
             subs: Vec::new(),
             retry: None,
-            pause_dl: Arc::new(AtomicBool::new(false)),
             channels: Vec::new(),
             videos: Vec::new(),
             row_thumbs: Vec::new(),
@@ -178,7 +164,6 @@ impl VideoMenu {
             keys: None,
             waiting: Vec::new(),
             active: None,
-            worker: None,
             lookup: None,
             progress: Arc::new(AtomicU64::new(0)),
             progress_total: Arc::new(AtomicU64::new(0)),
@@ -246,42 +231,7 @@ impl VideoMenu {
                 }
             }
         }
-        if let Some(worker) = &self.worker {
-            match worker.rx.try_recv() {
-                Ok(Note::Done(saved)) => {
-                    let title = saved.title.clone();
-                    self.library.retain(|s| s.id != saved.id);
-                    self.library.push(saved);
-                    let _ = write_index(&self.root, &self.library);
-                    self.active = None;
-                    self.worker = None;
-                    self.status = format!("Saved {title}");
-                    self.dirty = true;
-                    notes.push(("Saved".into(), title));
-                    self.kick();
-                }
-                Ok(Note::Failed { id, message }) => {
-                    if message != "Cancelled" {
-                        self.retry = self.active.clone().filter(|job| job.id == id);
-                    }
-                    self.active = None;
-                    self.worker = None;
-                    self.status = message.clone();
-                    self.dirty = true;
-                    notes.push(("Download failed".into(), message));
-                    self.kick();
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.worker = None;
-                    self.active = None;
-                    self.status = "Download stopped".into();
-                    self.dirty = true;
-                }
-            }
-        } else {
-            self.kick();
-        }
+        notes.extend(self.sync_queue());
         if self.active.is_some() {
             let pct = self.progress_total.load(Ordering::Relaxed).max(1);
             let shown = self.progress.load(Ordering::Relaxed).saturating_mul(100) / pct;
@@ -312,7 +262,8 @@ impl VideoMenu {
     }
 
     pub fn stop_for_sleep(&mut self) {
-        self.cancel_download();
+        // Sleep suspends the machine. The downloader is a separate process and keeps its
+        // partial file, so it carries on after the Brick wakes or restarts.
         self.stop_player(true);
         self.view = View::Home;
     }
@@ -388,9 +339,23 @@ impl VideoMenu {
             {
                 self.step_limit(true)
             }
+            Action::GbaDown(Btn::Left)
+            | Action::ShelfLeft
+            | Action::GbaDown(Btn::Right)
+            | Action::ShelfRight
+                if self.view == View::Home && self.row == self.pause_row() =>
+            {
+                let on = !crate::video_queue::pause_in_games(&self.root);
+                let _ = crate::video_queue::set_pause_in_games(&self.root, on);
+                self.status = if on {
+                    "Downloads pause while a game is open".into()
+                } else {
+                    "Downloads keep going during a game".into()
+                };
+                self.dirty = true;
+            }
             Action::GbaDown(Btn::A) if self.view == View::Queue => {
-                let paused = !self.pause_dl.load(Ordering::Relaxed);
-                self.pause_dl.store(paused, Ordering::Relaxed);
+                let paused = crate::video_queue::toggle_hold(&self.root);
                 self.status = if paused {
                     "Download paused".into()
                 } else {
@@ -417,6 +382,10 @@ impl VideoMenu {
         }
         if !self.status.is_empty() && self.view != View::Player {
             sheet.text(&self.status, 16, 48, w, MENU_H, 24.0, true);
+        }
+        if self.view != View::Player && self.on_battery() && !crate::video_queue::jobs(&self.root).is_empty()
+        {
+            sheet.text("Plug in to keep downloading", 16, 80, w, 18, 16.0, true);
         }
         match self.view {
             View::Search => self.render_keys(&mut sheet),
@@ -560,6 +529,7 @@ impl VideoMenu {
             View::Library => "A PLAY    Y DELETE    B BACK".into(),
             View::Queue => "X CANCEL    B BACK".into(),
             View::Home if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    B BACK".into(),
+            View::Home if self.row == self.pause_row() => "LEFT/RIGHT    B BACK".into(),
             View::Home if self.channel_row().is_some() => "A LATEST 5    Y REMOVE    B BACK".into(),
             _ => "A SELECT    B BACK".into(),
         }
@@ -586,6 +556,14 @@ impl VideoMenu {
                 ));
                 rows.push(self.space_label());
                 rows.push(self.limit_label());
+                rows.push(format!(
+                    "Pause downloads in games          {}",
+                    if crate::video_queue::pause_in_games(&self.root) {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
+                ));
                 rows
             }
             View::Channels => {
@@ -669,27 +647,41 @@ impl VideoMenu {
         self.row_labels().len().max(1)
     }
 
+    /// One level up. A saved channel's videos return to the main list, and that list's B
+    /// closes onto the shelf. The keyboard is only opened from "Add a channel".
     fn back(&mut self) -> bool {
         self.armed = None;
-        self.keys = None;
         match self.view {
             View::Home => true,
-            View::Channels => {
-                self.view = View::Search;
-                self.keys = Some(KeysState {
-                    query: String::new(),
-                    key: 0,
-                    page: 0,
-                });
-                false
-            }
-            View::Videos => {
-                self.view = View::Channels;
-                false
-            }
-            _ => {
+            View::Search => {
+                self.keys = None;
                 self.view = View::Home;
                 self.row = 0;
+                self.status = "Search a channel, or play a video already on the card".into();
+                false
+            }
+            // Search results sit under the keyboard the player opened on purpose.
+            View::Channels => {
+                self.view = View::Search;
+                if self.keys.is_none() {
+                    self.keys = Some(KeysState {
+                        query: String::new(),
+                        key: 0,
+                        page: 0,
+                    });
+                }
+                false
+            }
+            View::Videos | View::Library | View::Queue => {
+                self.keys = None;
+                self.view = View::Home;
+                self.row = 0;
+                self.status = "Search a channel, or play a video already on the card".into();
+                false
+            }
+            View::Player => {
+                self.view = self.back;
+                self.keys = None;
                 false
             }
         }
@@ -729,6 +721,10 @@ impl VideoMenu {
 
     fn limit_row(&self) -> usize {
         self.subs.len() + 4
+    }
+
+    fn pause_row(&self) -> usize {
+        self.subs.len() + 5
     }
 
     fn channel_row(&self) -> Option<usize> {
@@ -829,11 +825,14 @@ impl VideoMenu {
     }
 
     fn enqueue(&mut self, video: Video) {
-        if self
-            .waiting
+        if crate::video_queue::jobs(&self.root)
             .iter()
-            .chain(self.active.iter())
-            .any(|j| j.id == video.id)
+            .any(|job| job.id == video.id)
+            || self
+                .waiting
+                .iter()
+                .chain(self.active.iter())
+                .any(|job| job.id == video.id)
         {
             self.status = "Already in the queue".into();
             return;
@@ -843,18 +842,100 @@ impl VideoMenu {
             return;
         }
         self.make_room();
-        self.waiting.push(Job {
-            id: video.id,
-            title: video.title.clone(),
-            channel: video.channel,
-            duration_ms: video.duration_ms,
-        });
-        self.status = format!("Queued {}", video.title);
-        self.kick();
+        let title = video.title.clone();
+        if let Err(e) = crate::video_queue::enqueue(
+            &self.root,
+            &video.id,
+            &video.title,
+            &video.channel,
+            video.duration_ms,
+        ) {
+            self.status = e;
+            return;
+        }
+        // Stay on this channel's list. B from here returns to the main Videos page.
+        self.view = View::Videos;
+        self.status = if self.on_battery() {
+            format!("Queued {title}. Plug in to keep downloading")
+        } else {
+            format!("Queued {title}")
+        };
+        let _ = self.sync_queue();
+    }
+
+    fn on_battery(&self) -> bool {
+        let live = crate::menu_status::current();
+        live.percent.is_some() && !live.charging
     }
 
     fn kick(&mut self) {
-        self.kick_queue();
+        let _ = self.sync_queue();
+    }
+
+    /// The queue and its progress live in files, and a separate process does the download.
+    /// Launching a game does not stop that process.
+    fn sync_queue(&mut self) -> Vec<(String, String)> {
+        let mut notes = Vec::new();
+        let jobs = crate::video_queue::jobs(&self.root);
+        let progress = crate::video_queue::progress(&self.root);
+        let before: Vec<String> = self
+            .waiting
+            .iter()
+            .chain(self.active.iter())
+            .map(|job| job.id.clone())
+            .collect();
+        for id in &before {
+            if jobs.iter().any(|job| &job.id == id) {
+                continue;
+            }
+            if video_path(&self.root, id).is_file() {
+                if let Some(saved) = read_index(&self.root).into_iter().find(|row| &row.id == id) {
+                    let title = saved.title.clone();
+                    self.library.retain(|row| &row.id != id);
+                    self.library.push(saved);
+                    notes.push(("Saved".into(), title.clone()));
+                    self.status = format!("Saved {title}");
+                    self.dirty = true;
+                }
+            }
+        }
+        if let Some(row) = progress.as_ref() {
+            self.progress.store(row.got, Ordering::Relaxed);
+            self.progress_total.store(row.total, Ordering::Relaxed);
+        }
+        self.active = jobs.first().map(|job| Job {
+            id: job.id.clone(),
+            title: job.title.clone(),
+            channel: job.channel.clone(),
+            duration_ms: job.duration_ms,
+        });
+        self.waiting = jobs
+            .into_iter()
+            .skip(1)
+            .map(|job| Job {
+                id: job.id,
+                title: job.title,
+                channel: job.channel,
+                duration_ms: job.duration_ms,
+            })
+            .collect();
+        if let Some(err) = crate::video_queue::last_error(&self.root) {
+            if self.status != err {
+                self.status = err.clone();
+                self.dirty = true;
+                notes.push(("Download".into(), err));
+            }
+        }
+        crate::video_queue::ensure(&self.root);
+        if self.active.is_some() {
+            let pct = self.progress_total.load(Ordering::Relaxed).max(1);
+            let shown = self.progress.load(Ordering::Relaxed).saturating_mul(100) / pct;
+            if shown != self.shown_pct {
+                self.shown_pct = shown;
+                self.dirty = true;
+            }
+        }
+        notes
     }
 
     fn spawn_lookup(&mut self, work: impl FnOnce() -> Result<Found, String> + Send + 'static) {
@@ -1104,9 +1185,12 @@ impl VideoMenu {
     }
 
     fn cancel_download(&mut self) {
-        if let Some(worker) = &self.worker {
-            worker.cancel.store(true, Ordering::Relaxed);
-            self.status = "Cancelling the download".into();
+        let jobs = crate::video_queue::jobs(&self.root);
+        let id = jobs.get(self.row).map(|job| job.id.clone());
+        if let Some(id) = id {
+            crate::video_queue::remove(&self.root, &id);
+            self.status = "Removed from the queue".into();
+            let _ = self.sync_queue();
         }
     }
 
@@ -1174,7 +1258,7 @@ impl VideoMenu {
 
 impl Drop for VideoMenu {
     fn drop(&mut self) {
-        self.cancel_download();
+        // The download lives in its own process. Closing this screen must not stop it.
         self.stop_player(true);
     }
 }
@@ -1270,7 +1354,7 @@ impl Drop for Player {
 }
 
 fn picture_loop(
-    mut out: impl Read,
+    mut out: impl std::io::Read,
     frame: Arc<Mutex<SharedFrame>>,
     frames: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
@@ -1309,7 +1393,7 @@ fn picture_loop(
 }
 
 fn sound_loop(
-    mut out: impl Read,
+    mut out: impl std::io::Read,
     pcm: Arc<Mutex<Vec<i16>>>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
@@ -1342,7 +1426,7 @@ fn sound_loop(
     }
 }
 
-fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> bool {
+fn read_full(reader: &mut impl std::io::Read, buf: &mut [u8]) -> bool {
     let mut got = 0;
     while got < buf.len() {
         match reader.read(&mut buf[got..]) {
@@ -1415,18 +1499,17 @@ fn ffmpeg_path(root: &Path) -> Option<PathBuf> {
         .map(|_| PathBuf::from("ffmpeg"))
 }
 
-fn ytdlp_path(root: &Path) -> Option<PathBuf> {
-    let own = root.join("System/yt-dlp");
-    own.is_file().then_some(own)
-}
-
 /// One line in `Logs/videos.log`, so a failure on the card can be read later.
 pub fn log_line(root: &Path, line: &str) {
     let path = root.join("Logs/videos.log");
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    else {
         return;
     };
     let _ = std::io::Write::write_all(&mut file, line.as_bytes());
@@ -1435,40 +1518,25 @@ pub fn log_line(root: &Path, line: &str) {
     }
 }
 
-fn panic_payload(payload: &Box<dyn std::any::Any + Send>) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "download panicked".into()
-    }
-}
-
-fn scrub_parts(root: &Path) {
+pub(crate) fn scrub_parts(root: &Path) {
+    let keep: Vec<String> = crate::video_queue::jobs(root)
+        .into_iter()
+        .map(|job| job.id)
+        .collect();
     let Ok(dir) = std::fs::read_dir(root.join("Videos")) else {
         return;
     };
     for entry in dir.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.ends_with(".part") || name.ends_with(".mux.mp4") {
+        let queued = keep.iter().any(|id| name.starts_with(id));
+        if !queued && (name.ends_with(".part") || name.ends_with(".mux.mp4")) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
 }
 
-fn scrub_id(root: &Path, id: &str) {
-    if !youtube::valid_id(id) {
-        return;
-    }
-    let dest = video_path(root, id);
-    let _ = std::fs::remove_file(dest.with_extension("mp4.part"));
-    let _ = std::fs::remove_file(root.join("Videos").join(format!("{id}.m4a.part")));
-    let _ = std::fs::remove_file(root.join("Videos").join(format!("{id}.mux.mp4")));
-}
-
-fn video_path(root: &Path, id: &str) -> PathBuf {
+pub(crate) fn video_path(root: &Path, id: &str) -> PathBuf {
     root.join("Videos").join(format!("{id}.mp4"))
 }
 
@@ -1487,7 +1555,7 @@ pub struct Tape {
 
 /// Saved videos that still have a file, oldest first as the cache lists them.
 pub fn tapes(root: &Path) -> Vec<Tape> {
-    read_index(root)
+    let mut out: Vec<Tape> = read_index(root)
         .into_iter()
         .map(|saved| {
             let thumb = thumb_path(root, &saved.id);
@@ -1498,7 +1566,32 @@ pub fn tapes(root: &Path) -> Vec<Tape> {
                 thumb: thumb.is_file().then_some(thumb),
             }
         })
-        .collect()
+        .collect();
+    let progress = crate::video_queue::progress(root);
+    for job in crate::video_queue::jobs(root) {
+        if out.iter().any(|tape| tape.id == job.id) {
+            continue;
+        }
+        let title = match progress.as_ref().filter(|row| row.id == job.id) {
+            Some(row) if row.total > 0 => {
+                format!(
+                    "{}  {}%",
+                    job.title,
+                    (row.got.saturating_mul(100) / row.total).min(99)
+                )
+            }
+            Some(row) if row.got > 0 => format!("{}  downloading", job.title),
+            _ => format!("{}  queued", job.title),
+        };
+        let thumb = thumb_path(root, &job.id);
+        out.push(Tape {
+            id: job.id,
+            title,
+            position_ms: 0,
+            thumb: thumb.is_file().then_some(thumb),
+        });
+    }
+    out
 }
 
 /// Remove a saved video, its picture, and its line in the cache.
@@ -1598,165 +1691,6 @@ fn scale_nearest(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     out
 }
 
-fn download(
-    root: &Path,
-    job: &Job,
-    progress: &AtomicU64,
-    total: &AtomicU64,
-    cancel: &AtomicBool,
-    pause: &AtomicBool,
-) -> Result<u64, String> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err("Cancelled".into());
-    }
-    let dest = video_path(root, &job.id);
-    if let Some(bin) = ytdlp_path(root) {
-        match ytdlp_fetch(&bin, &job.id, &dest, cancel) {
-            Ok(_) => return checked_mp4(&dest),
-            Err(e) => eprintln!("slot: videos: yt-dlp: {e}"),
-        }
-    }
-    let media = youtube::media_for(&job.id)?;
-    if let Some(free) = slot_store::free_space(root) {
-        if free < KEEP_FREE {
-            return Err("Not enough free space on the card".into());
-        }
-    }
-    let part = dest.with_extension("mp4.part");
-    let video_bytes = fetch_to(&media.video_url, &part, progress, total, cancel, pause)?;
-    let _ = video_bytes;
-    if let Some(audio_url) = &media.audio_url {
-        let audio_part = root.join("Videos").join(format!("{}.m4a.part", job.id));
-        if fetch_to(audio_url, &audio_part, progress, total, cancel, pause).is_ok() {
-            if let Some(bin) = ffmpeg_path(root) {
-                let muxed = dest.with_extension("mux.mp4");
-                let ok = Command::new(bin)
-                    .args(["-y", "-i"])
-                    .arg(&part)
-                    .arg("-i")
-                    .arg(&audio_part)
-                    .args(["-c", "copy", "-map", "0:v:0", "-map", "1:a:0"])
-                    .arg(&muxed)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .ok()
-                    .is_some_and(|s| s.success());
-                let _ = std::fs::remove_file(&audio_part);
-                if ok {
-                    let _ = std::fs::rename(&muxed, &dest);
-                    let _ = std::fs::remove_file(&part);
-                    return checked_mp4(&dest);
-                }
-                let _ = std::fs::remove_file(&muxed);
-            }
-        }
-    }
-    std::fs::rename(&part, &dest).map_err(|e| format!("Cannot save the video: {e}"))?;
-    checked_mp4(&dest)
-}
-
-fn ytdlp_fetch(bin: &Path, id: &str, dest: &Path, cancel: &AtomicBool) -> Result<u64, String> {
-    let page = format!("https://www.youtube.com/watch?v={id}");
-    let mut child = Command::new(bin)
-        .args([
-            "-f",
-            "b[height<=360][ext=mp4]/b[height<=360]/18/b",
-            "--no-playlist",
-            "-o",
-        ])
-        .arg(dest)
-        .arg(&page)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Cannot start yt-dlp: {e}"))?;
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = std::fs::remove_file(dest);
-            return Err("Cancelled".into());
-        }
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() && dest.is_file() => return file_len(dest),
-            Ok(Some(_)) => return Err("yt-dlp could not fetch that video".into()),
-            Ok(None) => thread::sleep(Duration::from_millis(200)),
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-}
-
-fn fetch_to(
-    url: &str,
-    dest: &Path,
-    progress: &AtomicU64,
-    total: &AtomicU64,
-    cancel: &AtomicBool,
-    pause: &AtomicBool,
-) -> Result<u64, String> {
-    let body = crate::net::get_stream(url)?;
-    if let Some(len) = body.len {
-        if len > MAX_VIDEO {
-            return Err("That video is too large".into());
-        }
-        total.fetch_add(len, Ordering::Relaxed);
-    }
-    if let Some(dir) = dest.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let mut file =
-        std::fs::File::create(dest).map_err(|e| format!("Cannot write the video: {e}"))?;
-    let mut reader = body.reader;
-    let mut buf = [0u8; 64 * 1024];
-    let mut got = 0u64;
-    loop {
-        while pause.load(Ordering::Relaxed) && !cancel.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(150));
-        }
-        if cancel.load(Ordering::Relaxed) {
-            drop(file);
-            let _ = std::fs::remove_file(dest);
-            return Err("Cancelled".into());
-        }
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| format!("Download failed: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n])
-            .map_err(|e| format!("Cannot write the video: {e}"))?;
-        got += n as u64;
-        progress.fetch_add(n as u64, Ordering::Relaxed);
-        if got > MAX_VIDEO {
-            drop(file);
-            let _ = std::fs::remove_file(dest);
-            return Err("That video is too large".into());
-        }
-    }
-    file.sync_all().map_err(|e| e.to_string())?;
-    if body.len.is_some_and(|n| got < n) {
-        let _ = std::fs::remove_file(dest);
-        return Err("The download was cut short".into());
-    }
-    Ok(got)
-}
-
-fn checked_mp4(path: &Path) -> Result<u64, String> {
-    let mut buf = [0u8; 12];
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let n = std::io::Read::read(&mut file, &mut buf).unwrap_or(0);
-    if n < 8 || &buf[4..8] != b"ftyp" {
-        drop(file);
-        let _ = std::fs::remove_file(path);
-        return Err("That file is not a video we can keep".into());
-    }
-    file_len(path)
-}
-
 fn read_subs(root: &Path) -> Vec<Sub> {
     let Ok(text) = std::fs::read_to_string(root.join("Videos/channels.txt")) else {
         return Vec::new();
@@ -1784,17 +1718,11 @@ fn write_subs(root: &Path, subs: &[Sub]) -> std::io::Result<()> {
     slot_store::atomic_write(&root.join("Videos/channels.txt"), text.as_bytes())
 }
 
-fn file_len(path: &Path) -> Result<u64, String> {
-    std::fs::metadata(path)
-        .map(|m| m.len())
-        .map_err(|e| e.to_string())
-}
-
 fn index_path(root: &Path) -> PathBuf {
     root.join("Videos/index.txt")
 }
 
-fn read_index(root: &Path) -> Vec<Saved> {
+pub(crate) fn read_index(root: &Path) -> Vec<Saved> {
     let Ok(text) = std::fs::read_to_string(index_path(root)) else {
         return Vec::new();
     };
@@ -1822,7 +1750,7 @@ fn parse_saved(line: &str) -> Option<Saved> {
     })
 }
 
-fn write_index(root: &Path, library: &[Saved]) -> std::io::Result<()> {
+pub(crate) fn write_index(root: &Path, library: &[Saved]) -> std::io::Result<()> {
     let mut text = String::new();
     for saved in library {
         if !youtube::valid_id(&saved.id) {
@@ -1906,79 +1834,6 @@ fn gb_label(mb: u32) -> String {
         format!("{} GB", mb / 1024)
     } else {
         format!("{mb} MB")
-    }
-}
-
-impl VideoMenu {
-    fn kick_queue(&mut self) {
-        if self.worker.is_some() || self.waiting.is_empty() {
-            return;
-        }
-        let job = self.waiting.remove(0);
-        let root = self.root.clone();
-        let progress = self.progress.clone();
-        let total = self.progress_total.clone();
-        progress.store(0, Ordering::Relaxed);
-        total.store(0, Ordering::Relaxed);
-        let cancel = Arc::new(AtomicBool::new(false));
-        let flag = cancel.clone();
-        let pause = self.pause_dl.clone();
-        let (tx, rx) = mpsc::channel();
-        let task = job.clone();
-        let spawned = thread::Builder::new()
-            .name("slot-video".into())
-            .spawn(move || {
-                let pause = pause.clone();
-                log_line(&root, &format!("start {} {}", task.id, task.title));
-                let note = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    download(&root, &task, &progress, &total, &flag, &pause)
-                })) {
-                    Ok(Ok(bytes)) => {
-                        let _ = fetch_thumbnail(&root, &task.id);
-                        log_line(&root, &format!("saved {} {bytes} bytes", task.id));
-                        Note::Done(Saved {
-                            id: task.id,
-                            title: task.title,
-                            channel: task.channel,
-                            bytes,
-                            duration_ms: task.duration_ms,
-                            position_ms: 0,
-                        })
-                    }
-                    Ok(Err(message)) => {
-                        scrub_id(&root, &task.id);
-                        log_line(&root, &format!("failed {} {message}", task.id));
-                        Note::Failed {
-                            id: task.id,
-                            message,
-                        }
-                    }
-                    Err(payload) => {
-                        scrub_id(&root, &task.id);
-                        let message = panic_payload(&payload);
-                        log_line(
-                            &root,
-                            &format!(
-                                "panic {} {message}\n{}",
-                                task.id,
-                                std::backtrace::Backtrace::force_capture()
-                            ),
-                        );
-                        Note::Failed {
-                            id: task.id,
-                            message: format!("Download failed: {message}"),
-                        }
-                    }
-                };
-                let _ = tx.send(note);
-            });
-        if spawned.is_err() {
-            self.waiting.insert(0, job);
-            self.status = "Could not start the download".into();
-            return;
-        }
-        self.active = Some(job);
-        self.worker = Some(Worker { rx, cancel });
     }
 }
 
@@ -2172,6 +2027,44 @@ mod tests {
         menu.input(Action::GbaDown(Btn::Y));
         assert!(menu.library.is_empty());
         assert!(!root.path().join("Videos/abcdefghijk.mp4").exists());
+    }
+
+    #[test]
+    fn b_from_a_channels_videos_steps_back_to_the_list_and_never_opens_the_keyboard() {
+        let root = tempfile::tempdir().unwrap();
+        let mut menu = VideoMenu::open(root.path().to_path_buf(), true);
+        menu.subs = vec![Sub {
+            id: "UCabcdefghij".into(),
+            name: "Retro Game Corps".into(),
+        }];
+        menu.view = View::Videos;
+        menu.videos = vec![youtube::Video {
+            id: "abcdefghijk".into(),
+            title: "Latest episode".into(),
+            channel: "Retro Game Corps".into(),
+            duration_ms: 60_000,
+            published: "today".into(),
+        }];
+        menu.input(Action::GbaDown(Btn::A));
+        assert_eq!(menu.view, View::Videos);
+        assert!(menu.keys.is_none());
+        assert!(
+            menu.status.starts_with("Queued "),
+            "status was {}",
+            menu.status
+        );
+        assert!(!menu.input(Action::GbaDown(Btn::B)));
+        assert_eq!(menu.view, View::Home);
+        assert!(menu.keys.is_none());
+        assert!(menu.input(Action::GbaDown(Btn::B)));
+
+        let mut menu = VideoMenu::open(root.path().to_path_buf(), true);
+        menu.input(Action::GbaDown(Btn::A));
+        assert_eq!(menu.view, View::Search);
+        assert!(menu.keys.is_some());
+        menu.input(Action::GbaDown(Btn::B));
+        assert_eq!(menu.view, View::Home);
+        assert!(menu.keys.is_none());
     }
 
     #[test]

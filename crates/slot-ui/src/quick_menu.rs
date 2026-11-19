@@ -1,5 +1,7 @@
 use crate::draw::{Draw, TexId, OUT_H, OUT_W};
-use crate::plate::{arrows_hint_face, centred_hints, hint_face, UndoFace, HINT_H, LEGEND_GAP, LEGEND_Y};
+use crate::plate::{
+    arrows_hint_face, centred_hints, hint_face, UndoFace, HINT_H, LEGEND_GAP, LEGEND_Y,
+};
 use crate::power_menu::{MENU_H, MENU_INK, MENU_PAD, MENU_PX};
 use crate::slot_chrome::{edge, opening};
 use crate::text;
@@ -182,16 +184,49 @@ impl QuickRow {
     ];
 
     #[cfg(not(feature = "brick"))]
-    pub const MAIN: [QuickRow; 6] = [QuickRow::Screen, QuickRow::Game, QuickRow::Library, QuickRow::Companion, QuickRow::Videos, QuickRow::System];
+    pub const MAIN: [QuickRow; 6] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Companion,
+        QuickRow::Videos,
+        QuickRow::System,
+    ];
     #[cfg(not(feature = "brick"))]
-    pub const SYSTEM: [QuickRow; 7] = [QuickRow::DateTime, QuickRow::Font, QuickRow::Rumble, QuickRow::SystemSounds, QuickRow::BatteryShutdown, QuickRow::ResetSettings, QuickRow::About];
+    pub const SYSTEM: [QuickRow; 7] = [
+        QuickRow::DateTime,
+        QuickRow::Font,
+        QuickRow::Rumble,
+        QuickRow::SystemSounds,
+        QuickRow::BatteryShutdown,
+        QuickRow::ResetSettings,
+        QuickRow::About,
+    ];
 
     #[cfg(feature = "brick")]
-    pub const MAIN: [QuickRow; 7] = [QuickRow::Screen,QuickRow::Game,QuickRow::Library,QuickRow::Companion,QuickRow::Videos,QuickRow::Online,QuickRow::System];
+    pub const MAIN: [QuickRow; 7] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Companion,
+        QuickRow::Videos,
+        QuickRow::Online,
+        QuickRow::System,
+    ];
     /// System: the Brick's lights, its clock, the font, rumble, Slot's sounds, the battery,
     /// asking GitHub for a newer Slot, every setting back to how it came, and what Slot is.
     #[cfg(feature = "brick")]
-    pub const SYSTEM: [QuickRow; 9] = [QuickRow::Lights,QuickRow::Clock,QuickRow::Font,QuickRow::Rumble,QuickRow::SystemSounds,QuickRow::BatteryShutdown,QuickRow::UpdateCheck,QuickRow::ResetSettings,QuickRow::About];
+    pub const SYSTEM: [QuickRow; 9] = [
+        QuickRow::Lights,
+        QuickRow::Clock,
+        QuickRow::Font,
+        QuickRow::Rumble,
+        QuickRow::SystemSounds,
+        QuickRow::BatteryShutdown,
+        QuickRow::UpdateCheck,
+        QuickRow::ResetSettings,
+        QuickRow::About,
+    ];
     /// System → System Sounds: how loud they all are, and each kind on or off.
     pub const SOUNDS: [QuickRow; 6] = [
         QuickRow::SoundVolume,
@@ -202,12 +237,32 @@ impl QuickRow {
         QuickRow::SoundLabel,
     ];
     /// Clock: setting it by hand, and from the internet.
-    pub const CLOCK: [QuickRow; 2] = [QuickRow::DateTime,QuickRow::AutoClock];
+    pub const CLOCK: [QuickRow; 2] = [QuickRow::DateTime, QuickRow::AutoClock];
     /// Online: what needs Wi-Fi, and Wi-Fi itself.
-    pub const ONLINE: [QuickRow; 4] = [QuickRow::Wifi,QuickRow::CartArt,QuickRow::Achievements,QuickRow::Update];
-    pub const LIGHTS: [QuickRow; 6] = [QuickRow::LedMode,QuickRow::LedTop,QuickRow::LedButtons,QuickRow::LedTriggers,QuickRow::LedColor,QuickRow::LedEffect];
+    pub const ONLINE: [QuickRow; 4] = [
+        QuickRow::Wifi,
+        QuickRow::CartArt,
+        QuickRow::Achievements,
+        QuickRow::Update,
+    ];
+    pub const LIGHTS: [QuickRow; 6] = [
+        QuickRow::LedMode,
+        QuickRow::LedTop,
+        QuickRow::LedButtons,
+        QuickRow::LedTriggers,
+        QuickRow::LedColor,
+        QuickRow::LedEffect,
+    ];
     /// The Brick Pro's: its sticks have lights of their own.
-    pub const LIGHTS_PRO: [QuickRow; 7] = [QuickRow::LedMode,QuickRow::LedTop,QuickRow::LedButtons,QuickRow::LedTriggers,QuickRow::LedSticks,QuickRow::LedColor,QuickRow::LedEffect];
+    pub const LIGHTS_PRO: [QuickRow; 7] = [
+        QuickRow::LedMode,
+        QuickRow::LedTop,
+        QuickRow::LedButtons,
+        QuickRow::LedTriggers,
+        QuickRow::LedSticks,
+        QuickRow::LedColor,
+        QuickRow::LedEffect,
+    ];
     /// The LEDs page of the Brick this is (see `set_brick_pro`).
     pub fn lights() -> &'static [QuickRow] {
         match BRICK_PRO.load(std::sync::atomic::Ordering::Relaxed) {
@@ -215,11 +270,19 @@ impl QuickRow {
             false => &QuickRow::LIGHTS,
         }
     }
-    pub fn led_setting(self) -> bool { Self::LIGHTS_PRO.contains(&self) }
+    pub fn led_setting(self) -> bool {
+        Self::LIGHTS_PRO.contains(&self)
+    }
 
     /// Library: how the shelves are ordered, whether they hold only the favorites, which
     /// systems have a shelf, and what is printed around them.
-    pub const LIBRARY: [QuickRow; 5] = [QuickRow::LibrarySort, QuickRow::LibraryShow, QuickRow::LibrarySystems, QuickRow::LibraryTitleCard, QuickRow::LibraryPlayTime];
+    pub const LIBRARY: [QuickRow; 5] = [
+        QuickRow::LibrarySort,
+        QuickRow::LibraryShow,
+        QuickRow::LibrarySystems,
+        QuickRow::LibraryTitleCard,
+        QuickRow::LibraryPlayTime,
+    ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order,
     /// then the Videos shelf.
     pub const SYSTEMS: [QuickRow; 7] = [
@@ -235,14 +298,32 @@ impl QuickRow {
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
 
     /// Screen: a page for each system, holding that system's own picture settings.
-    pub const SCREEN: [QuickRow; 5] =
-        [QuickRow::ScreenGb, QuickRow::ScreenGba, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenPs1];
-    pub const SCREEN_GB: [QuickRow; 5] =
-        [QuickRow::GbShader, QuickRow::GbColourCorrection, QuickRow::GbPalettes, QuickRow::GbOverlay, QuickRow::GbcOverlay];
-    pub const SCREEN_GBA: [QuickRow; 3] = [QuickRow::GbaShader, QuickRow::GbaColourCorrection, QuickRow::GbaOverlay];
+    pub const SCREEN: [QuickRow; 5] = [
+        QuickRow::ScreenGb,
+        QuickRow::ScreenGba,
+        QuickRow::ScreenNes,
+        QuickRow::ScreenSnes,
+        QuickRow::ScreenPs1,
+    ];
+    pub const SCREEN_GB: [QuickRow; 5] = [
+        QuickRow::GbShader,
+        QuickRow::GbColourCorrection,
+        QuickRow::GbPalettes,
+        QuickRow::GbOverlay,
+        QuickRow::GbcOverlay,
+    ];
+    pub const SCREEN_GBA: [QuickRow; 3] = [
+        QuickRow::GbaShader,
+        QuickRow::GbaColourCorrection,
+        QuickRow::GbaOverlay,
+    ];
     pub const SCREEN_NES: [QuickRow; 2] = [QuickRow::NesShader, QuickRow::NesOverlay];
     pub const SCREEN_SNES: [QuickRow; 2] = [QuickRow::SnesShader, QuickRow::SnesOverlay];
-    pub const SCREEN_PS1: [QuickRow; 3] = [QuickRow::Ps1Shader, QuickRow::Ps1Dithering, QuickRow::Ps1Overlay];
+    pub const SCREEN_PS1: [QuickRow; 3] = [
+        QuickRow::Ps1Shader,
+        QuickRow::Ps1Dithering,
+        QuickRow::Ps1Overlay,
+    ];
 
     /// System → About: what this Slot is and what it runs on, then its label.
     pub const ABOUT: [QuickRow; 6] = [
@@ -254,8 +335,13 @@ impl QuickRow {
         QuickRow::AboutLabel,
     ];
     /// The About rows that only say something: nothing to change or open.
-    pub const ABOUT_INFO: [QuickRow; 5] =
-        [QuickRow::AboutVersion, QuickRow::AboutBuild, QuickRow::AboutDevice, QuickRow::AboutFirmware, QuickRow::AboutCard];
+    pub const ABOUT_INFO: [QuickRow; 5] = [
+        QuickRow::AboutVersion,
+        QuickRow::AboutBuild,
+        QuickRow::AboutDevice,
+        QuickRow::AboutFirmware,
+        QuickRow::AboutCard,
+    ];
     pub fn info(self) -> bool {
         Self::ABOUT_INFO.contains(&self)
     }
@@ -270,7 +356,10 @@ impl QuickRow {
         match self {
             QuickRow::Font => Some(slot_store::Platform::ALL.len()),
             QuickRow::SoundVolume => Some(Self::NAMED - 1),
-            row if row.info() => Self::ABOUT_INFO.iter().position(|r| *r == row).map(|at| about + at),
+            row if row.info() => Self::ABOUT_INFO
+                .iter()
+                .position(|r| *r == row)
+                .map(|at| about + at),
             _ => self.overlay_of().map(|p| p.index()),
         }
     }
@@ -317,18 +406,37 @@ impl QuickRow {
 
     pub fn page(self) -> &'static [QuickRow] {
         match self {
-            QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect => QuickRow::lights(),
-            QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 => &QuickRow::SCREEN,
+            QuickRow::LedMode
+            | QuickRow::LedTop
+            | QuickRow::LedButtons
+            | QuickRow::LedTriggers
+            | QuickRow::LedSticks
+            | QuickRow::LedColor
+            | QuickRow::LedEffect => QuickRow::lights(),
+            QuickRow::ScreenGb
+            | QuickRow::ScreenGba
+            | QuickRow::ScreenNes
+            | QuickRow::ScreenSnes
+            | QuickRow::ScreenPs1 => &QuickRow::SCREEN,
             QuickRow::GbShader
             | QuickRow::GbColourCorrection
             | QuickRow::GbPalettes
             | QuickRow::GbOverlay
             | QuickRow::GbcOverlay => &QuickRow::SCREEN_GB,
-            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaOverlay => &QuickRow::SCREEN_GBA,
+            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaOverlay => {
+                &QuickRow::SCREEN_GBA
+            }
             QuickRow::NesShader | QuickRow::NesOverlay => &QuickRow::SCREEN_NES,
             QuickRow::SnesShader | QuickRow::SnesOverlay => &QuickRow::SCREEN_SNES,
-            QuickRow::Ps1Shader | QuickRow::Ps1Dithering | QuickRow::Ps1Overlay => &QuickRow::SCREEN_PS1,
-            QuickRow::FastForward | QuickRow::FastForwardSound | QuickRow::Rewind | QuickRow::Turbo | QuickRow::SwapAb | QuickRow::Saving => &QuickRow::GAME,
+            QuickRow::Ps1Shader | QuickRow::Ps1Dithering | QuickRow::Ps1Overlay => {
+                &QuickRow::SCREEN_PS1
+            }
+            QuickRow::FastForward
+            | QuickRow::FastForwardSound
+            | QuickRow::Rewind
+            | QuickRow::Turbo
+            | QuickRow::SwapAb
+            | QuickRow::Saving => &QuickRow::GAME,
             QuickRow::AutoSave | QuickRow::EjectSave => &QuickRow::SAVING,
             #[cfg(feature = "brick")]
             QuickRow::DateTime | QuickRow::AutoClock => &QuickRow::CLOCK,
@@ -368,7 +476,9 @@ impl QuickRow {
             | QuickRow::LibrarySystems
             | QuickRow::LibraryPlayTime
             | QuickRow::LibraryTitleCard => &QuickRow::LIBRARY,
-            QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update => &QuickRow::ONLINE,
+            QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update => {
+                &QuickRow::ONLINE
+            }
             _ => &QuickRow::MAIN,
         }
     }
@@ -478,11 +588,18 @@ impl QuickRow {
             QuickRow::Rumble => "Rumble",
             QuickRow::DateTime => "Date & Time",
             QuickRow::About => "About",
-            QuickRow::GbaShader | QuickRow::GbShader | QuickRow::NesShader | QuickRow::SnesShader | QuickRow::Ps1Shader => "Shader",
+            QuickRow::GbaShader
+            | QuickRow::GbShader
+            | QuickRow::NesShader
+            | QuickRow::SnesShader
+            | QuickRow::Ps1Shader => "Shader",
             QuickRow::GbColourCorrection | QuickRow::GbaColourCorrection => "Color Correction",
             QuickRow::GbOverlay => "GB Overlay",
             QuickRow::GbcOverlay => "GBC Overlay",
-            QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay => "Overlay",
+            QuickRow::GbaOverlay
+            | QuickRow::NesOverlay
+            | QuickRow::SnesOverlay
+            | QuickRow::Ps1Overlay => "Overlay",
             QuickRow::Ps1Dithering => "Dithering",
             QuickRow::ScreenGb => "Game Boy / GBC",
             QuickRow::ScreenGba => "Game Boy Advance",
@@ -503,10 +620,31 @@ impl QuickRow {
     pub fn opens(self) -> bool {
         matches!(
             self,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game | QuickRow::Lights | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::Companion | QuickRow::Videos
-                | QuickRow::LibrarySystems | QuickRow::ResetSettings | QuickRow::AboutLabel | QuickRow::SystemSounds
-                | QuickRow::Online | QuickRow::Clock | QuickRow::Saving
-                | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1
+            QuickRow::DateTime
+                | QuickRow::About
+                | QuickRow::Screen
+                | QuickRow::Game
+                | QuickRow::Lights
+                | QuickRow::Wifi
+                | QuickRow::CartArt
+                | QuickRow::Achievements
+                | QuickRow::Update
+                | QuickRow::System
+                | QuickRow::Library
+                | QuickRow::Companion
+                | QuickRow::Videos
+                | QuickRow::LibrarySystems
+                | QuickRow::ResetSettings
+                | QuickRow::AboutLabel
+                | QuickRow::SystemSounds
+                | QuickRow::Online
+                | QuickRow::Clock
+                | QuickRow::Saving
+                | QuickRow::ScreenGb
+                | QuickRow::ScreenGba
+                | QuickRow::ScreenNes
+                | QuickRow::ScreenSnes
+                | QuickRow::ScreenPs1
         )
     }
 
@@ -696,13 +834,18 @@ impl QuickValue {
 }
 
 pub const QUICK_PITCH: f32 = 52.0;
-pub const QUICK_TOP: f32 = (OUT_H as f32 - quick_pitch(QuickRow::MAIN.len()) * QuickRow::MAIN.len() as f32) / 2.0;
+pub const QUICK_TOP: f32 =
+    (OUT_H as f32 - quick_pitch(QuickRow::MAIN.len()) * QuickRow::MAIN.len() as f32) / 2.0;
 
 /// Row spacing for a page of `rows`: QUICK_PITCH, or tighter for a page that would
 /// otherwise run into the legend (the Brick's main menu).
 pub const fn quick_pitch(rows: usize) -> f32 {
     let fit = ((QUICK_SPLIT - OUT_H as f32 / 2.0) * 2.0 / rows as f32) as u32 as f32;
-    if fit < QUICK_PITCH { fit } else { QUICK_PITCH }
+    if fit < QUICK_PITCH {
+        fit
+    } else {
+        QUICK_PITCH
+    }
 }
 pub const QUICK_EDGE: f32 = 32.0;
 const BAR_INSET: f32 = 4.0;
@@ -753,7 +896,10 @@ pub fn quick_value_room(label_w: u32, carets: Option<(u32, u32)>) -> u32 {
     let room = match carets {
         None => right + 2.0 * pad - label_end - VALUE_GAP,
         Some((left, right_caret)) => {
-            right - right_caret as f32 - 2.0 * CARET_GAP + 2.0 * pad - left as f32 - label_end - VALUE_GAP
+            right - right_caret as f32 - 2.0 * CARET_GAP + 2.0 * pad
+                - left as f32
+                - label_end
+                - VALUE_GAP
         }
     };
     room.max(0.0) as u32
@@ -846,12 +992,18 @@ impl QuickMenu<'_> {
             let y = row_top(row) + TYPE_DROP;
             let lit = row == self.row;
             if let Some(&(tex, w, h)) = faces.labels.get(row.index()) {
-                let alpha = if self.disabled[row.index()] { DISABLED_ALPHA } else { 1.0 };
+                let alpha = if self.disabled[row.index()] {
+                    DISABLED_ALPHA
+                } else {
+                    1.0
+                };
                 push_alpha(out, tex, QUICK_EDGE - pad, y, w, h, alpha);
             }
             let value = match row {
                 QuickRow::DateTime => self.clock.map(|c| c[lit as usize]),
-                _ if self.texts[row.index()].is_some() => self.texts[row.index()].map(|t| t[lit as usize]),
+                _ if self.texts[row.index()].is_some() => {
+                    self.texts[row.index()].map(|t| t[lit as usize])
+                }
                 _ => self.values[row.index()]
                     .and_then(|v| faces.values.get(v.index()))
                     .map(|v| v[lit as usize]),
@@ -885,9 +1037,21 @@ impl QuickMenu<'_> {
     }
 }
 
+/// Room kept at the top for the battery and Wi-Fi, so a long page does not cover them.
+const STATUS_H: f32 = 40.0;
+
 fn row_top(row: QuickRow) -> f32 {
-    let pitch = quick_pitch(row.page().len());
-    let top = (OUT_H as f32 - pitch * row.page().len() as f32) / 2.0;
+    let n = row.page().len();
+    let mut pitch = quick_pitch(n);
+    let room = QUICK_SPLIT - STATUS_H;
+    if n > 0 && pitch * n as f32 > room {
+        pitch = room / n as f32;
+    }
+    let block = pitch * n as f32;
+    let mut top = (OUT_H as f32 - block) / 2.0;
+    if top < STATUS_H {
+        top = STATUS_H;
+    }
     top + pitch * row.position() as f32
 }
 

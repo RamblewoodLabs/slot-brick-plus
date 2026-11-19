@@ -1,42 +1,24 @@
-//! Updating Slot from GitHub. The Updates release (tag `updates`) holds what Slot downloads:
-//! `update.txt`, naming the card zip and its SHA-256, `update.txt.sig`, its Ed25519 signature
-//! by the release key, and the zip itself; the version releases hold only what people download. A zip
-//! is only unpacked once both check out. Slot's own files are unpacked beside the old ones and
-//! swapped in, with the old ones kept until the new Slot has shown its first frame: if it never
-//! does, launch.sh puts them back. The player's games, saves and settings are never touched.
+//! Updating Slot from this fork's GitHub releases only.
+//!
+//! HOME → Online → Update asks `github.com/jfink22-design/slot-brick-plus` for its latest
+//! non-draft release, downloads the Brick `slot` binary and its `slot.sha256`, and replaces
+//! `Slot/System/slot` only after the checksum matches. The previous binary is kept as
+//! `slot.bak`. launch.sh puts it back if the new one never shows a frame. Nothing is fetched
+//! from any other project, and the player's games, saves and settings are never touched.
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use ring::signature::{UnparsedPublicKey, ED25519};
+/// The only repository Update talks to.
+pub const REPO: &str = "jfink22-design/slot-brick-plus";
+/// The Releases API, newest first. Drafts are not in this list; a draft flag is skipped anyway.
+pub const RELEASES_API: &str =
+    "https://api.github.com/repos/jfink22-design/slot-brick-plus/releases?per_page=20";
 
-/// Where releases are downloaded from. SLOT_UPDATE_URL points elsewhere (the simulator, a test).
-pub const RELEASES: &str = "https://github.com/LordNordyx/Slot-Brick/releases";
-/// The release holding every channel's update.txt and the zips they name.
-const UPDATES: &str = "updates";
-
-/// The public half of the release key; the release workflows sign update.txt with the other.
-const RELEASE_KEY: [u8; 32] = [
-    0xe5, 0xad, 0xf6, 0x0e, 0x30, 0xd1, 0x3f, 0x29, 0x84, 0xec, 0x8d, 0x91, 0xa1, 0x0c, 0xc8, 0x3d,
-    0x72, 0x08, 0x61, 0x74, 0x0d, 0x11, 0x21, 0x6e, 0x24, 0xd8, 0xbb, 0x70, 0x76, 0xf0, 0x71, 0x42,
-];
-
-/// The simulator's key (brick/sim/update-key.pem, not secret): a simulator build also takes
-/// updates signed with it, so its scenarios can update from a folder. The Brick's never does.
-#[cfg(any(test, feature = "sim"))]
-const SIM_KEY: [u8; 32] = [
-    0x82, 0xd5, 0x43, 0x4c, 0x75, 0x91, 0xdf, 0x83, 0x88, 0x52, 0x97, 0x35, 0xe4, 0xff, 0xee, 0x28,
-    0x47, 0x58, 0x82, 0xa0, 0x1a, 0x18, 0xe4, 0x8f, 0x0c, 0xf2, 0xc2, 0x81, 0x4c, 0x9a, 0x44, 0xc3,
-];
-
-fn keys() -> Vec<[u8; 32]> {
-    #[allow(unused_mut)]
-    let mut keys = vec![RELEASE_KEY];
-    #[cfg(any(test, feature = "sim"))]
-    keys.push(SIM_KEY);
-    keys
-}
+/// The two files a release must carry. `slot` is the Brick binary; `slot.sha256` is `sha256sum`'s line.
+pub const BINARY_ASSET: &str = "slot";
+pub const CHECKSUM_ASSET: &str = "slot.sha256";
 
 /// Beside Slot/ on the card: the download, the files unpacked from it, and those they replaced.
 pub const DIR: &str = ".slot-update";
@@ -55,87 +37,16 @@ pub enum Channel {
     Dev,
 }
 
-impl Channel {
-    fn name(self) -> &'static str {
-        match self {
-            Channel::Release => "release",
-            Channel::Dev => "dev",
-        }
-    }
-}
-
-/// update.txt: a header line, `key=value` lines, a blank line, then the release's notes.
+/// One release this fork published: its tag, the title and notes GitHub shows, and the
+/// Brick binary's address and checksum.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Manifest {
-    pub channel: Channel,
     pub version: String,
-    pub commit: String,
-    pub zip: String,
+    pub title: String,
     pub size: u64,
     pub sha256: [u8; 32],
+    pub binary_url: String,
     pub notes: Vec<String>,
-}
-
-const HEADER: &str = "slot-update 1";
-
-impl Manifest {
-    pub fn parse(text: &str) -> Result<Manifest, String> {
-        let bad = || "The update's description is damaged".to_string();
-        let mut lines = text.lines();
-        if lines.next() != Some(HEADER) {
-            return Err("This update needs a newer Slot: install it from a computer".into());
-        }
-        let (mut channel, mut version, mut commit, mut zip, mut size, mut sha256) = (None, None, None, None, None, None);
-        for line in lines.by_ref() {
-            if line.is_empty() {
-                break;
-            }
-            let (key, value) = line.split_once('=').ok_or_else(bad)?;
-            match key {
-                "channel" => {
-                    channel = Some(match value {
-                        "release" => Channel::Release,
-                        "dev" => Channel::Dev,
-                        _ => return Err(bad()),
-                    })
-                }
-                "version" => version = Some(value.to_string()),
-                "commit" => commit = Some(value.to_string()),
-                "zip" => zip = Some(value.to_string()),
-                "size" => size = value.parse().ok(),
-                "sha256" => sha256 = unhex(value),
-                _ => {}
-            }
-        }
-        let zip = zip.ok_or_else(bad)?;
-        // A file name, never a path: it goes into a URL and onto the card.
-        if zip.is_empty() || !zip.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) {
-            return Err(bad());
-        }
-        let version = version.ok_or_else(bad)?;
-        if version_of(&version).is_none() {
-            return Err(bad());
-        }
-        let commit = commit.ok_or_else(bad)?;
-        if commit.len() < 7 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(bad());
-        }
-        let notes = lines.map(str::to_string).filter(|l| !l.trim().is_empty()).collect();
-        Ok(Manifest {
-            channel: channel.ok_or_else(bad)?,
-            version,
-            commit,
-            zip,
-            size: size.ok_or_else(bad)?,
-            sha256: sha256.ok_or_else(bad)?,
-            notes,
-        })
-    }
-
-    /// Seven hex digits of its commit, as `git log --oneline` prints them.
-    pub fn short(&self) -> &str {
-        &self.commit[..7]
-    }
 }
 
 fn unhex(s: &str) -> Option<[u8; 32]> {
@@ -155,10 +66,6 @@ fn version_of(v: &str) -> Option<Vec<u32>> {
     v.split('.').map(|p| p.parse().ok()).collect()
 }
 
-pub fn verified(text: &[u8], signature: &[u8], keys: &[[u8; 32]]) -> bool {
-    keys.iter().any(|k| UnparsedPublicKey::new(&ED25519, k).verify(text, signature).is_ok())
-}
-
 /// What is installed: its version, the commit it was built from, and whether it is a Dev build.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Installed {
@@ -172,7 +79,8 @@ impl Installed {
         // The simulator's scenarios name a version of their own, so their screenshots don't
         // change with every release.
         #[cfg(feature = "sim")]
-        let version = std::env::var("SLOT_SIM_VERSION").unwrap_or_else(|_| slot_ui::PORT_VERSION.to_lowercase());
+        let version = std::env::var("SLOT_SIM_VERSION")
+            .unwrap_or_else(|_| slot_ui::PORT_VERSION.to_lowercase());
         #[cfg(not(feature = "sim"))]
         let version = slot_ui::PORT_VERSION.to_lowercase();
         Installed {
@@ -191,65 +99,79 @@ pub enum Offer {
     UpToDate,
     /// Newer than what is installed.
     Newer,
-    /// A release, offered to a Dev build: older, perhaps, but finished.
-    Back,
 }
 
 pub fn offer(installed: &Installed, m: &Manifest) -> Offer {
-    match m.channel {
-        Channel::Dev => {
-            let same = installed.commit.len() >= 7 && m.commit.starts_with(&installed.commit);
-            match installed.channel == Channel::Dev && same {
-                true => Offer::UpToDate,
-                false => Offer::Newer,
-            }
+    match (version_of(&m.version), version_of(&installed.version)) {
+        (Some(new), Some(old)) if new > old => Offer::Newer,
+        _ => Offer::UpToDate,
+    }
+}
+
+/// Where Update looks. A device build always uses this fork's Releases API. A simulator or a
+/// test may point `SLOT_UPDATE_URL` at a `file://` folder; anything else is ignored, so the
+/// Brick cannot be sent to another project.
+pub fn source() -> String {
+    #[cfg(any(test, feature = "sim"))]
+    if let Ok(url) = std::env::var("SLOT_UPDATE_URL") {
+        if url.starts_with("file://") {
+            return url;
         }
-        Channel::Release if installed.channel == Channel::Dev => Offer::Back,
-        Channel::Release => match (version_of(&m.version), version_of(&installed.version)) {
-            (Some(new), Some(old)) if new > old => Offer::Newer,
-            _ => Offer::UpToDate,
-        },
     }
+    RELEASES_API.to_string()
 }
 
-/// The manifest this Slot reads: Slot OS cards hold other files than stock cards (slot-os/,
-/// the boot image, no stock hooks), so each has its own zip and its own update-os.txt. A Slot
-/// OS card for the Brick Pro has its own again: its boot image is built from the Pro's kernel.
-fn manifest_name(slot_os: bool, model: slot_power::Model) -> &'static str {
-    match (slot_os, model) {
-        (false, _) => "update.txt",
-        (true, slot_power::Model::Brick) => "update-os.txt",
-        (true, slot_power::Model::BrickPro) => "update-os-brickpro.txt",
+fn allowed_url(url: &str) -> bool {
+    #[cfg(any(test, feature = "sim"))]
+    if url.starts_with("file://") && !url.contains("..") {
+        return true;
     }
-}
-
-/// Where each channel's manifest is: in the Updates release, the Dev build's named `dev-…`.
-fn manifest_url(base: &str, channel: Channel) -> String {
-    let name = manifest_name(slot_power::slot_os(), slot_power::model());
-    match channel {
-        Channel::Release => format!("{base}/download/{UPDATES}/{name}"),
-        Channel::Dev => format!("{base}/download/{UPDATES}/dev-{name}"),
+    let api = format!("https://api.github.com/repos/{REPO}/");
+    let download = format!("https://github.com/{REPO}/releases/download/");
+    if (url.starts_with(&api) || url.starts_with(&download)) && !url.contains("..") {
+        return true;
     }
+    // GitHub sends a release file on to its own asset host. That hop is allowed; a release
+    // that names any other address is not.
+    const CDN: [&str; 3] = [
+        "https://release-assets.githubusercontent.com/",
+        "https://objects.githubusercontent.com/",
+        "https://github-releases.githubusercontent.com/",
+    ];
+    CDN.iter().any(|prefix| url.starts_with(prefix))
 }
 
-fn zip_url(base: &str, m: &Manifest) -> String {
-    format!("{base}/download/{UPDATES}/{}", m.zip)
+fn asset_url(tag: &str, name: &str) -> String {
+    format!("https://github.com/{REPO}/releases/download/{tag}/{name}")
 }
 
-pub fn base() -> String {
-    std::env::var("SLOT_UPDATE_URL").unwrap_or_else(|_| RELEASES.to_string())
+fn asset_ok(tag: &str, name: &str, url: &str) -> bool {
+    if url == asset_url(tag, name) {
+        return true;
+    }
+    #[cfg(any(test, feature = "sim"))]
+    if url.starts_with("file://") && url.ends_with(&format!("/{name}")) && !url.contains("..") {
+        return true;
+    }
+    false
 }
 
 /// A download, as it comes. A simulator build also reads `file://` folders, standing in for
 /// GitHub in its scenarios.
 fn open(url: &str) -> Result<crate::net::Body, String> {
+    if !allowed_url(url) {
+        return Err("Refusing a download from anywhere but this Slot's GitHub releases".into());
+    }
     #[cfg(any(test, feature = "sim"))]
     if let Some(path) = url.strip_prefix("file://") {
         let file = fs::File::open(path).map_err(|_| "server said 404".to_string())?;
         let len = file.metadata().ok().map(|m| m.len());
-        return Ok(crate::net::Body { len, reader: Box::new(file) });
+        return Ok(crate::net::Body {
+            len,
+            reader: Box::new(file),
+        });
     }
-    crate::net::get_stream(url)
+    crate::net::get_stream_allowed(url, &allowed_url)
 }
 
 fn fetch(url: &str, limit: usize) -> Result<Vec<u8>, String> {
@@ -265,26 +187,144 @@ fn fetch(url: &str, limit: usize) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// The channel's latest update, checked against the keys.
-pub fn check(base: &str, channel: Channel) -> Result<Manifest, String> {
-    let url = manifest_url(base, channel);
-    let text = fetch(&url, 256 * 1024).map_err(|e| match e.as_str() {
-        "server said 404" => "No update has been published here yet".to_string(),
-        _ => e,
-    })?;
-    let signature = fetch(&format!("{url}.sig"), 1024).map_err(|e| match e.as_str() {
-        "server said 404" => "This update is not signed. Not installing it".to_string(),
-        _ => e,
-    })?;
-    if !verified(&text, &signature, &keys()) {
-        return Err("This update's signature does not match. Not installing it".into());
+/// The latest non-draft release that carries `slot` and `slot.sha256`. `base` is the Releases
+/// API, or a `file://` folder in a test. Offline, and any other address, come back as an error.
+pub fn check(base: &str) -> Result<Manifest, String> {
+    if !base_ok(base) {
+        return Err("Refusing a download from anywhere but this Slot's GitHub releases".into());
     }
-    let text = std::str::from_utf8(&text).map_err(|_| "The update's description is damaged".to_string())?;
-    let m = Manifest::parse(text)?;
-    if m.channel != channel {
-        return Err("The update's description is damaged".into());
+    let list_url = match base.starts_with("file://") {
+        true => format!("{}/releases.json", base.trim_end_matches('/')),
+        false => base.to_string(),
+    };
+    let text = fetch(&list_url, 2 * 1024 * 1024).map_err(explain)?;
+    let text = std::str::from_utf8(&text)
+        .map_err(|_| "The update's description is damaged".to_string())?;
+    let listed = parse_releases(text)?;
+    let sum = fetch(&listed.checksum_url, 4 * 1024).map_err(explain)?;
+    let sum = std::str::from_utf8(&sum).map_err(|_| "The checksum is damaged".to_string())?;
+    let sha256 = parse_sha256(sum).ok_or_else(|| "The checksum is damaged".to_string())?;
+    Ok(Manifest {
+        version: listed.version,
+        title: listed.title,
+        size: listed.size,
+        sha256,
+        binary_url: listed.binary_url,
+        notes: listed.notes,
+    })
+}
+
+fn base_ok(base: &str) -> bool {
+    if base == RELEASES_API {
+        return true;
     }
-    Ok(m)
+    #[cfg(any(test, feature = "sim"))]
+    if base.starts_with("file://") && !base.contains("..") {
+        return true;
+    }
+    false
+}
+
+fn explain(error: String) -> String {
+    let low = error.to_ascii_lowercase();
+    if low.contains("no internet")
+        || low.contains("cannot connect")
+        || low.contains("cannot look up")
+        || low.contains("timed out")
+        || low.contains("tls")
+        || low.contains("send failed")
+        || low.contains("download failed")
+        || low.contains("connection")
+    {
+        "No Wi-Fi, or GitHub could not be reached. Try again when you are online.".into()
+    } else if error.contains("404") {
+        "No update has been published here yet".into()
+    } else {
+        error
+    }
+}
+
+#[derive(Debug)]
+struct Listed {
+    version: String,
+    title: String,
+    size: u64,
+    binary_url: String,
+    checksum_url: String,
+    notes: Vec<String>,
+}
+
+/// The first release in GitHub's list (newest first) that is not a draft, has a version tag,
+/// and points both files at this repository.
+fn parse_releases(json: &str) -> Result<Listed, String> {
+    let none = || "No update has been published here yet".to_string();
+    for object in json_objects(json) {
+        if json_bool(object, "draft") == Some(true) {
+            continue;
+        }
+        let Some(version) = json_string(object, "tag_name") else {
+            continue;
+        };
+        if !tag_ok(&version) {
+            continue;
+        }
+        let title = json_string(object, "name").unwrap_or_else(|| version.clone());
+        let notes = json_string(object, "body")
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        let Some(assets) = json_array(object, "assets") else {
+            continue;
+        };
+        let mut binary = None;
+        let mut checksum = None;
+        let mut size = None;
+        for asset in json_objects(assets) {
+            let Some(name) = json_string(asset, "name") else {
+                continue;
+            };
+            let Some(url) = json_string(asset, "browser_download_url") else {
+                continue;
+            };
+            if !asset_ok(&version, &name, &url) {
+                continue;
+            }
+            if name == BINARY_ASSET {
+                binary = Some(url);
+                size = json_u64(asset, "size");
+            } else if name == CHECKSUM_ASSET {
+                checksum = Some(url);
+            }
+        }
+        if let (Some(binary_url), Some(checksum_url), Some(size)) = (binary, checksum, size) {
+            if size == 0 || size > 64 * 1024 * 1024 {
+                continue;
+            }
+            return Ok(Listed {
+                version,
+                title,
+                size,
+                binary_url,
+                checksum_url,
+                notes,
+            });
+        }
+    }
+    Err(none())
+}
+
+fn tag_ok(tag: &str) -> bool {
+    version_of(tag).is_some()
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+}
+
+fn parse_sha256(text: &str) -> Option<[u8; 32]> {
+    unhex(text.split_whitespace().next()?)
 }
 
 /// How an install is getting on, shared with the screen showing it.
@@ -296,39 +336,57 @@ pub struct Progress {
     pub cancel: AtomicBool,
 }
 
-/// Download, check, unpack and swap in `m`. `card` is the SD card's root (Slot/'s parent).
-/// Fails with the card as it was, but for a swap cut short by a broken card, which
-/// launch.sh then undoes.
-pub fn install(base: &str, m: &Manifest, card: &Path, progress: &Progress) -> Result<(), String> {
-    let dir = card.join(DIR);
-    let _ = fs::remove_dir_all(&dir);
-    let need = m.size * 3 + (16 << 20);
-    if let Some(free) = slot_store::free_space(card) {
+/// Download `m`, check it against its checksum, and replace `Slot/System/slot`. `root` is the
+/// Slot directory. The previous binary is copied to `slot.bak` first and a pending marker is
+/// written, so launch.sh can put it back if the new one never starts. A bad checksum leaves
+/// the installed binary where it was.
+pub fn install(m: &Manifest, root: &Path, progress: &Progress) -> Result<(), String> {
+    if !allowed_url(&m.binary_url) {
+        return Err("Refusing a download from anywhere but this Slot's GitHub releases".into());
+    }
+    let system = root.join("System");
+    let dest = system.join("slot");
+    let incoming = system.join("slot.new");
+    let backup = system.join("slot.bak");
+    let pending = system.join("slot.pending");
+    let _ = fs::remove_file(&incoming);
+    let need = m.size.saturating_mul(2) + (8 << 20);
+    if let Some(free) = slot_store::free_space(root) {
         if free < need {
-            return Err(format!("Needs {} MB free on the SD card", need.div_ceil(1 << 20)));
+            return Err(format!(
+                "Needs {} MB free on the SD card",
+                need.div_ceil(1 << 20)
+            ));
         }
     }
-    fs::create_dir_all(&dir).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
-    let result = download(base, m, &dir, progress).and_then(|zip| {
-        progress.unpacking.store(true, Ordering::Relaxed);
-        stage(&zip, &dir.join("new")).map_err(|e| format!("Cannot unpack the update: {e}"))?;
-        let _ = fs::remove_file(&zip);
-        fs::write(dir.join(STAGED), "").map_err(|e| format!("Cannot write to the SD card: {e}"))
-    });
-    if let Err(e) = result {
-        let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&system).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
+    if let Err(e) = download_binary(m, &incoming, progress) {
+        let _ = fs::remove_file(&incoming);
         return Err(e);
     }
-    apply(card).map_err(|e| format!("Cannot swap in the update: {e}"))
+    progress.unpacking.store(true, Ordering::Relaxed);
+    if dest.is_file() {
+        fs::copy(&dest, &backup).map_err(|e| format!("Cannot keep the previous Slot: {e}"))?;
+    }
+    fs::write(&pending, format!("{}\n", m.version))
+        .map_err(|e| format!("Cannot write to the SD card: {e}"))?;
+    fs::rename(&incoming, &dest).map_err(|e| format!("Cannot swap in the update: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&dest, fs::Permissions::from_mode(0o755));
+    }
+    let _ = std::process::Command::new("sync").status();
+    Ok(())
 }
 
-fn download(base: &str, m: &Manifest, dir: &Path, progress: &Progress) -> Result<PathBuf, String> {
-    let body = open(&zip_url(base, m))?;
+fn download_binary(m: &Manifest, path: &Path, progress: &Progress) -> Result<(), String> {
+    let body = open(&m.binary_url).map_err(explain)?;
     if body.len.is_some_and(|n| n != m.size) {
         return Err("The download is not the size it should be".into());
     }
-    let path = dir.join("download.zip");
-    let mut file = fs::File::create(&path).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
+    let mut file =
+        fs::File::create(path).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
     let mut reader = body.reader.take(m.size + 1);
     let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
     let mut buf = vec![0u8; 64 * 1024];
@@ -344,8 +402,12 @@ fn download(base: &str, m: &Manifest, dir: &Path, progress: &Progress) -> Result
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof && got == m.size => break,
             Err(e) => return Err(format!("Download failed: {e}")),
         };
+        if got + n as u64 > m.size {
+            return Err("The download is larger than it should be".into());
+        }
         hash.update(&buf[..n]);
-        file.write_all(&buf[..n]).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("Cannot write to the SD card: {e}"))?;
         got += n as u64;
         progress.downloaded.store(got, Ordering::Relaxed);
     }
@@ -355,8 +417,9 @@ fn download(base: &str, m: &Manifest, dir: &Path, progress: &Progress) -> Result
     if hash.finish().as_ref() != &m.sha256[..] {
         return Err("The download is damaged (its checksum does not match). Try again".into());
     }
-    file.sync_all().map_err(|e| format!("Cannot write to the SD card: {e}"))?;
-    Ok(path)
+    file.sync_all()
+        .map_err(|e| format!("Cannot write to the SD card: {e}"))?;
+    Ok(())
 }
 
 /// Slot's own files on the card, which an update replaces. Everything else is the player's:
@@ -385,18 +448,27 @@ pub fn ours(rel: &str) -> bool {
 fn safe(rel: &str) -> bool {
     !rel.is_empty()
         && !rel.contains('\\')
-        && rel.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+        && rel
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
 }
 
 /// Unpacks Slot's own files from the card zip (zip-card.py's: everything under SD-CARD/,
 /// stored or deflated) into `into`.
 pub fn stage(zip: &Path, into: &Path) -> std::io::Result<usize> {
     use slot_store::archive::zip as cardzip;
-    let bad = |what: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("damaged zip ({what})"));
+    let bad = |what: &str| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("damaged zip ({what})"),
+        )
+    };
     let mut file = fs::File::open(zip)?;
     let mut written = 0;
     for entry in cardzip::index(&mut file)? {
-        let Some(rel) = entry.name.strip_prefix("SD-CARD/") else { continue };
+        let Some(rel) = entry.name.strip_prefix("SD-CARD/") else {
+            continue;
+        };
         if rel.is_empty() || rel.ends_with('/') || !ours(rel) {
             continue;
         }
@@ -435,7 +507,9 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut todo = vec![PathBuf::new()];
     while let Some(rel) = todo.pop() {
-        let Ok(entries) = fs::read_dir(dir.join(&rel)) else { continue };
+        let Ok(entries) = fs::read_dir(dir.join(&rel)) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let rel = rel.join(entry.file_name());
             match entry.file_type() {
@@ -492,16 +566,21 @@ pub fn resume(card: &Path) -> bool {
 /// swap under way is left alone: resume finishes it, and launch.sh may need its old files.
 pub fn tidy(card: &Path) {
     let dir = card.join(DIR);
-    if !dir.exists() || dir.join(STAGED).exists() || dir.join(PENDING).exists() {
-        return;
+    if dir.exists() && !dir.join(STAGED).exists() && !dir.join(PENDING).exists() {
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => eprintln!("slot: update: cleared away an update that never finished"),
+            Err(e) => eprintln!("slot: update: cannot clear {}: {e}", dir.display()),
+        }
     }
-    match fs::remove_dir_all(&dir) {
-        Ok(()) => eprintln!("slot: update: cleared away an update that never finished"),
-        Err(e) => eprintln!("slot: update: cannot clear {}: {e}", dir.display()),
+    let pending = card.join("Slot/System/slot.pending");
+    let incoming = card.join("Slot/System/slot.new");
+    if incoming.is_file() && !pending.is_file() {
+        let _ = fs::remove_file(incoming);
     }
 }
 
-/// The new Slot is up: the old files are no longer needed.
+/// The new Slot is up: the old files are no longer needed, and a later crash must not roll
+/// the binary back. `slot.bak` stays, so the previous one is still on the card.
 pub fn settle(card: &Path) {
     let dir = card.join(DIR);
     if dir.join(PENDING).exists() && !dir.join(STAGED).exists() {
@@ -510,151 +589,335 @@ pub fn settle(card: &Path) {
             Err(e) => eprintln!("slot: update: cannot tidy {}: {e}", dir.display()),
         }
     }
+    let pending = card.join("Slot/System/slot.pending");
+    if pending.is_file() {
+        match fs::remove_file(&pending) {
+            Ok(()) => eprintln!("slot: update: installed"),
+            Err(e) => eprintln!("slot: update: cannot clear {}: {e}", pending.display()),
+        }
+    }
 }
 
 /// The card's root: Slot/'s parent.
 pub fn card_of(root: &Path) -> PathBuf {
-    root.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/mnt/SDCARD"))
+    root.parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("/mnt/SDCARD"))
 }
 
-/// The update channel kept in Config: Dev once chosen, else Release.
-const CHANNEL_FILE: &str = "Config/update-channel.txt";
+fn json_objects(json: &str) -> Vec<&str> {
+    let bytes = json.as_bytes();
+    let mut i = json.find('[').map(|at| at + 1).unwrap_or(0);
+    let mut out = Vec::new();
+    while i < bytes.len() {
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] == b']' || bytes[i] != b'{' {
+            break;
+        }
+        let start = i;
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut esc = false;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if in_str {
+                if esc {
+                    esc = false;
+                } else if c == b'\\' {
+                    esc = true;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+            } else if c == b'"' {
+                in_str = true;
+            } else if c == b'{' {
+                depth += 1;
+            } else if c == b'}' {
+                depth -= 1;
+                if depth == 0 {
+                    i += 1;
+                    out.push(&json[start..i]);
+                    break;
+                }
+            }
+            i += 1;
+        }
+    }
+    out
+}
 
-pub fn saved_channel(root: &Path) -> Channel {
-    match fs::read_to_string(root.join(CHANNEL_FILE)).map(|s| s.trim().to_string()).as_deref() {
-        Ok("dev") => Channel::Dev,
-        _ => Channel::Release,
+/// A top-level string, bool or number of one JSON object. Nested objects are skipped.
+fn json_string(object: &str, key: &str) -> Option<String> {
+    let raw = json_value(object, key)?;
+    let raw = raw.trim();
+    let raw = raw.strip_prefix('"')?.strip_suffix('"')?;
+    Some(json_unescape(raw))
+}
+
+fn json_bool(object: &str, key: &str) -> Option<bool> {
+    match json_value(object, key)?.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
 }
 
-pub fn save_channel(root: &Path, channel: Channel) -> std::io::Result<()> {
-    match channel {
-        Channel::Release => match fs::remove_file(root.join(CHANNEL_FILE)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
-        },
-        Channel::Dev => fs::write(root.join(CHANNEL_FILE), format!("{}\n", channel.name())),
+fn json_u64(object: &str, key: &str) -> Option<u64> {
+    json_value(object, key)?.trim().parse().ok()
+}
+
+fn json_array<'a>(object: &'a str, key: &str) -> Option<&'a str> {
+    let raw = json_value(object, key)?.trim();
+    raw.starts_with('[').then_some(raw)
+}
+
+fn json_value<'a>(object: &'a str, key: &str) -> Option<&'a str> {
+    let bytes = object.as_bytes();
+    let mut i = 0;
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut esc = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'"' => {
+                let start = i + 1;
+                i += 1;
+                let mut s_esc = false;
+                let mut end = None;
+                while i < bytes.len() {
+                    if s_esc {
+                        s_esc = false;
+                    } else if bytes[i] == b'\\' {
+                        s_esc = true;
+                    } else if bytes[i] == b'"' {
+                        end = Some(i);
+                        break;
+                    }
+                    i += 1;
+                }
+                let end = end?;
+                let found = &object[start..end];
+                i = end + 1;
+                if depth == 1 && found == key {
+                    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    if i >= bytes.len() || bytes[i] != b':' {
+                        continue;
+                    }
+                    i += 1;
+                    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    let value_at = i;
+                    if i < bytes.len() && bytes[i] == b'"' {
+                        i += 1;
+                        let mut v_esc = false;
+                        while i < bytes.len() {
+                            if v_esc {
+                                v_esc = false;
+                            } else if bytes[i] == b'\\' {
+                                v_esc = true;
+                            } else if bytes[i] == b'"' {
+                                i += 1;
+                                return Some(&object[value_at..i]);
+                            }
+                            i += 1;
+                        }
+                        return None;
+                    }
+                    let mut v_depth = 0i32;
+                    let mut v_str = false;
+                    let mut v_esc = false;
+                    while i < bytes.len() {
+                        let c = bytes[i];
+                        if v_str {
+                            if v_esc {
+                                v_esc = false;
+                            } else if c == b'\\' {
+                                v_esc = true;
+                            } else if c == b'"' {
+                                v_str = false;
+                            }
+                        } else if c == b'"' {
+                            v_str = true;
+                        } else if c == b'{' || c == b'[' {
+                            v_depth += 1;
+                        } else if c == b'}' || c == b']' {
+                            if v_depth == 0 {
+                                break;
+                            }
+                            v_depth -= 1;
+                        } else if (c == b',' || c == b'}') && v_depth == 0 {
+                            break;
+                        }
+                        i += 1;
+                    }
+                    return Some(&object[value_at..i]);
+                }
+                in_str = false;
+            }
+            b'{' | b'[' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth -= 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
     }
+    None
+}
+
+fn json_unescape(raw: &str) -> String {
+    let mut out = String::new();
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('/') => out.push('/'),
+            Some('u') => {
+                let hex: String = chars.by_ref().take(4).collect();
+                if let Some(ch) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    out.push(ch);
+                }
+            }
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ring::signature::{Ed25519KeyPair, KeyPair};
 
-    fn manifest_text(channel: &str, version: &str, size: u64, sha: &str) -> String {
-        format!(
-            "{HEADER}\nchannel={channel}\nversion={version}\ncommit=0123456789abcdef0123456789abcdef01234567\n\
-             zip=slot-stock-{version}.zip\nsize={size}\nsha256={sha}\n\n- Something new.\n\n- And a fix.\n"
-        )
-    }
-
-    fn installed(version: &str, commit: &str, channel: Channel) -> Installed {
-        Installed { version: version.into(), commit: commit.into(), channel }
-    }
-
-    fn sim_pair() -> Ed25519KeyPair {
-        let pem = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../brick/sim/update-key.pem")).unwrap();
-        let b64: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
-        let der = base64(&b64);
-        // A raw Ed25519 PKCS#8 v1 key: its 32-byte seed is the last thing in it.
-        Ed25519KeyPair::from_seed_unchecked(&der[der.len() - 32..]).unwrap()
-    }
-
-    fn base64(s: &str) -> Vec<u8> {
-        let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut bits = 0u32;
-        let mut n = 0;
-        let mut out = Vec::new();
-        for c in s.bytes().filter(|&c| c != b'=') {
-            bits = bits << 6 | table.iter().position(|&t| t == c).unwrap() as u32;
-            n += 6;
-            if n >= 8 {
-                n -= 8;
-                out.push((bits >> n) as u8);
-            }
+    fn installed(version: &str) -> Installed {
+        Installed {
+            version: version.into(),
+            commit: "1111111".into(),
+            channel: Channel::Release,
         }
-        out
     }
 
-    #[test]
-    fn the_sim_key_in_the_code_is_the_one_on_file() {
-        assert_eq!(sim_pair().public_key().as_ref(), SIM_KEY);
-    }
-
-    #[test]
-    fn a_manifest_reads_its_fields_and_notes() {
-        let m = Manifest::parse(&manifest_text("release", "v0.44", 12, &"ab".repeat(32))).unwrap();
-        assert_eq!((m.channel, m.version.as_str(), m.size, m.short()), (Channel::Release, "v0.44", 12, "0123456"));
-        assert_eq!(m.zip, "slot-stock-v0.44.zip");
-        assert_eq!(m.notes, ["- Something new.", "- And a fix."]);
-    }
-
-    #[test]
-    fn a_manifest_with_a_path_for_its_zip_or_no_checksum_is_refused() {
-        let good = manifest_text("release", "v0.44", 12, &"ab".repeat(32));
-        assert!(Manifest::parse(&good.replace("zip=slot", "zip=../slot")).is_err());
-        assert!(Manifest::parse(&good.replace("zip=slot", "zip=a/slot")).is_err());
-        assert!(Manifest::parse(&good.replace(&"ab".repeat(32), "abc")).is_err());
-        assert!(Manifest::parse(&good.replace("channel=release", "channel=beta")).is_err());
-        assert!(Manifest::parse(&good.replace(HEADER, "slot-update 2")).unwrap_err().contains("newer Slot"));
-    }
-
-    #[test]
-    fn only_a_signature_by_a_known_key_is_good() {
-        let pair = sim_pair();
-        let text = b"slot-update 1\n";
-        let sig = pair.sign(text);
-        assert!(verified(text, sig.as_ref(), &[SIM_KEY]));
-        assert!(!verified(b"slot-update 1\nx", sig.as_ref(), &[SIM_KEY]));
-        assert!(!verified(text, sig.as_ref(), &[RELEASE_KEY]));
-        assert!(!verified(text, &[0; 64], &keys()));
-    }
-
-    #[test]
-    fn newer_releases_are_offered_and_dev_builds_by_commit() {
-        let m = |channel, version| Manifest {
-            channel,
-            version: String::from(version),
-            commit: "abcdef0123456789".into(),
-            zip: "z.zip".into(),
+    fn manifest(version: &str) -> Manifest {
+        Manifest {
+            version: version.into(),
+            title: format!("Slot {version}"),
             size: 1,
             sha256: [0; 32],
-            notes: Vec::new(),
-        };
-        let release = installed("v0.43", "1111111", Channel::Release);
-        assert_eq!(offer(&release, &m(Channel::Release, "v0.44")), Offer::Newer);
-        assert_eq!(offer(&release, &m(Channel::Release, "v0.43")), Offer::UpToDate);
-        assert_eq!(offer(&release, &m(Channel::Release, "v0.9")), Offer::UpToDate);
-        assert_eq!(offer(&installed("v0.9", "1", Channel::Release), &m(Channel::Release, "v0.10")), Offer::Newer);
-        assert_eq!(offer(&release, &m(Channel::Dev, "v0.43")), Offer::Newer);
-        let dev = installed("v0.43", "abcdef0", Channel::Dev);
-        assert_eq!(offer(&dev, &m(Channel::Dev, "v0.43")), Offer::UpToDate);
-        assert_eq!(offer(&installed("v0.43", "2222222", Channel::Dev), &m(Channel::Dev, "v0.43")), Offer::Newer);
-        assert_eq!(offer(&dev, &m(Channel::Release, "v0.43")), Offer::Back);
+            binary_url: asset_url(version, BINARY_ASSET),
+            notes: vec!["- Something new.".into()],
+        }
     }
 
     #[test]
-    fn slot_os_reads_its_own_manifest() {
-        use slot_power::Model;
-        assert_eq!(manifest_name(false, Model::Brick), "update.txt");
-        assert_eq!(manifest_name(false, Model::BrickPro), "update.txt", "stock takes the same card on either");
-        assert_eq!(manifest_name(true, Model::Brick), "update-os.txt");
-        assert_eq!(manifest_name(true, Model::BrickPro), "update-os-brickpro.txt");
+    fn newer_versions_are_offered_and_the_same_one_is_not() {
+        let have = installed("v0.43");
+        assert_eq!(offer(&have, &manifest("v0.44")), Offer::Newer);
+        assert_eq!(offer(&have, &manifest("v0.43")), Offer::UpToDate);
+        assert_eq!(offer(&have, &manifest("v0.9")), Offer::UpToDate);
+        assert_eq!(offer(&installed("v0.9"), &manifest("v0.10")), Offer::Newer);
+    }
+
+    #[test]
+    fn a_release_from_anywhere_else_is_refused() {
+        assert!(check("https://github.com/LordNordyx/Slot-Brick/releases")
+            .unwrap_err()
+            .contains("Refusing"));
+        assert!(check("https://example.com/slot")
+            .unwrap_err()
+            .contains("Refusing"));
+        let listed = parse_releases(
+            r#"[{"tag_name":"v9.0","name":"Nope","draft":false,"body":"- hi","assets":[
+                {"name":"slot","size":4,"browser_download_url":"https://github.com/LordNordyx/Slot-Brick/releases/download/v9.0/slot"},
+                {"name":"slot.sha256","size":64,"browser_download_url":"https://github.com/LordNordyx/Slot-Brick/releases/download/v9.0/slot.sha256"}]}]"#,
+        );
+        assert!(listed.unwrap_err().contains("No update"));
+    }
+
+    #[test]
+    fn the_latest_non_draft_release_with_both_files_is_the_one_offered() {
+        let json = r#"[{"tag_name":"v9.2","draft":true,"name":"Draft","body":"- no","assets":[
+                {"name":"slot","size":4,"browser_download_url":"https://github.com/jfink22-design/slot-brick-plus/releases/download/v9.2/slot"},
+                {"name":"slot.sha256","size":8,"browser_download_url":"https://github.com/jfink22-design/slot-brick-plus/releases/download/v9.2/slot.sha256"}]},
+            {"tag_name":"updates","name":"Updates","draft":false,"body":"","assets":[]},
+            {"tag_name":"v9.1","name":"Pictures stay put","draft":false,"body":"- Something new.\n- And a fix.","assets":[
+                {"name":"slot","size":8,"browser_download_url":"https://github.com/jfink22-design/slot-brick-plus/releases/download/v9.1/slot"},
+                {"name":"slot.sha256","size":70,"browser_download_url":"https://github.com/jfink22-design/slot-brick-plus/releases/download/v9.1/slot.sha256"}]}]"#;
+        let listed = parse_releases(json).unwrap();
+        assert_eq!(listed.version, "v9.1");
+        assert_eq!(listed.title, "Pictures stay put");
+        assert_eq!(listed.notes, ["- Something new.", "- And a fix."]);
+        assert_eq!(listed.size, 8);
+    }
+
+    #[test]
+    fn being_offline_is_said_plainly() {
+        let said = explain("cannot look up api.github.com (no internet?)".into());
+        assert!(said.contains("No Wi-Fi"));
+        assert!(explain("server said 404".into()).contains("No update"));
     }
 
     #[test]
     fn only_slots_own_files_are_replaced() {
-        for rel in ["Slot/System/slot", "Slot/System/licenses/a.txt", ".slot-boot/boot.sh", "Apps/Slot/launch.sh",
-                    "Apps/BootLogo/Image/README.txt", "Slot/Overlays/GB/A.png", "Slot/README.md",
-                    "slot-os/boot.img", "slot-os/lib/aarch64-linux-gnu/libc.so.6", "bootlogo.bmp"] {
+        for rel in [
+            "Slot/System/slot",
+            "Slot/System/licenses/a.txt",
+            ".slot-boot/boot.sh",
+            "Apps/Slot/launch.sh",
+            "Apps/BootLogo/Image/README.txt",
+            "Slot/Overlays/GB/A.png",
+            "Slot/README.md",
+            "slot-os/boot.img",
+            "slot-os/lib/aarch64-linux-gnu/libc.so.6",
+            "bootlogo.bmp",
+        ] {
             assert!(ours(rel), "{rel}");
         }
-        for rel in ["Slot/Games/GB/a.gb", "Slot/Saves/GB/a.sav", "Slot/Config/wifi.txt", "Slot/BIOS/gba_bios.bin",
-                    "Slot/AUTOBOOT", "Apps/BootLogo/Image/boot.png", "trimui/app/MainUI", "Slot/Wallpapers/a.png"] {
+        for rel in [
+            "Slot/Games/GB/a.gb",
+            "Slot/Saves/GB/a.sav",
+            "Slot/Config/wifi.txt",
+            "Slot/BIOS/gba_bios.bin",
+            "Slot/AUTOBOOT",
+            "Apps/BootLogo/Image/boot.png",
+            "trimui/app/MainUI",
+            "Slot/Wallpapers/a.png",
+        ] {
             assert!(!ours(rel), "{rel}");
         }
-        assert!(!safe("Slot/System/../../x") && !safe("Slot//x") && !safe("Slot\\x") && safe("Slot/System/slot"));
+        assert!(
+            !safe("Slot/System/../../x")
+                && !safe("Slot//x")
+                && !safe("Slot\\x")
+                && safe("Slot/System/slot")
+        );
     }
 
     /// A card zip as zip-card.py writes one: deflated, under SD-CARD/, Unix modes kept.
@@ -664,7 +927,9 @@ mod tests {
             let packed = miniz_oxide::deflate::compress_to_vec(data, 6);
             let offset = out.len() as u32;
             let head = |buf: &mut Vec<u8>, central: bool| {
-                buf.extend_from_slice(&(if central { 0x0201_4b50u32 } else { 0x0403_4b50 }).to_le_bytes());
+                buf.extend_from_slice(
+                    &(if central { 0x0201_4b50u32 } else { 0x0403_4b50 }).to_le_bytes(),
+                );
                 if central {
                     buf.extend_from_slice(&(0x0314u16).to_le_bytes());
                 }
@@ -705,8 +970,12 @@ mod tests {
     ];
 
     fn old_card(card: &Path) {
-        for (rel, data) in [("Slot/System/slot", "old slot"), ("Slot/System/launch.sh", "old launch"),
-                            ("Slot/Saves/GB/a.sav", "save"), ("Slot/Config/defaults.txt", "mine")] {
+        for (rel, data) in [
+            ("Slot/System/slot", "old slot"),
+            ("Slot/System/launch.sh", "old launch"),
+            ("Slot/Saves/GB/a.sav", "save"),
+            ("Slot/Config/defaults.txt", "mine"),
+        ] {
             fs::create_dir_all(card.join(rel).parent().unwrap()).unwrap();
             fs::write(card.join(rel), data).unwrap();
         }
@@ -720,105 +989,111 @@ mod tests {
     fn unpacking_takes_only_slots_own_files() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("card.zip"), card_zip(NEW_CARD)).unwrap();
-        assert_eq!(stage(&dir.path().join("card.zip"), &dir.path().join("new")).unwrap(), 3);
-        assert_eq!(read(&dir.path().join("new"), "Slot/System/slot"), "new slot");
-        assert!(!dir.path().join("new/Slot/Config").exists() && !dir.path().join("new/Slot/AUTOBOOT").exists());
+        assert_eq!(
+            stage(&dir.path().join("card.zip"), &dir.path().join("new")).unwrap(),
+            3
+        );
+        assert_eq!(
+            read(&dir.path().join("new"), "Slot/System/slot"),
+            "new slot"
+        );
+        assert!(
+            !dir.path().join("new/Slot/Config").exists()
+                && !dir.path().join("new/Slot/AUTOBOOT").exists()
+        );
         use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(dir.path().join("new/Slot/System/slot")).unwrap().permissions().mode();
+        let mode = fs::metadata(dir.path().join("new/Slot/System/slot"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o111, 0o111);
     }
 
     #[test]
     fn a_zip_reaching_outside_the_card_is_refused() {
         let dir = tempfile::tempdir().unwrap();
-        let evil: &[(&str, &[u8])] = &[("SD-CARD/Slot/System/slot", b"x"), ("SD-CARD/Slot/System/../../../escape", b"x")];
+        let evil: &[(&str, &[u8])] = &[
+            ("SD-CARD/Slot/System/slot", b"x"),
+            ("SD-CARD/Slot/System/../../../escape", b"x"),
+        ];
         fs::write(dir.path().join("card.zip"), card_zip(evil)).unwrap();
         assert!(stage(&dir.path().join("card.zip"), &dir.path().join("new")).is_err());
         assert!(!dir.path().join("escape").exists());
     }
 
-    /// A folder standing in for GitHub's releases: update.txt and the zip, signed.
-    fn publish(dir: &Path, zip: &[u8], sign: bool) -> String {
-        let sha: String = ring::digest::digest(&ring::digest::SHA256, zip).as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        let text = manifest_text("release", "v9.0", zip.len() as u64, &sha);
+    /// A folder standing in for this fork's GitHub releases: releases.json, slot, slot.sha256.
+    fn publish(dir: &Path, binary: &[u8]) -> (String, PathBuf) {
+        let sha: String = ring::digest::digest(&ring::digest::SHA256, binary)
+            .as_ref()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let at = dir.join("releases");
-        fs::create_dir_all(at.join("download/updates")).unwrap();
-        fs::write(at.join("download/updates/update.txt"), &text).unwrap();
-        if sign {
-            fs::write(at.join("download/updates/update.txt.sig"), sim_pair().sign(text.as_bytes()).as_ref()).unwrap();
-        }
-        fs::write(at.join("download/updates/slot-stock-v9.0.zip"), zip).unwrap();
-        format!("file://{}", at.display())
+        fs::create_dir_all(&at).unwrap();
+        let binary_url = format!("file://{}/slot", at.display());
+        let checksum_url = format!("file://{}/slot.sha256", at.display());
+        let json = format!(
+            r#"[{{"tag_name":"v9.0","name":"Pictures stay put","draft":false,"body":"- Something new.\n- And a fix.","assets":[{{"name":"slot","size":{},"browser_download_url":"{binary_url}"}},{{"name":"slot.sha256","size":70,"browser_download_url":"{checksum_url}"}}]}}]"#,
+            binary.len()
+        );
+        fs::write(at.join("releases.json"), json).unwrap();
+        fs::write(at.join("slot"), binary).unwrap();
+        fs::write(at.join("slot.sha256"), format!("{sha}  slot\n")).unwrap();
+        (format!("file://{}", at.display()), at)
     }
 
     #[test]
-    fn an_update_swaps_in_slots_files_and_keeps_the_old_ones_until_it_starts() {
+    fn an_update_replaces_slot_keeps_the_previous_binary_and_shows_the_title() {
         let dir = tempfile::tempdir().unwrap();
-        let card = dir.path().join("card");
-        old_card(&card);
-        let base = publish(dir.path(), &card_zip(NEW_CARD), true);
-        let m = check(&base, Channel::Release).unwrap();
-        install(&base, &m, &card, &Progress::default()).unwrap();
-        assert_eq!((read(&card, "Slot/System/slot"), read(&card, "Slot/System/launch.sh")), ("new slot".into(), "new launch".into()));
-        assert_eq!(read(&card, "Slot/Overlays/GB/Frame.png"), "new overlay");
-        assert_eq!((read(&card, "Slot/Saves/GB/a.sav"), read(&card, "Slot/Config/defaults.txt")), ("save".into(), "mine".into()));
-        assert!(!card.join("Slot/AUTOBOOT").exists());
-        assert_eq!(read(&card, ".slot-update/old/Slot/System/slot"), "old slot");
-        assert!(card.join(".slot-update/pending").exists());
-        settle(&card);
-        assert!(!card.join(DIR).exists());
+        let root = dir.path().join("Slot");
+        fs::create_dir_all(root.join("System")).unwrap();
+        fs::create_dir_all(root.join("Saves/GB")).unwrap();
+        fs::write(root.join("System/slot"), b"old slot").unwrap();
+        fs::write(root.join("Saves/GB/a.sav"), b"save").unwrap();
+        let (base, _) = publish(dir.path(), b"new slot");
+        let m = check(&base).unwrap();
+        assert_eq!(m.title, "Pictures stay put");
+        assert_eq!(m.notes, ["- Something new.", "- And a fix."]);
+        assert_eq!(offer(&installed("v0.43"), &m), Offer::Newer);
+        install(&m, &root, &Progress::default()).unwrap();
+        assert_eq!(fs::read(root.join("System/slot")).unwrap(), b"new slot");
+        assert_eq!(fs::read(root.join("System/slot.bak")).unwrap(), b"old slot");
+        assert_eq!(
+            fs::read_to_string(root.join("System/slot.pending"))
+                .unwrap()
+                .trim(),
+            "v9.0"
+        );
+        assert_eq!(fs::read(root.join("Saves/GB/a.sav")).unwrap(), b"save");
+        let card = dir.path();
+        // settle takes the card root, whose Slot/ is the one we wrote.
+        fs::create_dir_all(card.join("Slot")).unwrap();
+        // root is already dir/Slot. settle looks at card/Slot.
+        settle(dir.path());
+        assert!(!root.join("System/slot.pending").exists());
+        assert_eq!(fs::read(root.join("System/slot.bak")).unwrap(), b"old slot");
     }
 
     #[test]
-    fn an_unsigned_or_damaged_update_is_never_installed() {
+    fn a_bad_checksum_or_a_cancel_leaves_the_installed_slot() {
         let dir = tempfile::tempdir().unwrap();
-        let card = dir.path().join("card");
-        old_card(&card);
-        let base = publish(dir.path(), &card_zip(NEW_CARD), false);
-        assert!(check(&base, Channel::Release).unwrap_err().contains("not signed"));
-        let base = publish(dir.path(), &card_zip(NEW_CARD), true);
-        let m = check(&base, Channel::Release).unwrap();
-        // The zip on the server is not the one the signed description names.
-        let swapped: &[(&str, &[u8])] = &[("SD-CARD/Slot/System/slot", b"evil slot")];
-        let mut other = card_zip(swapped);
-        other.resize(m.size as usize, 0);
-        fs::write(dir.path().join("releases/download/updates/slot-stock-v9.0.zip"), other).unwrap();
-        assert!(install(&base, &m, &card, &Progress::default()).unwrap_err().contains("checksum"));
-        assert_eq!(read(&card, "Slot/System/slot"), "old slot");
-        assert!(!card.join(DIR).exists());
-    }
-
-    #[test]
-    fn both_channels_update_from_the_updates_release() {
-        let base = "https://example.org/releases";
-        let m = Manifest::parse(&manifest_text("dev", "v9.0", 1, &"0".repeat(64))).unwrap();
-        assert!(manifest_url(base, Channel::Release).starts_with("https://example.org/releases/download/updates/update"));
-        assert!(manifest_url(base, Channel::Dev).starts_with("https://example.org/releases/download/updates/dev-update"));
-        assert_eq!(zip_url(base, &m), "https://example.org/releases/download/updates/slot-stock-v9.0.zip");
-    }
-
-    #[test]
-    fn a_tampered_description_fails_its_signature() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = publish(dir.path(), &card_zip(NEW_CARD), true);
-        let path = dir.path().join("releases/download/updates/update.txt");
-        let text = fs::read_to_string(&path).unwrap().replace("v9.0", "v9.1");
-        fs::write(&path, text).unwrap();
-        assert!(check(&base, Channel::Release).unwrap_err().contains("signature"));
-    }
-
-    #[test]
-    fn a_cancelled_download_leaves_the_card_as_it_was() {
-        let dir = tempfile::tempdir().unwrap();
-        let card = dir.path().join("card");
-        old_card(&card);
-        let base = publish(dir.path(), &card_zip(NEW_CARD), true);
-        let m = check(&base, Channel::Release).unwrap();
+        let root = dir.path().join("Slot");
+        fs::create_dir_all(root.join("System")).unwrap();
+        fs::write(root.join("System/slot"), b"old slot").unwrap();
+        let (base, at) = publish(dir.path(), b"new slot");
+        let m = check(&base).unwrap();
+        fs::write(at.join("slot"), b"evil!!!!").unwrap();
+        assert!(install(&m, &root, &Progress::default())
+            .unwrap_err()
+            .contains("checksum"));
+        assert_eq!(fs::read(root.join("System/slot")).unwrap(), b"old slot");
+        assert!(!root.join("System/slot.bak").exists());
+        assert!(!root.join("System/slot.pending").exists());
         let progress = Progress::default();
         progress.cancel.store(true, Ordering::Relaxed);
-        assert_eq!(install(&base, &m, &card, &progress).unwrap_err(), "Cancelled");
-        assert_eq!(read(&card, "Slot/System/slot"), "old slot");
-        assert!(!card.join(DIR).exists());
+        fs::write(at.join("slot"), b"new slot").unwrap();
+        assert_eq!(install(&m, &root, &progress).unwrap_err(), "Cancelled");
+        assert_eq!(fs::read(root.join("System/slot")).unwrap(), b"old slot");
     }
 
     #[test]
@@ -832,11 +1107,28 @@ mod tests {
         fs::write(up.join(STAGED), "").unwrap();
         // The power went with launch.sh swapped and slot not yet.
         fs::create_dir_all(up.join("old/Slot/System")).unwrap();
-        fs::rename(card.join("Slot/System/launch.sh"), up.join("old/Slot/System/launch.sh")).unwrap();
-        fs::rename(up.join("new/Slot/System/launch.sh"), card.join("Slot/System/launch.sh")).unwrap();
+        fs::rename(
+            card.join("Slot/System/launch.sh"),
+            up.join("old/Slot/System/launch.sh"),
+        )
+        .unwrap();
+        fs::rename(
+            up.join("new/Slot/System/launch.sh"),
+            card.join("Slot/System/launch.sh"),
+        )
+        .unwrap();
         assert!(resume(&card));
-        assert_eq!((read(&card, "Slot/System/slot"), read(&card, "Slot/System/launch.sh")), ("new slot".into(), "new launch".into()));
-        assert_eq!(read(&card, ".slot-update/old/Slot/System/launch.sh"), "old launch");
+        assert_eq!(
+            (
+                read(&card, "Slot/System/slot"),
+                read(&card, "Slot/System/launch.sh")
+            ),
+            ("new slot".into(), "new launch".into())
+        );
+        assert_eq!(
+            read(&card, ".slot-update/old/Slot/System/launch.sh"),
+            "old launch"
+        );
         assert_eq!(read(&card, ".slot-update/old/Slot/System/slot"), "old slot");
         assert!(!resume(&card));
     }
@@ -855,20 +1147,11 @@ mod tests {
             fs::create_dir_all(up.join("old")).unwrap();
             fs::write(up.join(marker), "").unwrap();
             tidy(card);
-            assert!(up.join(marker).exists() && up.join("old").exists(), "{marker}");
+            assert!(
+                up.join(marker).exists() && up.join("old").exists(),
+                "{marker}"
+            );
             fs::remove_dir_all(&up).unwrap();
         }
-    }
-
-    #[test]
-    fn the_dev_channel_is_kept_and_release_forgets_it() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("Config")).unwrap();
-        assert_eq!(saved_channel(dir.path()), Channel::Release);
-        save_channel(dir.path(), Channel::Dev).unwrap();
-        assert_eq!(saved_channel(dir.path()), Channel::Dev);
-        save_channel(dir.path(), Channel::Release).unwrap();
-        save_channel(dir.path(), Channel::Release).unwrap();
-        assert_eq!(saved_channel(dir.path()), Channel::Release);
     }
 }
