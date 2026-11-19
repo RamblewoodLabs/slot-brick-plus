@@ -4553,6 +4553,16 @@ impl App {
         }
         if self.pip.is_some() || self.videos_visible || self.music_visible {
             self.draw_sheet(out);
+            if self.videos_visible || self.music_visible {
+                slot_ui::draw_menu_header(
+                    self.battery,
+                    self.battery_percent,
+                    self.bolt,
+                    self.wifi_face(),
+                    self.shelf_clock,
+                    out,
+                );
+            }
             return;
         }
         match &self.phase {

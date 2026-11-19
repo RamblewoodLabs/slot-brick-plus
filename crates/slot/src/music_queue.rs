@@ -237,10 +237,17 @@ fn pull(url: &str, part: &Path, have: u64, end: u64) -> Result<(u64, u16, Option
     let mut reader = ranged.reader;
     let mut buf = vec![0u8; READ];
     let mut got = 0u64;
+    let mut last_byte = std::time::Instant::now();
     while got < want {
+        if last_byte.elapsed() >= crate::net::IDLE_LIMIT {
+            return Err("stall: no bytes for 30s".into());
+        }
         let n = match crate::net::read_soft(&mut *reader, &mut buf) {
             Ok(0) => break,
-            Ok(n) => n,
+            Ok(n) => {
+                last_byte = std::time::Instant::now();
+                n
+            }
             Err(e) if crate::net::is_again(&e) => continue,
             Err(e) => {
                 if ranged.content_length.is_some_and(|n| got >= n)

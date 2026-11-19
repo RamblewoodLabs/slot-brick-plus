@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos: a download that stops sending is given up after about 30 seconds and tried again, up to five times, including from another source. The percent, size and speed update while it is still coming in, and they stay the same size on screen. Pausing or removing it takes effect straight away, and continuing starts a fresh request. Downloads says "Retrying 2/5…" while it tries, and "Failed — press A to retry" when it stops. A video is not kept when it has no sound. Logs/videos.log lines start with the time. Videos and Music show the battery, Wi-Fi and clock. Saved thumbnails are drawn as a film strip.
 - HOME → Videos: leaving a video clears the picture, so the list underneath is visible. X while it plays switches between filling the screen and fitting it with black bars, and that choice is remembered. A file with no sound says so, is marked in Saved, and Y queues it for download again.
 - HOME → Videos is three tabs: Saved, Downloads, and Channels. L1 and R1 move between them, and it opens on Saved when something is already on the card. Downloads shows progress and a count while something is queued. The same tabs are on HOME → Music.
 - A download shows its own progress, and cancelling it stops that download so the next one starts from zero. A video is saved only when the whole file has arrived, as H.264 with sound. A connection that sends nothing for 30 seconds is tried again from where it stopped.
