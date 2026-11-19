@@ -2257,15 +2257,32 @@ fn write_silent(root: &Path, ids: &std::collections::HashSet<String>) -> std::io
 
 fn write_config(root: &Path, limit_mb: u32, tab: Option<View>, fill: bool) -> std::io::Result<()> {
     let _ = std::fs::create_dir_all(root.join("Config"));
-    let mut text = format!("limit_mb={limit_mb}\nfill={}\n", u8::from(fill));
+    // Keep every other line (the home relay, pause-in-game, anything added later).
+    let mut lines: Vec<String> = std::fs::read_to_string(root.join("Config/videos.txt"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| {
+            !line.starts_with("limit_mb=")
+                && !line.starts_with("fill=")
+                && !line.starts_with("tab=")
+        })
+        .map(str::to_string)
+        .collect();
+    lines.push(format!("limit_mb={limit_mb}"));
+    lines.push(format!("fill={}", u8::from(fill)));
     if let Some(view) = tab {
         let name = match view {
             View::Library => "saved",
             View::Queue => "downloads",
             _ => "channels",
         };
-        text.push_str(&format!("tab={name}\n"));
+        lines.push(format!("tab={name}"));
     }
+    let text = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
     slot_store::atomic_write(&root.join("Config/videos.txt"), text.as_bytes())
 }
 
@@ -2577,6 +2594,36 @@ mod tests {
         assert_eq!(again.limit_mb, 2048);
         std::fs::write(root.path().join("Config/videos.txt"), "limit_mb=1536\n").unwrap();
         assert_eq!(read_limit(root.path()), 0);
+    }
+
+    #[test]
+    fn relay_keys_survive_the_limit_the_tab_and_the_fill_switch() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("Config")).unwrap();
+        std::fs::write(
+            root.path().join("Config/videos.txt"),
+            "relay_host=Mac-mini.local\nrelay_port=8787\nrelay_token=abc123\npause_in_game=1\n",
+        )
+        .unwrap();
+        write_limit(root.path(), 1024).unwrap();
+        write_tab(root.path(), View::Queue).unwrap();
+        write_fill(root.path(), false).unwrap();
+        let text = std::fs::read_to_string(root.path().join("Config/videos.txt")).unwrap();
+        assert!(text.contains("relay_host=Mac-mini.local"), "{text}");
+        assert!(text.contains("relay_port=8787"), "{text}");
+        assert!(text.contains("relay_token=abc123"), "{text}");
+        assert!(text.contains("pause_in_game=1"), "{text}");
+        assert!(text.contains("limit_mb=1024\n"), "{text}");
+        assert!(text.contains("tab=downloads\n"), "{text}");
+        assert!(text.contains("fill=0\n"), "{text}");
+        assert_eq!(read_limit(root.path()), 1024);
+        assert_eq!(read_tab(root.path()), Some(View::Queue));
+        assert!(!read_fill(root.path()));
+        let cfg = crate::relay::settings(root.path()).unwrap();
+        assert_eq!(cfg.host, "Mac-mini.local");
+        assert_eq!(cfg.port, 8787);
+        assert_eq!(cfg.token, "abc123");
+        assert!(crate::video_queue::pause_in_games(root.path()));
     }
 
     #[test]
