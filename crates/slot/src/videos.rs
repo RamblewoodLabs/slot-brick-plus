@@ -383,7 +383,9 @@ impl VideoMenu {
         if !self.status.is_empty() && self.view != View::Player {
             sheet.text(&self.status, 16, 48, w, MENU_H, 24.0, true);
         }
-        if self.view != View::Player && self.on_battery() && !crate::video_queue::jobs(&self.root).is_empty()
+        if self.view != View::Player
+            && self.on_battery()
+            && !crate::video_queue::jobs(&self.root).is_empty()
         {
             sheet.text("Plug in to keep downloading", 16, 80, w, 18, 16.0, true);
         }
@@ -1500,10 +1502,18 @@ fn ffmpeg_path(root: &Path) -> Option<PathBuf> {
 }
 
 /// One line in `Logs/videos.log`, so a failure on the card can be read later.
+const LOG_MAX: u64 = 512 * 1024;
+
 pub fn log_line(root: &Path, line: &str) {
+    if !log_worth_writing(line) {
+        return;
+    }
     let path = root.join("Logs/videos.log");
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
+    }
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) >= LOG_MAX {
+        let _ = std::fs::rename(&path, root.join("Logs/videos.previous.log"));
     }
     let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
@@ -1516,6 +1526,30 @@ pub fn log_line(root: &Path, line: &str) {
     if !line.ends_with('\n') {
         let _ = std::io::Write::write_all(&mut file, b"\n");
     }
+}
+
+fn log_worth_writing(line: &str) -> bool {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    struct Seen {
+        line: String,
+        at: Instant,
+    }
+    static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
+    let Ok(mut slot) = SEEN.lock() else {
+        return true;
+    };
+    let now = Instant::now();
+    if let Some(seen) = slot.as_mut() {
+        if seen.line == line && now.duration_since(seen.at) < Duration::from_secs(30) {
+            return false;
+        }
+    }
+    *slot = Some(Seen {
+        line: line.to_string(),
+        at: now,
+    });
+    true
 }
 
 pub(crate) fn scrub_parts(root: &Path) {

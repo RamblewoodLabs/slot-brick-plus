@@ -1,7 +1,6 @@
 //! Audio downloads for Music. Same chunked, resumable path as videos, audio only.
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -42,33 +41,21 @@ pub fn downloading(root: &Path) -> bool {
 }
 
 pub fn ensure(root: &Path) {
-    if cfg!(test) || jobs(root).is_empty() || locked(root) {
+    if cfg!(test) {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else {
-        videos::log_line(root, "could not start the music downloader");
-        return;
-    };
-    let Some(dir) = root.to_str() else { return };
-    match Command::new(exe)
-        .args(["--music-queue", dir])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(_) => videos::log_line(Path::new(dir), "music downloader started"),
-        Err(e) => videos::log_line(
-            Path::new(dir),
-            &format!("music downloader did not start: {e}"),
-        ),
-    }
+    crate::video_queue::consider_spawn(
+        root,
+        "music-queue",
+        "--music-queue",
+        !jobs(root).is_empty(),
+    );
 }
 
 pub fn run(root: &Path) {
     let root = root.to_path_buf();
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let Ok(_lock) = hold_lock(&root) else {
+        let Ok(_lock) = crate::video_queue::claim_downloader("music-queue", "--music-queue") else {
             return;
         };
         be_quiet();
@@ -87,42 +74,6 @@ pub fn run(root: &Path) {
             }
         }
     }));
-}
-
-fn locked(root: &Path) -> bool {
-    let Ok(file) = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(root.join("Music/downloader.lock"))
-    else {
-        return false;
-    };
-    flock(&file, true)
-}
-
-fn hold_lock(root: &Path) -> Result<fs::File, String> {
-    let _ = fs::create_dir_all(root.join("Music"));
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(root.join("Music/downloader.lock"))
-        .map_err(|e| e.to_string())?;
-    if flock(&file, true) {
-        return Err("music downloader already running".into());
-    }
-    if !flock(&file, false) {
-        return Err("cannot lock the music downloader".into());
-    }
-    Ok(file)
-}
-
-fn flock(file: &fs::File, nonblock: bool) -> bool {
-    let flags = if nonblock {
-        libc::LOCK_EX | libc::LOCK_NB
-    } else {
-        libc::LOCK_EX
-    };
-    unsafe { libc::flock(file.as_raw_fd(), flags) != 0 }
 }
 
 fn be_quiet() {

@@ -69,7 +69,7 @@ fn queue() -> &'static Sender<RadioJob> {
     static Q: OnceLock<Sender<RadioJob>> = OnceLock::new();
     Q.get_or_init(|| {
         let (tx, rx) = channel::<RadioJob>();
-        std::thread::spawn(move || {
+        let _ = crate::quiet::spawn("slot-radio", move || {
             for job in rx {
                 match job {
                     RadioJob::Warm => WARM.store(run("warm"), Ordering::SeqCst),
@@ -203,7 +203,7 @@ impl RadioJobs for RadioQueue {
     fn ask(&mut self, job: RadioJob) {
         if job==RadioJob::Warm {return;}
         let token=crate::brick_link::current();
-        std::thread::spawn(move ||crate::brick_link::down(token));
+        let _ = crate::quiet::spawn("slot-link-down", move || crate::brick_link::down(token));
     }
     fn warmed(&self)->bool {false}
 }

@@ -18,7 +18,7 @@ impl StubSink {
     pub fn draining() -> Self {
         let sink = StubSink::new();
         let ring = sink.ring.clone();
-        std::thread::spawn(move || loop {
+        let _ = crate::quiet::spawn("slot-audio", move || loop {
             let frames = ring.queued_frames();
             ring.fill(&mut vec![0i16; frames * 2]);
             std::thread::sleep(std::time::Duration::from_millis(2));

@@ -38,6 +38,7 @@ pub mod persist;
 pub mod pip;
 mod pip_art;
 pub mod prefetch;
+pub mod quiet;
 pub mod ra;
 pub mod resample;
 pub mod rewind;

@@ -432,7 +432,12 @@ impl WifiMenu{
     fn start(&mut self,job:Job){
         if self.busy(){return}let(tx,rx)=mpsc::channel();let cancel=Arc::new(AtomicBool::new(false));let token=cancel.clone();
         if !matches!(job,Job::Status|Job::Open){self.status=match job{Job::Scan(_)=>"Scanning...",Job::Power(true)=>"Turning Wi-Fi on...",Job::Power(false)=>"Turning Wi-Fi off...",Job::Connect(..)=>"Connecting...",Job::Disconnect=>"Disconnecting...",_=>unreachable!()}.into();}
-        thread::spawn(move||{let _=tx.send(run(job,&token));});self.worker=Some(Worker{rx,cancel});self.dirty=true;
+        if !crate::quiet::spawn("slot-wifi", move || { let _ = tx.send(run(job, &token)); }) {
+            self.status = "Could not start Wi-Fi".into();
+            self.dirty = true;
+            return;
+        }
+        self.worker=Some(Worker{rx,cancel});self.dirty=true;
     }
     pub fn poll(&mut self){
         if let Some(u)=&mut self.update{if u.poll(){self.dirty=true;}return}
@@ -620,7 +625,10 @@ impl WifiMenu{
                     if ra.user.is_empty() || ra.password.is_empty(){self.status="Enter your username and password first".into();return false}
                     if !online(){self.status="Connect to Wi-Fi first".into();return false}
                     let (user,password)=(ra.user.clone(),ra.password.clone());let(tx,rx)=mpsc::channel();
-                    thread::spawn(move||{let _=tx.send(RaDone::LoggedIn(ra::login(&user,&password)));});
+                    if !crate::quiet::spawn("slot-ra", move || { let _ = tx.send(RaDone::LoggedIn(ra::login(&user, &password))); }) {
+                        self.status = "Could not start the login".into();
+                        return false;
+                    }
                     ra.job=Some(rx);self.status="Logging in...".into();
                 }
                 (None,_)=>{ra.page=1;self.row=0;self.status="Sets saved on the card".into();}
@@ -628,7 +636,10 @@ impl WifiMenu{
                 (Some(account),1)=>{
                     if !online(){self.status="Connect to Wi-Fi first".into();return false}
                     let account=account.clone();let(tx,rx)=mpsc::channel();
-                    thread::spawn(move||{let _=tx.send(RaDone::Checked(ra::check(&account)));});
+                    if !crate::quiet::spawn("slot-ra", move || { let _ = tx.send(RaDone::Checked(ra::check(&account))); }) {
+                        self.status = "Could not start the check".into();
+                        return false;
+                    }
                     ra.job=Some(rx);self.status="Testing the connection...".into();
                 }
                 (Some(account),2)=>{

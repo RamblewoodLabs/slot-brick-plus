@@ -8,6 +8,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -135,26 +136,12 @@ pub fn note_game(root: &Path, playing: bool) {
 }
 
 /// Start the downloader when the queue has work and one is not already running.
-/// Tests do not spawn it.
+/// Tests do not spawn it. A live downloader, or a wait between tries, spawns nothing.
 pub fn ensure(root: &Path) {
-    if cfg!(test) || jobs(root).is_empty() || locked(root) {
+    if cfg!(test) {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else {
-        videos::log_line(root, "could not start the downloader");
-        return;
-    };
-    let Some(root) = root.to_str() else { return };
-    match Command::new(exe)
-        .args(["--video-queue", root])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(_) => videos::log_line(Path::new(root), "downloader started"),
-        Err(e) => videos::log_line(Path::new(root), &format!("downloader did not start: {e}")),
-    }
+    consider_spawn(root, "video-queue", "--video-queue", !jobs(root).is_empty());
 }
 
 /// The `--video-queue` process. A failure here is logged and does not touch the UI.
@@ -168,7 +155,7 @@ pub fn run(root: &Path) {
 }
 
 fn daemon(root: &Path) -> Result<(), String> {
-    let _lock = hold_lock(root)?;
+    let _lock = claim_downloader("video-queue", "--video-queue")?;
     be_quiet();
     videos::log_line(root, "downloader running");
     loop {
@@ -242,7 +229,10 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         media.name,
                         media.itag,
                         chunk.status,
-                        chunk.content_length.map(|n| n.to_string()).unwrap_or_else(|| "-".into()),
+                        chunk
+                            .content_length
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "-".into()),
                         chunk.end
                     ),
                 );
@@ -272,11 +262,16 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         Ok(fresh) => {
                             videos::log_line(
                                 root,
-                                &format!("refresh {} client {} itag {}", job.id, fresh.name, fresh.itag),
+                                &format!(
+                                    "refresh {} client {} itag {}",
+                                    job.id, fresh.name, fresh.itag
+                                ),
                             );
                             media = fresh;
                         }
-                        Err(e) => videos::log_line(root, &format!("refresh {} failed: {e}", job.id)),
+                        Err(e) => {
+                            videos::log_line(root, &format!("refresh {} failed: {e}", job.id))
+                        }
                     }
                 }
                 if tries >= TRIES {
@@ -511,50 +506,216 @@ fn flat(s: &str) -> String {
         .collect()
 }
 
-fn locked(root: &Path) -> bool {
-    let Ok(file) = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(root.join("Videos/downloader.lock"))
-    else {
+/// How many times the UI will try to start a downloader before it says so and stops.
+pub(crate) const MAX_SPAWN_TRIES: u32 = 6;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpawnChoice {
+    Spawn,
+    Wait,
+    GiveUp,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SpawnBudget {
+    pub tries: u32,
+    pub next_ms: u64,
+    pub stopped: bool,
+}
+
+impl SpawnBudget {
+    pub(crate) fn new() -> Self {
+        Self {
+            tries: 0,
+            next_ms: 0,
+            stopped: false,
+        }
+    }
+}
+
+/// `running` means a live downloader is already doing the work. A failure waits at least
+/// five seconds, then twice as long each time, and stops after [`MAX_SPAWN_TRIES`].
+pub(crate) fn choose_spawn(budget: &mut SpawnBudget, now_ms: u64, running: bool) -> SpawnChoice {
+    if running {
+        *budget = SpawnBudget::new();
+        return SpawnChoice::Wait;
+    }
+    if budget.stopped {
+        return SpawnChoice::GiveUp;
+    }
+    if now_ms < budget.next_ms {
+        return SpawnChoice::Wait;
+    }
+    if budget.tries >= MAX_SPAWN_TRIES {
+        budget.stopped = true;
+        return SpawnChoice::GiveUp;
+    }
+    let shift = budget.tries.min(4);
+    let delay = (5_000u64 << shift).min(60_000);
+    budget.tries += 1;
+    budget.next_ms = now_ms.saturating_add(delay);
+    SpawnChoice::Spawn
+}
+
+pub(crate) struct PidGuard {
+    path: PathBuf,
+    pid: u32,
+}
+
+impl Drop for PidGuard {
+    fn drop(&mut self) {
+        if read_pid(&self.path) == Some(self.pid) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn pid_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("/tmp/slot-{name}.pid"))
+}
+
+/// A downloader whose pid still answers and whose command line is this queue.
+pub(crate) fn downloader_alive(name: &str, flag: &str) -> bool {
+    let Some(pid) = read_pid(&pid_path(name)) else {
         return false;
     };
-    flock(&file, true)
+    process_alive(pid) && cmdline_has(pid, flag)
 }
 
-fn hold_lock(root: &Path) -> Result<fs::File, String> {
-    let _ = fs::create_dir_all(root.join("Videos"));
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(root.join("Videos/downloader.lock"))
-        .map_err(|e| e.to_string())?;
-    if flock(&file, true) {
-        return Err("downloader already running".into());
+pub(crate) fn claim_downloader(name: &str, flag: &str) -> Result<PidGuard, String> {
+    let path = pid_path(name);
+    for _ in 0..2 {
+        if downloader_alive(name, flag) {
+            return Err("downloader already running".into());
+        }
+        let _ = fs::remove_file(&path);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                let pid = std::process::id();
+                use std::io::Write;
+                writeln!(file, "{pid}").map_err(|e| e.to_string())?;
+                return Ok(PidGuard { path, pid });
+            }
+            Err(_) if downloader_alive(name, flag) => {
+                return Err("downloader already running".into());
+            }
+            Err(_) => continue,
+        }
     }
-    if !flock(&file, false) {
-        return Err("cannot lock the downloader".into());
-    }
-    Ok(file)
+    Err("downloader already running".into())
 }
 
-fn flock(file: &fs::File, nonblock: bool) -> bool {
-    let flags = if nonblock {
-        libc::LOCK_EX | libc::LOCK_NB
-    } else {
-        libc::LOCK_EX
+fn read_pid(path: &Path) -> Option<u32> {
+    let text = fs::read_to_string(path).ok()?;
+    let pid: u32 = text.trim().parse().ok()?;
+    (pid > 1).then_some(pid)
+}
+
+fn process_alive(pid: u32) -> bool {
+    let rc = unsafe { libc::kill(pid as i32, 0) };
+    if rc == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+fn cmdline_has(pid: u32, flag: &str) -> bool {
+    let Ok(buf) = fs::read(format!("/proc/{pid}/cmdline")) else {
+        return false;
     };
-    unsafe { libc::flock(file.as_raw_fd_helper(), flags) != 0 }
+    String::from_utf8_lossy(&buf).contains(flag)
 }
 
-trait AsFd {
-    fn as_raw_fd_helper(&self) -> i32;
+struct Gate {
+    child: Option<std::process::Child>,
+    budget: SpawnBudget,
+    told: bool,
 }
 
-impl AsFd for fs::File {
-    fn as_raw_fd_helper(&self) -> i32 {
-        use std::os::unix::io::AsRawFd;
-        self.as_raw_fd()
+fn gate(name: &str) -> &'static Mutex<Gate> {
+    if name == "music-queue" {
+        static MUSIC: OnceLock<Mutex<Gate>> = OnceLock::new();
+        return MUSIC.get_or_init(|| Mutex::new(Gate::fresh()));
+    }
+    static VIDEO: OnceLock<Mutex<Gate>> = OnceLock::new();
+    VIDEO.get_or_init(|| Mutex::new(Gate::fresh()))
+}
+
+impl Gate {
+    fn fresh() -> Self {
+        Self {
+            child: None,
+            budget: SpawnBudget::new(),
+            told: false,
+        }
+    }
+}
+
+pub(crate) fn consider_spawn(root: &Path, name: &str, flag: &str, wanted: bool) {
+    let Ok(mut gate) = gate(name).lock() else {
+        return;
+    };
+    if let Some(child) = gate.child.as_mut() {
+        match child.try_wait() {
+            Ok(None) => {}
+            _ => gate.child = None,
+        }
+    }
+    let running = gate.child.is_some() || downloader_alive(name, flag);
+    if !wanted {
+        if running {
+            gate.budget = SpawnBudget::new();
+        }
+        return;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    match choose_spawn(&mut gate.budget, now, running) {
+        SpawnChoice::Wait => {}
+        SpawnChoice::GiveUp => {
+            if !gate.told {
+                gate.told = true;
+                let msg = "Downloads could not start. Restart Slot and try again.";
+                videos::log_line(root, msg);
+                let _ = fs::write(
+                    root.join(if name == "music-queue" {
+                        "Music/error.txt"
+                    } else {
+                        ERROR_FILE
+                    }),
+                    msg,
+                );
+            }
+        }
+        SpawnChoice::Spawn => {
+            // The old lock lived on the card. FAT32 does not lock it, so it is only in the way.
+            let _ = fs::remove_file(root.join(if name == "music-queue" {
+                "Music/downloader.lock"
+            } else {
+                "Videos/downloader.lock"
+            }));
+            let Ok(exe) = std::env::current_exe() else {
+                videos::log_line(root, "could not start the downloader");
+                return;
+            };
+            let Some(dir) = root.to_str() else { return };
+            match Command::new(exe)
+                .args([flag, dir])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(child) => {
+                    gate.child = Some(child);
+                    gate.told = false;
+                    videos::log_line(root, "downloader started");
+                }
+                Err(e) => videos::log_line(root, &format!("downloader did not start: {e}")),
+            }
+        }
     }
 }
 
@@ -573,6 +734,31 @@ fn be_quiet() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_downloader_that_cannot_start_is_tried_a_few_times_and_then_stops() {
+        let mut budget = SpawnBudget::new();
+        let mut now = 0u64;
+        let mut spawns = 0u32;
+        for _ in 0..100 {
+            match choose_spawn(&mut budget, now, false) {
+                SpawnChoice::Spawn => {
+                    spawns += 1;
+                    now = budget.next_ms;
+                }
+                SpawnChoice::Wait => now = budget.next_ms,
+                SpawnChoice::GiveUp => break,
+            }
+        }
+        assert_eq!(spawns, MAX_SPAWN_TRIES);
+        assert_eq!(
+            choose_spawn(&mut budget, now + 1_000_000, false),
+            SpawnChoice::GiveUp
+        );
+        assert!(budget.next_ms - 0 >= 5_000);
+        assert_eq!(choose_spawn(&mut budget, 0, true), SpawnChoice::Wait);
+        assert_eq!(budget.tries, 0);
+    }
 
     #[test]
     fn the_queue_is_kept_and_downloads_stay_on_during_a_game() {

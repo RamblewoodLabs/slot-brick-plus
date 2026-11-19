@@ -145,7 +145,7 @@ impl LinkStarter {
         let (tx, rx) = channel();
         let cancel = Cancel::new();
         let flag = cancel.clone();
-        std::thread::spawn(move || {
+        let _ = crate::quiet::spawn("slot-link", move || {
             let _ = tx.send(LinkProgress::At(LinkStep::Radio));
             if let Err(e) = radio_up(role, &flag) {
                 let fail = match &e {

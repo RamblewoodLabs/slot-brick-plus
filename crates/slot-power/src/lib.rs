@@ -1,5 +1,7 @@
+mod axp;
 #[cfg(feature = "brick")]
 mod brick;
+pub use axp::{battery as axp_battery, charge_of};
 mod device;
 mod hw;
 #[cfg(feature = "brick")]
