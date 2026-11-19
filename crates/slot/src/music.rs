@@ -181,9 +181,7 @@ impl MusicMenu {
                     self.row.saturating_add(self.rows().saturating_sub(1)) % self.rows().max(1)
             }
             Action::GbaDown(Btn::Down) => self.row = (self.row + 1) % self.rows().max(1),
-            Action::GbaDown(Btn::X)
-                if self.view == View::Home && self.tab == Tab::Downloads =>
-            {
+            Action::GbaDown(Btn::X) if self.view == View::Home && self.tab == Tab::Downloads => {
                 music_remove(&self.root, self.row);
                 self.status = "Removed from the queue".into();
             }
@@ -203,7 +201,7 @@ impl MusicMenu {
     pub fn render(&self) -> UndoFace {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
-        sheet.text("MUSIC", 16, 8, w, MENU_H, MENU_PX, false);
+        sheet.text("MUSIC", 240, 8, 160, MENU_H, MENU_PX, false);
         if self.view != View::Player {
             self.render_tabs(&mut sheet);
         }
@@ -333,7 +331,15 @@ impl MusicMenu {
             if tabs[i] == self.tab {
                 sheet.rect(x, 44, w, 34, slot_ui::edge());
             }
-            sheet.text(label, x + 6, 44, w.saturating_sub(12), 34, 22.0, tabs[i] != self.tab);
+            sheet.text(
+                label,
+                x + 6,
+                44,
+                w.saturating_sub(12),
+                34,
+                22.0,
+                tabs[i] != self.tab,
+            );
         }
     }
 
@@ -923,7 +929,11 @@ fn music_remove(root: &Path, row: usize) {
         .join("\n");
     let _ = fs::write(
         root.join("Music/queue.txt"),
-        if kept.is_empty() { String::new() } else { kept + "\n" },
+        if kept.is_empty() {
+            String::new()
+        } else {
+            kept + "\n"
+        },
     );
 }
 

@@ -28,6 +28,7 @@ pub struct Progress {
     pub id: String,
     pub got: u64,
     pub total: u64,
+    pub bps: u64,
 }
 
 const QUEUE: &str = "Videos/queue.txt";
@@ -38,11 +39,11 @@ const SETTING: &str = "Config/videos.txt";
 /// One HTTP range, in the span yt-dlp uses. A long open-ended request is what
 /// googlevideo closes.
 const RANGE_CHUNK: u64 = 4 * 1024 * 1024;
-const READ: usize = 64 * 1024;
 const GAP: Duration = Duration::from_millis(20);
-const TRIES: u32 = 10;
+const TRIES: u32 = 5;
 const ERROR_FILE: &str = "Videos/error.txt";
-pub const GIVE_UP: &str = "Download failed. The connection kept dropping. It will keep trying.";
+const STATUS_FILE: &str = "Videos/status.txt";
+pub const GIVE_UP: &str = "Failed — press A to retry";
 
 pub fn jobs(root: &Path) -> Vec<Job> {
     let Ok(text) = fs::read_to_string(root.join(QUEUE)) else {
@@ -58,7 +59,15 @@ pub fn progress(root: &Path) -> Option<Progress> {
         id: fields.next()?.to_string(),
         got: fields.next()?.parse().ok()?,
         total: fields.next()?.parse().ok()?,
+        bps: fields.next().and_then(|v| v.parse().ok()).unwrap_or(0),
     })
+}
+
+pub fn live_note(root: &Path) -> Option<String> {
+    fs::read_to_string(root.join(STATUS_FILE))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn enqueue(
@@ -189,6 +198,7 @@ fn daemon(root: &Path) -> Result<(), String> {
     }
 }
 
+#[derive(Debug)]
 struct Chunk {
     end: u64,
     total: Option<u64>,
@@ -205,6 +215,10 @@ struct Stream {
     audio_url: Option<String>,
 }
 
+fn has_sound(media: &Stream) -> bool {
+    media.audio_url.is_some() || matches!(media.itag.as_str(), "18" | "22" | "17" | "36" | "37")
+}
+
 fn fetch(root: &Path, job: &Job) -> Result<(), String> {
     videos::log_line(root, &format!("start {} {}", job.id, job.title));
     let part = part_path(root, &job.id);
@@ -212,22 +226,37 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let mut source = 0usize;
-    let mut media = next_media(&job.id, &mut source)?;
+    let mut media = next_audible(&job.id, &mut source)?;
     let mut tries = 0u32;
     let mut expected: Option<u64> = None;
     // A new id must not inherit the previous video's percent.
-    write_progress(root, &job.id, fs::metadata(&part).map(|m| m.len()).unwrap_or(0), 0);
+    let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+    write_progress(root, &job.id, have, 0, 0);
     loop {
         if !still_queued(root, &job.id) {
             let _ = fs::remove_file(&part);
+            clear_note(root);
             return Err("removed".into());
         }
         while held(root) && still_queued(root, &job.id) {
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(100));
+        }
+        if !still_queued(root, &job.id) {
+            let _ = fs::remove_file(&part);
+            clear_note(root);
+            return Err("removed".into());
         }
         let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
         let end = have.saturating_add(RANGE_CHUNK).saturating_sub(1);
-        match pull_chunk(&media.url, &part, have, end) {
+        match pull_chunk(
+            root,
+            &job.id,
+            &media.url,
+            &part,
+            have,
+            end,
+            expected.unwrap_or(0),
+        ) {
             Ok(chunk) if chunk.advanced || chunk.finished => {
                 tries = 0;
                 if let Some(total) = chunk.total {
@@ -236,7 +265,8 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                     }
                 }
                 let _ = fs::remove_file(root.join(ERROR_FILE));
-                write_progress(root, &job.id, chunk.end, expected.unwrap_or(0));
+                clear_note(root);
+                write_progress(root, &job.id, chunk.end, expected.unwrap_or(0), 0);
                 videos::log_line(
                     root,
                     &format!(
@@ -256,6 +286,12 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                     return save_download(root, job, &part, &media, expected);
                 }
             }
+            Err(e) if e == "paused" => continue,
+            Err(e) if e == "removed" => {
+                let _ = fs::remove_file(&part);
+                clear_note(root);
+                return Err("removed".into());
+            }
             other => {
                 let (kind, detail) = match other {
                     Ok(_) => ("stall", "chunk made no progress".to_string()),
@@ -266,6 +302,10 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                     return save_download(root, job, &part, &media, expected);
                 }
                 tries += 1;
+                let _ = fs::write(
+                    root.join(STATUS_FILE),
+                    format!("Retrying {tries}/{TRIES}…\n"),
+                );
                 videos::log_line(
                     root,
                     &format!(
@@ -279,9 +319,14 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         "invidious instance dropped the TLS connection; resuming",
                     );
                 }
-                if kind == "denied" || kind == "closed" || kind == "stall" || tries % 3 == 0 {
+                if kind == "denied"
+                    || kind == "closed"
+                    || kind == "stall"
+                    || kind == "slow"
+                    || tries % 2 == 0
+                {
                     source += 1;
-                    match next_media(&job.id, &mut source) {
+                    match next_audible(&job.id, &mut source) {
                         Ok(fresh) => {
                             videos::log_line(
                                 root,
@@ -298,11 +343,26 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                     }
                 }
                 if tries >= TRIES {
+                    clear_note(root);
                     let _ = fs::write(root.join(ERROR_FILE), GIVE_UP);
                     return Err(format!("{GIVE_UP} ({kind}: {detail})"));
                 }
                 thread::sleep(Duration::from_millis(backoff_ms(tries)));
             }
+        }
+    }
+}
+
+fn next_audible(id: &str, source: &mut usize) -> Result<Stream, String> {
+    let start = *source;
+    loop {
+        let media = next_media(id, source)?;
+        if has_sound(&media) {
+            return Ok(media);
+        }
+        *source += 1;
+        if *source > start + 12 {
+            return Err("No stream with sound for that video".into());
         }
     }
 }
@@ -358,10 +418,49 @@ pub(crate) fn file_is_complete(have: u64, total: Option<u64>) -> bool {
     total.is_some_and(|total| total > 0 && have >= total)
 }
 
-const STALL: Duration = Duration::from_secs(30);
+fn pull_chunk(
+    root: &Path,
+    id: &str,
+    url: &str,
+    part: &Path,
+    have: u64,
+    end: u64,
+    total_hint: u64,
+) -> Result<Chunk, String> {
+    pull_chunk_in(
+        root,
+        id,
+        url,
+        part,
+        have,
+        end,
+        total_hint,
+        crate::net::IDLE_LIMIT,
+    )
+}
 
-fn pull_chunk(url: &str, part: &Path, have: u64, end: u64) -> Result<Chunk, String> {
-    let ranged = crate::net::get_range(url, have, Some(end)).map_err(|e| e.to_string())?;
+fn pull_chunk_in(
+    root: &Path,
+    id: &str,
+    url: &str,
+    part: &Path,
+    have: u64,
+    end: u64,
+    total_hint: u64,
+    idle: Duration,
+) -> Result<Chunk, String> {
+    let root = root.to_path_buf();
+    let id = id.to_string();
+    let mut watch = || {
+        if !still_queued(&root, &id) {
+            crate::net::Watch::Stop
+        } else if held(&root) {
+            crate::net::Watch::Pause
+        } else {
+            crate::net::Watch::Go
+        }
+    };
+    let ranged = crate::net::get_range_polled(url, have, Some(end), idle, &mut watch)?;
     if ranged.from_start && have > 0 {
         return Err("closed: server ignored the range".into());
     }
@@ -378,35 +477,28 @@ fn pull_chunk(url: &str, part: &Path, have: u64, end: u64) -> Result<Chunk, Stri
         .map_err(|e| e.to_string())?;
     let want = end.saturating_sub(start).saturating_add(1);
     let mut reader = ranged.reader;
-    let mut buf = vec![0u8; READ];
-    let mut got = 0u64;
-    let mut last_byte = std::time::Instant::now();
-    while got < want {
-        if last_byte.elapsed() >= STALL {
-            return Err("stall: no bytes for 30s".into());
-        }
-        let n = match crate::net::read_soft(&mut *reader, &mut buf) {
-            Ok(0) => break,
-            Ok(n) => n,
-            Err(e) if crate::net::is_again(&e) => {
-                if last_byte.elapsed() >= STALL {
-                    return Err("stall: no bytes for 30s".into());
-                }
-                continue;
+    let began = std::time::Instant::now();
+    let mut since_gap = 0u64;
+    let got = crate::net::copy_body(
+        &mut *reader,
+        want,
+        idle,
+        &mut watch,
+        &mut |bytes| {
+            file.write_all(bytes).map_err(|e| e.to_string())?;
+            since_gap += bytes.len() as u64;
+            if since_gap >= 64 * 1024 {
+                thread::sleep(GAP);
+                since_gap = 0;
             }
-            Err(e) => {
-                if last_byte.elapsed() >= STALL {
-                    return Err("stall: no bytes for 30s".into());
-                }
-                return Err(format!("{}: {e}", crate::net::error_kind(&e)));
-            }
-        };
-        last_byte = std::time::Instant::now();
-        let n = n.min((want - got) as usize);
-        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-        got += n as u64;
-        thread::sleep(GAP);
-    }
+            Ok(())
+        },
+        &mut |got| {
+            let secs = began.elapsed().as_secs_f64().max(0.001);
+            let bps = ((start + got) as f64 / secs) as u64;
+            write_progress(&root, &id, start + got, total_hint, bps);
+        },
+    )?;
     file.sync_all().map_err(|e| e.to_string())?;
     let end_at = start + got;
     let finished = ranged.total.is_some_and(|total| end_at >= total);
@@ -446,7 +538,9 @@ fn save_download(
     if !file_is_complete(len, expected) {
         return Err(format!(
             "short of the file: {len} of {}",
-            expected.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into())
+            expected
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "unknown".into())
         ));
     }
     if let Some(audio) = &media.audio_url {
@@ -469,7 +563,7 @@ fn download_audio(root: &Path, id: &str, url: &str, part: &Path) -> Result<(), S
             return Ok(());
         }
         let end = have.saturating_add(RANGE_CHUNK).saturating_sub(1);
-        match pull_chunk(url, part, have, end) {
+        match pull_chunk(root, id, url, part, have, end, expected.unwrap_or(0)) {
             Ok(chunk) => {
                 if let Some(total) = chunk.total {
                     if expected.is_none_or(|have| total > have) {
@@ -585,6 +679,8 @@ fn kind_of(error: &str) -> &'static str {
         || text.contains("would block")
     {
         "again"
+    } else if text.contains("slow") {
+        "slow"
     } else if text.contains("stall") || text.contains("no bytes") {
         "stall"
     } else if text.contains("closed") || text.contains("reset") || text.contains("broken pipe") {
@@ -620,8 +716,13 @@ fn part_path(root: &Path, id: &str) -> PathBuf {
     videos::video_path(root, id).with_extension("mp4.part")
 }
 
-fn write_progress(root: &Path, id: &str, got: u64, total: u64) {
-    let _ = fs::write(root.join(PROGRESS), format!("{id} {got} {total}\n"));
+fn write_progress(root: &Path, id: &str, got: u64, total: u64, bps: u64) {
+    let _ = fs::create_dir_all(root.join("Videos"));
+    let _ = fs::write(root.join(PROGRESS), format!("{id} {got} {total} {bps}\n"));
+}
+
+fn clear_note(root: &Path) {
+    let _ = fs::remove_file(root.join(STATUS_FILE));
 }
 
 fn parse_job(line: &str) -> Option<Job> {
@@ -964,7 +1065,7 @@ mod tests {
         assert_eq!(backoff_ms(1), 500);
         assert_eq!(backoff_ms(4), 4_000);
         assert!(backoff_ms(20) <= 30_000);
-        assert!(TRIES >= 10);
+        assert_eq!(TRIES, 5);
         let part = part_path(root.path(), "abcdefghijk");
         fs::write(&part, b"partial").unwrap();
         // Opening Videos used to delete every partial. A queued one stays, so it can resume.
@@ -973,5 +1074,141 @@ mod tests {
         remove(root.path(), "abcdefghijk");
         assert!(jobs(root.path()).is_empty());
         assert!(!part.exists());
+    }
+
+    fn serve(on_request: impl Fn(String) -> Option<Vec<u8>> + Send + Sync + 'static) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let on_request = std::sync::Arc::new(on_request);
+        std::thread::spawn(move || {
+            for _ in 0..4 {
+                let Ok((mut sock, _)) = listener.accept() else {
+                    return;
+                };
+                let on_request = on_request.clone();
+                std::thread::spawn(move || {
+                    let _ = sock.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut buf = vec![0u8; 2048];
+                    let n = std::io::Read::read(&mut sock, &mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if let Some(bytes) = on_request(req) {
+                        let close = bytes.windows(17).any(|w| w == b"Connection: close");
+                        let _ = std::io::Write::write_all(&mut sock, &bytes);
+                        if !close {
+                            std::thread::sleep(Duration::from_secs(4));
+                        }
+                    } else {
+                        std::thread::sleep(Duration::from_secs(4));
+                    }
+                });
+            }
+        });
+        format!("http://{addr}/v")
+    }
+
+    #[test]
+    fn a_stalled_server_is_abandoned_within_the_deadline() {
+        let url = serve(|_| None);
+        let root = tempfile::tempdir().unwrap();
+        enqueue(root.path(), "abcdefghijk", "One", "Chan", 1000).unwrap();
+        let part = part_path(root.path(), "abcdefghijk");
+        let started = std::time::Instant::now();
+        let err = pull_chunk_in(
+            root.path(),
+            "abcdefghijk",
+            &url,
+            &part,
+            0,
+            1_000,
+            0,
+            Duration::from_millis(400),
+        )
+        .unwrap_err();
+        assert!(err.contains("stall"), "{err}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "waited {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn pause_mid_chunk_keeps_the_bytes_and_the_next_request_resumes() {
+        let url = serve(|req| {
+            let start = req
+                .split("bytes=")
+                .nth(1)
+                .and_then(|s| s.split(['-', '\r', ' ']).next())
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0);
+            let n = 16usize;
+            // The first reply stays open after a short body, so pause is seen mid-chunk.
+            // A later range is a finished reply the client can read to the end.
+            if start == 0 {
+                let head = format!(
+                    "HTTP/1.0 206 Partial Content\r\nContent-Range: bytes 0-{}/{}\r\nContent-Length: {n}\r\n\r\n",
+                    n - 1,
+                    64
+                );
+                let mut out = head.into_bytes();
+                out.extend(std::iter::repeat(b'Z').take(n));
+                // Hold the socket by leaking the write and sleeping in the caller via None after...
+                // Returning the bytes closes once the handler drops the socket. Keep this
+                // connection open by parking after the write inside the match below.
+                let _ = head;
+                Some(out)
+            } else {
+                let head = format!(
+                    "HTTP/1.0 206 Partial Content\r\nContent-Range: bytes {start}-{}/{}\r\nContent-Length: {n}\r\nConnection: close\r\n\r\n",
+                    start + n - 1,
+                    64
+                );
+                let mut out = head.into_bytes();
+                out.extend(std::iter::repeat(b'Z').take(n));
+                Some(out)
+            }
+        });
+        let root = tempfile::tempdir().unwrap();
+        enqueue(root.path(), "abcdefghijk", "One", "Chan", 1000).unwrap();
+        let part = part_path(root.path(), "abcdefghijk");
+        let hold_root = root.path().to_path_buf();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = fs::create_dir_all(hold_root.join("Videos"));
+            let _ = fs::write(hold_root.join(HOLD), b"1\n");
+        });
+        let started = std::time::Instant::now();
+        let err = pull_chunk_in(
+            root.path(),
+            "abcdefghijk",
+            &url,
+            &part,
+            0,
+            200_000,
+            64,
+            Duration::from_secs(3),
+        )
+        .unwrap_err();
+        assert_eq!(err, "paused");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "waited {:?}",
+            started.elapsed()
+        );
+        let kept = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        assert!(kept > 0, "pause dropped the bytes already saved");
+        let _ = fs::remove_file(root.path().join(HOLD));
+        let again = pull_chunk_in(
+            root.path(),
+            "abcdefghijk",
+            &url,
+            &part,
+            kept,
+            kept + 15,
+            64,
+            Duration::from_secs(3),
+        );
+        assert!(again.is_ok(), "{again:?}");
+        assert!(fs::metadata(&part).unwrap().len() > kept);
     }
 }

@@ -142,6 +142,7 @@ pub struct VideoMenu {
     pace_got: u64,
     pace_bps: u64,
     failed_note: Option<String>,
+    retry_note: Option<String>,
     /// Fill the screen, cropping to keep the picture's shape. Off is a letterboxed fit.
     fill: bool,
     silent: std::collections::HashSet<String>,
@@ -186,6 +187,7 @@ impl VideoMenu {
             pace_got: 0,
             pace_bps: 0,
             failed_note: None,
+            retry_note: None,
             fill: true,
             silent: std::collections::HashSet::new(),
             dirty: true,
@@ -465,7 +467,7 @@ impl VideoMenu {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         if self.view != View::Player {
-            sheet.text("VIDEOS", 16, 8, w, MENU_H, MENU_PX, false);
+            sheet.text("VIDEOS", 230, 8, 180, MENU_H, MENU_PX, false);
             if self.on_tab() || matches!(self.view, View::Videos | View::Channels) {
                 self.render_tabs(&mut sheet);
             }
@@ -496,6 +498,39 @@ impl VideoMenu {
         sheet.finish()
     }
 
+    fn draw_progress(&self, sheet: &mut Sheet, y: u32) {
+        let got = self.progress.load(Ordering::Relaxed);
+        let total = self.progress_total.load(Ordering::Relaxed);
+        // Each figure has its own box, wide enough for the longest value at the menu size,
+        // so "9%" and "100%" do not change the type size.
+        sheet.text(&pct_field(got, total), 16, y, 80, MENU_H, MENU_PX, false);
+        sheet.text(&size_field(got), 100, y, 120, MENU_H, MENU_PX, false);
+        let speed = if self.pace_bps == 0 {
+            "       —".to_string()
+        } else {
+            format!("{:>8}/s", mb(self.pace_bps))
+        };
+        sheet.text(&speed, 224, y, 150, MENU_H, MENU_PX, false);
+        let title = self
+            .active
+            .as_ref()
+            .map(|job| job.title.as_str())
+            .unwrap_or("");
+        let words = match &self.retry_note {
+            Some(note) => format!("{note}  {title}"),
+            None => title.to_string(),
+        };
+        sheet.text(
+            &words,
+            380,
+            y,
+            OUT_W.saturating_sub(396),
+            MENU_H,
+            MENU_PX,
+            false,
+        );
+    }
+
     fn render_tabs(&self, sheet: &mut Sheet) {
         let tabs = [View::Library, View::Queue, View::Home];
         let labels = [
@@ -510,7 +545,15 @@ impl VideoMenu {
             if tabs[i] == here {
                 sheet.rect(x, 44, w, 34, slot_ui::edge());
             }
-            sheet.text(label, x + 6, 44, w.saturating_sub(12), 34, 22.0, tabs[i] != here);
+            sheet.text(
+                label,
+                x + 6,
+                44,
+                w.saturating_sub(12),
+                34,
+                22.0,
+                tabs[i] != here,
+            );
         }
     }
 
@@ -551,12 +594,17 @@ impl VideoMenu {
             let mut text_w = OUT_W.saturating_sub(32);
             if self.view == View::Videos || self.view == View::Library {
                 if let Some(px) = self.row_thumbs.get(row).and_then(|t| t.as_ref()) {
-                    sheet.image(12, y + 4, 64, 32, px);
-                    x = 84;
-                    text_w = OUT_W.saturating_sub(100);
+                    let (frame, fw) = film_thumb(px);
+                    sheet.image(12, y + 4, fw, 32, &frame);
+                    x = 20 + fw;
+                    text_w = OUT_W.saturating_sub(x + 16);
                 }
             }
-            sheet.text(&rows[row], x, y, text_w, MENU_H, MENU_PX, false);
+            if self.view == View::Queue && self.active.is_some() && row == 0 {
+                self.draw_progress(sheet, y);
+            } else {
+                sheet.text(&rows[row], x, y, text_w, MENU_H, MENU_PX, false);
+            }
         }
     }
 
@@ -604,15 +652,7 @@ impl VideoMenu {
             .as_ref()
             .map(|s| s.title.as_str())
             .unwrap_or("VIDEO");
-        sheet.text(
-            title,
-            16,
-            8,
-            OUT_W.saturating_sub(32),
-            MENU_H,
-            MENU_PX,
-            false,
-        );
+        sheet.text(title, 200, 8, 240, MENU_H, MENU_PX, false);
         if self.player.is_none() {
             let note = if self.status.is_empty() {
                 "NO PICTURE"
@@ -659,13 +699,24 @@ impl VideoMenu {
     fn legend(&self) -> String {
         match self.view {
             View::Search => "A TYPE    X DELETE    Y PAGE    START SEARCH    B BACK".into(),
-            View::Player if self.playing.as_ref().is_some_and(|s| self.silent.contains(&s.id)) => {
+            View::Player
+                if self
+                    .playing
+                    .as_ref()
+                    .is_some_and(|s| self.silent.contains(&s.id)) =>
+            {
                 "A PLAY/PAUSE    X FILL    Y RE-DOWNLOAD    B BACK".into()
             }
-            View::Player => "A PLAY/PAUSE    X FILL    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into(),
+            View::Player => {
+                "A PLAY/PAUSE    X FILL    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into()
+            }
             View::Library => "A PLAY    Y DELETE    X WATCHED    L1/R1 TABS    B BACK".into(),
-            View::Queue if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    L1/R1 TABS    B BACK".into(),
-            View::Queue if self.row == self.pause_row() => "LEFT/RIGHT    L1/R1 TABS    B BACK".into(),
+            View::Queue if self.row == self.limit_row() => {
+                "LEFT/RIGHT LIMIT    L1/R1 TABS    B BACK".into()
+            }
+            View::Queue if self.row == self.pause_row() => {
+                "LEFT/RIGHT    L1/R1 TABS    B BACK".into()
+            }
             View::Queue => "A RETRY/PAUSE    X REMOVE    L1/R1 TABS    B BACK".into(),
             View::Home if self.channel_row().is_some() => {
                 "A LATEST 5    Y REMOVE    L1/R1 TABS    B BACK".into()
@@ -1104,6 +1155,9 @@ impl VideoMenu {
             }
             self.progress.store(row.got, Ordering::Relaxed);
             self.progress_total.store(row.total, Ordering::Relaxed);
+            if row.bps > 0 {
+                self.pace_bps = row.bps;
+            }
         } else {
             self.progress.store(0, Ordering::Relaxed);
             self.progress_total.store(0, Ordering::Relaxed);
@@ -1121,6 +1175,11 @@ impl VideoMenu {
                 duration_ms: job.duration_ms,
             })
             .collect();
+        let note = crate::video_queue::live_note(&self.root);
+        if self.retry_note != note {
+            self.retry_note = note;
+            self.dirty = true;
+        }
         if let Some(err) = crate::video_queue::last_error(&self.root) {
             if self.failed_note.as_deref() != Some(err.as_str()) {
                 self.failed_note = Some(err.clone());
@@ -1241,7 +1300,12 @@ impl VideoMenu {
                 };
                 false
             }
-            Action::GbaDown(Btn::Y) if self.playing.as_ref().is_some_and(|s| self.silent.contains(&s.id)) => {
+            Action::GbaDown(Btn::Y)
+                if self
+                    .playing
+                    .as_ref()
+                    .is_some_and(|s| self.silent.contains(&s.id)) =>
+            {
                 self.redownload();
                 false
             }
@@ -1816,10 +1880,29 @@ pub fn log_line(root: &Path, line: &str) {
     else {
         return;
     };
-    let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    let stamped = format!("[{}] {line}", log_stamp());
+    let _ = std::io::Write::write_all(&mut file, stamped.as_bytes());
     if !line.ends_with('\n') {
         let _ = std::io::Write::write_all(&mut file, b"\n");
     }
+}
+
+fn log_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as libc::time_t)
+        .unwrap_or(0);
+    let mut tm = unsafe { std::mem::zeroed::<libc::tm>() };
+    unsafe { libc::localtime_r(&secs, &mut tm) };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
 }
 
 fn log_worth_writing(line: &str) -> bool {
@@ -2129,12 +2212,13 @@ fn write_limit(root: &Path, limit_mb: u32) -> std::io::Result<()> {
 
 fn read_tab(root: &Path) -> Option<View> {
     let text = std::fs::read_to_string(root.join("Config/videos.txt")).ok()?;
-    text.lines().find_map(|line| match line.strip_prefix("tab=")?.trim() {
-        "saved" => Some(View::Library),
-        "downloads" => Some(View::Queue),
-        "channels" => Some(View::Home),
-        _ => None,
-    })
+    text.lines()
+        .find_map(|line| match line.strip_prefix("tab=")?.trim() {
+            "saved" => Some(View::Library),
+            "downloads" => Some(View::Queue),
+            "channels" => Some(View::Home),
+            _ => None,
+        })
 }
 
 fn write_tab(root: &Path, view: View) -> std::io::Result<()> {
@@ -2230,6 +2314,53 @@ fn clock(ms: u64) -> String {
 
 fn mb(bytes: u64) -> String {
     human_bytes(bytes)
+}
+
+/// Always four characters, so the percent column does not change width.
+fn pct_field(got: u64, total: u64) -> String {
+    if total == 0 {
+        " --%".into()
+    } else {
+        format!("{:>3}%", (got.saturating_mul(100) / total).min(100))
+    }
+}
+
+fn size_field(bytes: u64) -> String {
+    format!("{:>7}", mb(bytes))
+}
+
+/// A thumbnail in a film strip: dark rails and sprocket holes down each side.
+fn film_thumb(photo: &[u8]) -> (Vec<u8>, u32) {
+    const PW: u32 = 64;
+    const PH: u32 = 32;
+    const RAIL: u32 = 10;
+    if photo.len() != (PW * PH * 4) as usize {
+        return (photo.to_vec(), PW);
+    }
+    let w = PW + RAIL * 2;
+    let mut out = vec![0u8; (w * PH * 4) as usize];
+    for px in out.chunks_exact_mut(4) {
+        px.copy_from_slice(&[24, 18, 14, 255]);
+    }
+    for side in [0u32, PW + RAIL] {
+        for hole in 0..3u32 {
+            let y0 = 4 + hole * 10;
+            for y in y0..y0 + 5 {
+                for x in side + 2..side + RAIL - 2 {
+                    let i = ((y * w + x) * 4) as usize;
+                    out[i..i + 4].copy_from_slice(&[236, 224, 196, 255]);
+                }
+            }
+        }
+    }
+    for y in 0..PH {
+        for x in 0..PW {
+            let s = ((y * PW + x) * 4) as usize;
+            let d = ((y * w + x + RAIL) * 4) as usize;
+            out[d..d + 4].copy_from_slice(&photo[s..s + 4]);
+        }
+    }
+    (out, w)
 }
 
 fn human_bytes(bytes: u64) -> String {
@@ -2337,6 +2468,30 @@ mod tests {
         log_line(root.path(), "saved abcdefghijk");
         let log = std::fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
         assert!(log.contains("saved abcdefghijk"));
+        assert!(log.trim_start().starts_with('['), "{log}");
+    }
+
+    #[test]
+    fn the_percent_column_stays_the_same_width_and_a_thumb_has_sprockets() {
+        assert_eq!(pct_field(0, 0).chars().count(), 4);
+        assert_eq!(
+            pct_field(9, 100).chars().count(),
+            pct_field(100, 100).chars().count()
+        );
+        assert_eq!(
+            size_field(0).chars().count(),
+            size_field(5 * 1024 * 1024).chars().count()
+        );
+        let photo = vec![200u8; 64 * 32 * 4];
+        let (frame, w) = film_thumb(&photo);
+        assert!(w > 64);
+        assert_eq!(frame.len(), (w * 32 * 4) as usize);
+        let rail = &frame[0..4];
+        assert_eq!(rail, &[24, 18, 14, 255]);
+        let hole = ((4 * w + 2) * 4) as usize;
+        assert_eq!(&frame[hole..hole + 4], &[236, 224, 196, 255]);
+        let picture = ((10 * w + 10) * 4) as usize;
+        assert_eq!(&frame[picture..picture + 4], &[200, 200, 200, 200]);
     }
 
     #[test]

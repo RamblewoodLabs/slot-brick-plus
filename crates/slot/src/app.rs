@@ -1072,7 +1072,7 @@ impl App {
             let games = self.games_seen();
             self.library.get_mut(platform, &cart).played_secs += secs;
             self.library_dirty = true;
-            if self.companion.enabled {
+            if slot_ui::PIP && self.companion.enabled {
                 let awards =
                     self.companion
                         .note_play(platform, &cart, secs, self.local_day(), &games);
@@ -1399,8 +1399,7 @@ impl App {
                 self.menu_sound(MenuSound::Open);
             }
             Action::GbaDown(Btn::X) => {
-                self.open_pip();
-                if self.companion.sounds {
+                if self.open_pip() && self.companion.sounds {
                     self.menu_sound(MenuSound::Open);
                 }
             }
@@ -2792,8 +2791,7 @@ impl App {
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 Action::GbaDown(Btn::Y) => self.toggle_favorite(),
                 Action::GbaDown(Btn::X) => {
-                    self.open_pip();
-                    if self.companion.sounds {
+                    if self.open_pip() && self.companion.sounds {
                         self.menu_sound(MenuSound::Open);
                     }
                 }
@@ -2841,7 +2839,7 @@ impl App {
     fn open_quick_menu(&mut self) {
         self.reset_asked = None;
         self.phase = Phase::QuickMenu {
-            row: QuickRow::MAIN[0],
+            row: QuickRow::home()[0],
         };
     }
 
@@ -2978,12 +2976,16 @@ impl App {
         }
     }
 
-    fn open_pip(&mut self) {
+    fn open_pip(&mut self) -> bool {
+        if !slot_ui::PIP {
+            return false;
+        }
         self.videos_visible = false;
         let games = self.games_seen();
         self.companion.ensure_missions(&games, self.local_day());
         self.companion.refresh_suggestion(&games, self.local_day());
         self.pip = Some(crate::pip::PipMenu::open());
+        true
     }
 
     fn launch_pip(&mut self, platform: Platform, stem: String) {
@@ -3229,7 +3231,9 @@ impl App {
 
     fn open_quick_row(&mut self, row: QuickRow) {
         match row {
-            QuickRow::Companion => self.open_pip(),
+            QuickRow::Companion => {
+                self.open_pip();
+            }
             QuickRow::Videos => self.open_videos(),
             QuickRow::Music => self.open_music(),
             QuickRow::Wifi => {
@@ -4553,6 +4557,16 @@ impl App {
         }
         if self.pip.is_some() || self.videos_visible || self.music_visible {
             self.draw_sheet(out);
+            if self.videos_visible || self.music_visible {
+                slot_ui::draw_menu_header(
+                    self.battery,
+                    self.battery_percent,
+                    self.bolt,
+                    self.wifi_face(),
+                    self.shelf_clock,
+                    out,
+                );
+            }
             return;
         }
         match &self.phase {

@@ -196,9 +196,8 @@ pub fn media_for(video_id: &str) -> Result<Media, String> {
             Ok(body) => match progressive_mp4(&body).or_else(|| parse_innertube_player(&body)) {
                 Some(media) => return Ok(media),
                 None => errors.push(
-                    player_failure(&body).unwrap_or_else(|| {
-                        format!("{client} sent no direct MP4 address")
-                    }),
+                    player_failure(&body)
+                        .unwrap_or_else(|| format!("{client} sent no direct MP4 address")),
                 ),
             },
             Err(e) => errors.push(format!("{client}: {e}")),
@@ -721,12 +720,23 @@ fn audios_of(value: Option<&J>) -> Vec<AudioOffer> {
         .collect()
 }
 
+fn itag_in(url: &str) -> u32 {
+    url.split("itag=")
+        .nth(1)
+        .and_then(|rest| rest.split(['&', '#', '"']).next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
 fn pick_media(videos: &[StreamOffer], audios: &[AudioOffer]) -> Option<Media> {
     let fits = |s: &&StreamOffer| s.h264 && s.height > 0 && s.height <= MAX_HEIGHT;
-    if let Some(best) = videos
+    let muxed: Vec<_> = videos.iter().filter(|s| s.muxed && fits(s)).collect();
+    // itag 18 is the muxed 360p file. A video-only itag is only used with a real audio track.
+    if let Some(best) = muxed
         .iter()
-        .filter(|s| s.muxed && fits(s))
-        .max_by_key(|s| s.height)
+        .copied()
+        .find(|s| itag_in(&s.url) == 18)
+        .or_else(|| muxed.into_iter().max_by_key(|s| s.height))
     {
         return Some(Media {
             video_url: best.url.clone(),
@@ -737,12 +747,12 @@ fn pick_media(videos: &[StreamOffer], audios: &[AudioOffer]) -> Option<Media> {
     }
     let video = videos
         .iter()
-        .filter(|s| !s.muxed && fits(s))
+        .filter(|s| !s.muxed && fits(s) && itag_in(&s.url) != 396)
         .max_by_key(|s| s.height)?;
-    let audio = audios.iter().filter(|a| a.aac).min_by_key(|a| a.bitrate);
+    let audio = audios.iter().filter(|a| a.aac).min_by_key(|a| a.bitrate)?;
     Some(Media {
         video_url: video.url.clone(),
-        audio_url: audio.map(|a| a.url.clone()),
+        audio_url: Some(audio.url.clone()),
         height: video.height,
         muxed: false,
     })
@@ -751,7 +761,10 @@ fn pick_media(videos: &[StreamOffer], audios: &[AudioOffer]) -> Option<Media> {
 /// H.264 only. An MP4 container is not enough: itag 396 is AV1 in an MP4 box and will not play.
 fn itag_num(item: &J) -> u32 {
     item.get("itag")
-        .and_then(|v| v.as_u32().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u32()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0)
 }
 
@@ -1576,6 +1589,19 @@ mod tests {
         assert!(media.video_url.contains("itag=134"));
         assert!(!media.muxed);
         assert!(media.audio_url.unwrap().contains("itag=140"));
+        let silent = r#"{"adaptiveFormats":[
+            {"url":"https://ex/videoplayback?itag=134","type":"video/mp4","encoding":"avc1.4d401e","qualityLabel":"360p","itag":"134"}
+        ]}"#;
+        assert!(parse_invidious_video(silent).is_none());
+        let both = r#"{"formatStreams":[
+            {"url":"https://ex/videoplayback?itag=18","qualityLabel":"360p","encoding":"avc1","itag":"18"}
+        ],"adaptiveFormats":[
+            {"url":"https://ex/videoplayback?itag=134","type":"video/mp4","encoding":"avc1","qualityLabel":"360p","itag":"134"},
+            {"url":"https://ex/a?itag=140","type":"audio/mp4","encoding":"mp4a","itag":"140"}
+        ]}"#;
+        let preferred = parse_invidious_video(both).unwrap();
+        assert!(preferred.muxed);
+        assert!(preferred.video_url.contains("itag=18"));
     }
 
     #[test]

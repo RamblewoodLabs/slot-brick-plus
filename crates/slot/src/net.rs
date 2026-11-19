@@ -4,7 +4,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// What every request says it is.
 pub fn user_agent() -> String {
@@ -124,22 +124,6 @@ pub fn send(req: &Request) -> Result<Response, String> {
     parse(&raw, req.limit)
 }
 
-fn dial(server: &str) -> Result<TcpStream, String> {
-    let host = host_of(server);
-    let addrs: Vec<_> = server
-        .to_socket_addrs()
-        .map_err(|_| format!("cannot look up {host} (no internet?)"))?
-        .collect();
-    let tcp = addrs
-        .iter()
-        .find_map(|a| TcpStream::connect_timeout(a, Duration::from_secs(8)).ok())
-        .ok_or_else(|| format!("cannot connect to {host}"))?;
-    let _ = tcp.set_read_timeout(Some(Duration::from_secs(30)));
-    let _ = tcp.set_write_timeout(Some(Duration::from_secs(15)));
-    tune_keepalive(&tcp);
-    Ok(tcp)
-}
-
 /// A read that comes back too soon (EAGAIN / WouldBlock, or a timeout reported that way)
 /// is not a failure. Callers retry it.
 pub fn is_again(error: &std::io::Error) -> bool {
@@ -220,11 +204,18 @@ fn tune_keepalive(tcp: &TcpStream) {
     }
 }
 
-/// Read once, waiting through a temporary refusal. A lasting timeout is returned as TimedOut.
+/// Read once, waiting through a brief EAGAIN. A socket timeout is not retried: callers
+/// that need a longer wait loop themselves, so six timeouts cannot add up to three minutes.
 pub fn read_soft(reader: &mut dyn Read, buf: &mut [u8]) -> std::io::Result<usize> {
     let mut waits = 0u32;
     loop {
         match reader.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "read timed out",
+                ));
+            }
             Err(e) if is_again(&e) => {
                 waits += 1;
                 if waits >= 6 {
@@ -238,6 +229,42 @@ pub fn read_soft(reader: &mut dyn Read, buf: &mut [u8]) -> std::io::Result<usize
             other => return other,
         }
     }
+}
+
+/// What the download should do between reads. Pause and stop have to be seen during a
+/// chunk, not only after it, or a hung read ignores Continue and Remove.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Watch {
+    Go,
+    Pause,
+    Stop,
+}
+
+/// How long a download will wait, from the last byte, before the connection is abandoned.
+pub const IDLE_LIMIT: Duration = Duration::from_secs(30);
+/// Socket reads return this often so pause, remove, and the idle limit can be checked.
+const READ_SLICE: Duration = Duration::from_millis(500);
+/// A proxy this slow is abandoned so the next instance, or YouTube itself, can be tried.
+const SLOW_BPS: u64 = 50 * 1024;
+
+fn dial(server: &str) -> Result<TcpStream, String> {
+    dial_in(server, Duration::from_secs(30))
+}
+
+fn dial_in(server: &str, read_timeout: Duration) -> Result<TcpStream, String> {
+    let host = host_of(server);
+    let addrs: Vec<_> = server
+        .to_socket_addrs()
+        .map_err(|_| format!("cannot look up {host} (no internet?)"))?
+        .collect();
+    let tcp = addrs
+        .iter()
+        .find_map(|a| TcpStream::connect_timeout(a, Duration::from_secs(8)).ok())
+        .ok_or_else(|| format!("cannot connect to {host}"))?;
+    let _ = tcp.set_read_timeout(Some(read_timeout));
+    let _ = tcp.set_write_timeout(Some(Duration::from_secs(15)));
+    tune_keepalive(&tcp);
+    Ok(tcp)
 }
 
 /// A body being downloaded: its length, if the server said, and the bytes as they come.
@@ -268,7 +295,16 @@ fn get_stream_as(
             return Err("Refusing a download from anywhere but this Slot's GitHub releases".into());
         }
         let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
-        let (status, head, reader) = open_get(tls, &server, &path, agent, "")?;
+        let (status, head, reader) = open_get(
+            tls,
+            &server,
+            &path,
+            agent,
+            "",
+            Duration::from_secs(30),
+            IDLE_LIMIT,
+            &mut || Watch::Go,
+        )?;
         let reply = Response {
             status,
             head,
@@ -343,6 +379,37 @@ pub fn get_ranged(url: &str, start: u64) -> Result<Ranged, String> {
 
 /// `end` is inclusive, as in `Range: bytes=start-end`. `None` asks for the rest of the file.
 pub fn get_range(url: &str, start: u64, end: Option<u64>) -> Result<Ranged, String> {
+    range_request(
+        url,
+        start,
+        end,
+        Duration::from_secs(30),
+        IDLE_LIMIT,
+        &mut || Watch::Go,
+    )
+}
+
+/// A ranged GET whose reads return often. `idle` is the longest stretch with no bytes,
+/// covering connect, headers, and a body that has gone quiet. `watch` is checked between
+/// those reads so pause and remove are not stuck behind a hung socket.
+pub fn get_range_polled(
+    url: &str,
+    start: u64,
+    end: Option<u64>,
+    idle: Duration,
+    watch: &mut dyn FnMut() -> Watch,
+) -> Result<Ranged, String> {
+    range_request(url, start, end, READ_SLICE, idle, watch)
+}
+
+fn range_request(
+    url: &str,
+    start: u64,
+    end: Option<u64>,
+    read_timeout: Duration,
+    idle: Duration,
+    watch: &mut dyn FnMut() -> Watch,
+) -> Result<Ranged, String> {
     let mut url = url.to_string();
     let range = match end {
         Some(end) => format!("Range: bytes={start}-{end}\r\n"),
@@ -350,7 +417,8 @@ pub fn get_range(url: &str, start: u64, end: Option<u64>) -> Result<Ranged, Stri
     };
     for _ in 0..5 {
         let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
-        let (status, head, reader) = open_get(tls, &server, &path, None, &range)?;
+        let (status, head, reader) =
+            open_get(tls, &server, &path, None, &range, read_timeout, idle, watch)?;
         let reply = Response {
             status,
             head,
@@ -407,12 +475,21 @@ fn open_get(
     path: &str,
     agent: Option<&str>,
     extra: &str,
+    read_timeout: Duration,
+    idle: Duration,
+    watch: &mut dyn FnMut() -> Watch,
 ) -> Result<(u16, String, Box<dyn Read + Send>), String> {
     let host = host_of(server);
     if !(plain(server) && plain(path) && path.starts_with('/')) {
         return Err("bad request address".into());
     }
-    let tcp = dial(server)?;
+    match watch() {
+        Watch::Pause => return Err("paused".into()),
+        Watch::Stop => return Err("removed".into()),
+        Watch::Go => {}
+    }
+    let started = Instant::now();
+    let tcp = dial_in(server, read_timeout)?;
     let text = format!(
         "GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {}\r\n{extra}Connection: close\r\n\r\n",
         agent.unwrap_or(&user_agent())
@@ -439,9 +516,18 @@ fn open_get(
         if head.len() > 64 * 1024 {
             return Err("bad reply from server".into());
         }
-        match read_soft(&mut *stream, &mut byte) {
+        if started.elapsed() >= idle {
+            return Err("stall: no bytes for 30s".into());
+        }
+        match watch() {
+            Watch::Pause => return Err("paused".into()),
+            Watch::Stop => return Err("removed".into()),
+            Watch::Go => {}
+        }
+        match stream.read(&mut byte) {
             Ok(1) => head.push(byte[0]),
             Ok(_) => return Err("bad reply from server".into()),
+            Err(e) if is_again(&e) => continue,
             Err(e) if tls => return Err(tls_error(&e)),
             Err(e) => return Err(format!("download failed: {e}")),
         }
@@ -453,6 +539,60 @@ fn open_get(
         .and_then(|s| s.parse().ok())
         .ok_or("bad reply from server")?;
     Ok((status, head, stream))
+}
+
+/// Copy up to `want` bytes. Returns how many were written. A quiet socket, a slow
+/// proxy, or pause/remove ends the copy instead of sitting in the read.
+pub fn copy_body(
+    reader: &mut dyn Read,
+    want: u64,
+    idle: Duration,
+    watch: &mut dyn FnMut() -> Watch,
+    write: &mut dyn FnMut(&[u8]) -> Result<(), String>,
+    progress: &mut dyn FnMut(u64),
+) -> Result<u64, String> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got = 0u64;
+    let mut since_note = 0u64;
+    let started = Instant::now();
+    let mut last_byte = Instant::now();
+    let mut last_note = Instant::now();
+    while got < want {
+        if last_byte.elapsed() >= idle {
+            return Err("stall: no bytes for 30s".into());
+        }
+        match watch() {
+            Watch::Pause => return Err("paused".into()),
+            Watch::Stop => return Err("removed".into()),
+            Watch::Go => {}
+        }
+        if started.elapsed() >= Duration::from_secs(2) && got > 0 && got < want {
+            let ms = started.elapsed().as_millis().max(1) as u64;
+            if got.saturating_mul(1000) / ms < SLOW_BPS {
+                return Err("slow: under 50 KB/s".into());
+            }
+        }
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if is_again(&e) => continue,
+            Err(e) => return Err(format!("{}: {e}", error_kind(&e))),
+        };
+        last_byte = Instant::now();
+        let n = n.min((want - got) as usize);
+        write(&buf[..n])?;
+        got += n as u64;
+        since_note += n as u64;
+        if since_note >= 256 * 1024 || last_note.elapsed() >= Duration::from_millis(500) {
+            progress(got);
+            since_note = 0;
+            last_note = Instant::now();
+        }
+    }
+    if got > 0 {
+        progress(got);
+    }
+    Ok(got)
 }
 
 /// To the end of the stream. A server that closes TLS without a close_notify
