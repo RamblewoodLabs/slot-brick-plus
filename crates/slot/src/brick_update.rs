@@ -126,7 +126,7 @@ impl UpdateScreen {
     fn start_check(&mut self) {
         let (tx, rx) = mpsc::channel();
         let base = self.base.clone();
-        thread::spawn(move || {
+        let _ = crate::quiet::spawn("slot-update", move || {
             let _ = tx.send(update::check(&base));
         });
         self.check = Some(rx);
@@ -301,7 +301,7 @@ impl UpdateScreen {
             progress.clone(),
         );
         let size = m.size;
-        thread::spawn(move || {
+        let _ = crate::quiet::spawn("slot-update", move || {
             let latest = update::check(&base);
             let _ = tx.send(install_latest(&m, latest, || {
                 update::install(&m, &root, &shared)

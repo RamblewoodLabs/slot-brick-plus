@@ -1,7 +1,7 @@
 use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 use slot_power::Battery;
 
-use crate::battery::{draw_gauge, GAUGE_H};
+use crate::battery::{draw_gauge, draw_gauge_styled, GAUGE_H};
 use crate::plate::HINT_H;
 use crate::slot_chrome::MOUTH_H;
 
@@ -38,16 +38,52 @@ pub fn draw_footer(
 ) {
     let y = FOOTER_Y + (HINT_H as f32 - GAUGE_H) / 2.0;
     draw_gauge(FOOTER_MARGIN, y, battery, percent, bolt, out);
+    paint_corner(FOOTER_Y, wifi, update, clock, out);
+}
+
+/// The shelf's status row, at the top of the system menu: battery and percent on the left,
+/// Wi-Fi and the clock on the right. The gauge is yellow below 20% and red at 10%.
+pub fn draw_menu_header(
+    battery: Option<Battery>,
+    percent: Printed,
+    bolt: Option<TexId>,
+    wifi: Option<(TexId, u32, u32)>,
+    clock: Printed,
+    out: &mut Vec<Draw>,
+) {
+    let y = 8.0 + (HINT_H as f32 - GAUGE_H) / 2.0;
+    let colour = battery
+        .map(|b| battery_colour(b.percent))
+        .unwrap_or(crate::battery::ink());
+    // The shelf's charging mark. It is taller than the battery outline, and only while charging.
+    draw_gauge_styled(
+        FOOTER_MARGIN,
+        y,
+        battery,
+        percent,
+        bolt,
+        colour,
+        crate::battery::BOLT_H,
+        out,
+    );
+    paint_corner(8.0, wifi, None, clock, out);
+}
+
+fn paint_corner(
+    row_y: f32,
+    wifi: Option<(TexId, u32, u32)>,
+    update: Option<(TexId, u32, u32)>,
+    clock: Printed,
+    out: &mut Vec<Draw>,
+) {
     let clock_x = OUT_W as f32 - FOOTER_MARGIN - clock.w as f32;
-    printed(clock_x, clock, out);
-    // To the left of the clock: the two together say what the Brick is doing right now. A
-    // newer Slot, when there is one, is told to the left of those.
+    draw_printed(clock_x, row_y, clock, out);
     let mut right = clock_x;
     for (tex, w, h) in [wifi, update].into_iter().flatten() {
         right -= WIFI_GAP + w as f32;
         out.push(Draw::Tex {
             x: right.round(),
-            y: (FOOTER_Y + (HINT_H as f32 - h as f32) / 2.0).round(),
+            y: (row_y + (HINT_H as f32 - h as f32) / 2.0).round(),
             w: w as f32,
             h: h as f32,
             tex,
@@ -58,76 +94,6 @@ pub fn draw_footer(
 
 /// How far a note sits from the battery's percent.
 const NOTE_GAP: f32 = 22.0;
-
-/// Battery and Wi-Fi at the top right of the system menu. A missing reading draws nothing
-/// for that half, and every coordinate stays inside the screen.
-pub fn draw_menu_header(
-    percent: Option<u8>,
-    charging: bool,
-    percent_face: Printed,
-    bolt: Option<TexId>,
-    wifi: Option<u8>,
-    out: &mut Vec<Draw>,
-) {
-    let y = 8.0;
-    let h = HINT_H as f32;
-    let mut right = OUT_W as f32 - 16.0;
-    if let Some(level) = wifi {
-        right = draw_wifi(right, y, h, level, out);
-        right -= 12.0;
-    }
-    if percent.is_none() {
-        return;
-    }
-    if percent_face.w > 0 {
-        right -= percent_face.w as f32;
-        if right >= 8.0 {
-            draw_printed(right, y, percent_face, out);
-        }
-        right -= 8.0;
-    }
-    let gauge_w = 34.0;
-    let gauge_h = 16.0;
-    right -= gauge_w + 4.0;
-    if right < 8.0 {
-        return;
-    }
-    let colour = battery_colour(percent.unwrap_or(100));
-    let gy = y + (h - gauge_h) / 2.0;
-    let rect = |x: f32, y: f32, w: f32, h: f32, out: &mut Vec<Draw>| {
-        if w <= 0.0
-            || h <= 0.0
-            || x < 0.0
-            || y < 0.0
-            || x + w > OUT_W as f32
-            || y + h > OUT_H as f32
-        {
-            return;
-        }
-        out.push(Draw::Rect { x, y, w, h, colour });
-    };
-    rect(right, gy, gauge_w, 2.0, out);
-    rect(right, gy + gauge_h - 2.0, gauge_w, 2.0, out);
-    rect(right, gy, 2.0, gauge_h, out);
-    rect(right + gauge_w - 2.0, gy, 2.0, gauge_h, out);
-    rect(right + gauge_w, gy + 5.0, 3.0, 6.0, out);
-    let fill = (gauge_w - 8.0) * f32::from(percent.unwrap_or(0).min(100)) / 100.0;
-    if fill > 0.0 {
-        rect(right + 4.0, gy + 4.0, fill, gauge_h - 8.0, out);
-    }
-    if charging {
-        if let Some(tex) = bolt {
-            out.push(Draw::Tex {
-                x: (right - 16.0).max(8.0),
-                y,
-                w: 14.0,
-                h: 14.0,
-                tex,
-                alpha: 1.0,
-            });
-        }
-    }
-}
 
 /// Above 20% stays the menu ink. Below 20% is yellow. 10% and under is red.
 pub fn battery_colour(percent: u8) -> [f32; 4] {
@@ -143,49 +109,6 @@ pub fn battery_colour(percent: u8) -> [f32; 4] {
             1.0,
         ]
     }
-}
-
-fn draw_wifi(right: f32, y: f32, h: f32, level: u8, out: &mut Vec<Draw>) -> f32 {
-    let colour = [
-        crate::hud::HUD_INK[0] as f32 / 255.0,
-        crate::hud::HUD_INK[1] as f32 / 255.0,
-        crate::hud::HUD_INK[2] as f32 / 255.0,
-        1.0,
-    ];
-    let bars = 4u8;
-    let bw = 4.0;
-    let gap = 3.0;
-    let total = bars as f32 * bw + (bars - 1) as f32 * gap;
-    let x0 = right - total;
-    if x0 < 8.0 {
-        return right;
-    }
-    let base = y + h - 4.0;
-    for i in 0..bars {
-        let bh = 6.0 + i as f32 * 4.0;
-        let on = level > 0 && i < level;
-        out.push(Draw::Rect {
-            x: x0 + i as f32 * (bw + gap),
-            y: base - bh,
-            w: bw,
-            h: bh,
-            colour: if on {
-                colour
-            } else {
-                [colour[0], colour[1], colour[2], 0.28]
-            },
-        });
-    }
-    if level == 0 {
-        out.push(Draw::Rect {
-            x: x0,
-            y: y + 4.0,
-            w: total,
-            h: 2.0,
-            colour: [0.86, 0.22, 0.18, 1.0],
-        });
-    }
-    x0
 }
 
 /// A note beside the battery's percent (the selected game's play time, on the shelf).

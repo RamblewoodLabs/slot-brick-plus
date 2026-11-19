@@ -48,17 +48,12 @@ fn sample() -> Live {
 }
 
 fn battery() -> (Option<u8>, bool) {
-    let dir = slot_power::hw("/sys/class/power_supply/axp2202-battery");
-    let Ok(text) = fs::read_to_string(dir.join("capacity")) else {
+    let Some(b) = slot_power::axp_battery() else {
         return (None, false);
     };
-    let Ok(percent) = text.trim().parse::<u8>() else {
-        return (None, false);
-    };
-    let status = fs::read_to_string(dir.join("status")).unwrap_or_default();
-    let status = status.to_ascii_lowercase();
-    let charging = status.contains("charging") || status.contains("full");
-    (Some(percent.min(100)), charging)
+    // Full is plugged in and finished. The bolt is only for a charge that is still running.
+    let charging = matches!(b.charge, slot_power::Charge::Charging);
+    (Some(b.percent), charging)
 }
 
 fn wifi() -> Option<u8> {

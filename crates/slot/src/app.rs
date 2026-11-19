@@ -4140,6 +4140,7 @@ impl App {
             );
         }
         self.hud.set_alarm(failing, self.now());
+        crate::menu_status::start();
         if self.now() >= self.battery_at {
             self.battery_at = self.now() + BATTERY_POLL_MS;
             self.battery = self.power.as_ref().and_then(|p| p.battery());
@@ -4570,14 +4571,12 @@ impl App {
                     disabled: QuickRow::ALL.map(|r| self.quick_disabled(r)),
                 }
                 .draw(out);
-                crate::menu_status::start();
-                let live = crate::menu_status::current();
                 slot_ui::draw_menu_header(
-                    live.percent,
-                    live.charging,
+                    self.battery,
                     self.battery_percent,
                     self.bolt,
-                    live.wifi,
+                    self.wifi_face(),
+                    self.shelf_clock,
                     out,
                 );
             }

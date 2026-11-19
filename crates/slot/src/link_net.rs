@@ -129,7 +129,7 @@ impl TcpLink {
         let ended = Arc::new(AtomicBool::new(false));
         let reader_ended = ended.clone();
 
-        std::thread::spawn(move || {
+        if !crate::quiet::spawn("slot-link-read", move || {
             let mut header = [0u8; 2];
             let mut control = false;
             loop {
@@ -157,10 +157,15 @@ impl TcpLink {
                     return;
                 }
             }
-        });
+        }) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "could not start the link",
+            ));
+        }
 
         let writer_closed=closed.clone();
-        std::thread::spawn(move || {
+        if !crate::quiet::spawn("slot-link-write", move || {
             struct CloseOnExit(TcpStream, Arc<AtomicBool>);
             impl Drop for CloseOnExit { fn drop(&mut self) { self.1.store(true,Ordering::Release);let _=self.0.shutdown(Shutdown::Both); } }
             let _guard=CloseOnExit(writer.try_clone().expect("cloned TCP socket"),writer_closed);
@@ -193,7 +198,12 @@ impl TcpLink {
                     }
                 }
             }
-        });
+        }) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "could not start the link",
+            ));
+        }
 
         Ok(TcpLink {
             outbox: wtx,

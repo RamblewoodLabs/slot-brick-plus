@@ -168,7 +168,7 @@ impl ArtJob {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let token = cancel.clone();
-        thread::spawn(move || {
+        let _ = crate::quiet::spawn("slot-cart-art", move || {
             let done = run(&root, &servers, &token, &tx);
             let _ = tx.send(Progress::Done(done));
         });

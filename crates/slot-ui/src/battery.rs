@@ -16,9 +16,13 @@ pub const WALL: f32 = 1.5;
 const GAP: f32 = 7.0;
 
 const BOLT_W: f32 = 14.0;
-const BOLT_H: f32 = 14.0;
+pub const BOLT_H: f32 = 14.0;
 const BOLT_GAP: f32 = 5.0;
 const _: () = assert!(BOLT_GAP > 0.0);
+
+pub fn ink() -> [f32; 4] {
+    INK
+}
 
 const INK: [f32; 4] = [
     HUD_INK[0] as f32 / 255.0,
@@ -40,18 +44,25 @@ pub fn draw_gauge(
     bolt: Option<TexId>,
     out: &mut Vec<Draw>,
 ) {
+    draw_gauge_styled(x, y, battery, percent, bolt, INK, BOLT_H, out);
+}
+
+pub fn draw_gauge_styled(
+    x: f32,
+    y: f32,
+    battery: Option<Battery>,
+    percent: Printed,
+    bolt: Option<TexId>,
+    colour: [f32; 4],
+    bolt_h: f32,
+    out: &mut Vec<Draw>,
+) {
     let Some(b) = battery else {
         return;
     };
 
     let rect = |x: f32, y: f32, w: f32, h: f32, out: &mut Vec<Draw>| {
-        out.push(Draw::Rect {
-            x,
-            y,
-            w,
-            h,
-            colour: INK,
-        });
+        out.push(Draw::Rect { x, y, w, h, colour });
     };
 
     let cx = x + BOLT_W + BOLT_GAP;
@@ -77,9 +88,9 @@ pub fn draw_gauge(
     if let (Charge::Charging, Some(tex)) = (b.charge, bolt) {
         out.push(Draw::Tex {
             x,
-            y: y + (GAUGE_H - BOLT_H) / 2.0,
+            y: y + (GAUGE_H - bolt_h) / 2.0,
             w: BOLT_W,
-            h: BOLT_H,
+            h: bolt_h,
             tex,
             alpha: 1.0,
         });

@@ -49,13 +49,6 @@ impl BrickPlatform {
             }
         }
     }
-    fn read(&self, name: &str) -> Option<u32> {
-        fs::read_to_string(crate::hw(&format!("/sys/class/power_supply/{name}")))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
-    }
     fn finish(&mut self, status: i32) -> ! {
         // App::poweroff/restart has settled saves before this is called.
         if self.rumble == Some(true) {
@@ -129,18 +122,12 @@ impl Platform for BrickPlatform {
         }
     }
     fn battery(&self) -> Option<Battery> {
-        Some(Battery {
-            percent: self.read("axp2202-battery/capacity")?.min(100) as u8,
-            charge: self.charge(),
-        })
+        crate::axp_battery()
     }
     fn charge(&self) -> Charge {
-        match self.read("axp2202-usb/online") {
-            Some(1) if self.read("axp2202-battery/capacity") == Some(100) => Charge::Full,
-            Some(1) => Charge::Charging,
-            Some(0) => Charge::Discharging,
-            _ => Charge::Unknown,
-        }
+        crate::axp_battery()
+            .map(|b| b.charge)
+            .unwrap_or(Charge::Unknown)
     }
     fn poweroff(&mut self) -> ! {
         self.finish(64)
