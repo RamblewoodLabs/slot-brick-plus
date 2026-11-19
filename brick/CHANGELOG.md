@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos: leaving a video clears the picture, so the list underneath is visible. X while it plays switches between filling the screen and fitting it with black bars, and that choice is remembered. A file with no sound says so, is marked in Saved, and Y queues it for download again.
 - HOME → Videos is three tabs: Saved, Downloads, and Channels. L1 and R1 move between them, and it opens on Saved when something is already on the card. Downloads shows progress and a count while something is queued. The same tabs are on HOME → Music.
 - A download shows its own progress, and cancelling it stops that download so the next one starts from zero. A video is saved only when the whole file has arrived, as H.264 with sound. A connection that sends nothing for 30 seconds is tried again from where it stopped.
 - HOME → Music: add a YouTube channel, @handle, or playlist and download the audio. Files are saved under Music with the picture from the video. Play, pause, skip, shuffle, repeat, and a seek bar. It keeps playing on the system menu and stops when a game starts. The volume is the system volume. The Music shelf uses the same space limit as Videos. B goes up one level, and the keyboard opens only from Add a channel or playlist.
