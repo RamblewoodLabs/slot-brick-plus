@@ -206,16 +206,53 @@ void slot_cheevos_login(slot_cheevos* s, const char* user, const char* token) {
   rc_client_begin_login_with_token(s->client, user, token, login_done, s);
 }
 
+/* True when some descriptor can see `addr`. mGBA's Game Boy map often lists ROM
+ * and cartridge RAM and leaves C000-DFFF (WRAM, and GBC's banked WRAM) out, so
+ * rcheevos then disables any achievement that peeks there. */
+static int descriptor_covers(const struct retro_memory_descriptor* d, unsigned n, uint32_t addr) {
+  unsigned i;
+  for (i = 0; i < n; i++) {
+    size_t start, len, off;
+    if (!d[i].ptr || d[i].len == 0)
+      continue;
+    start = d[i].start;
+    len = d[i].len;
+    if (d[i].select == 0) {
+      if (addr >= start && addr < start + len)
+        return 1;
+      continue;
+    }
+    if ((addr & d[i].select) != (start & d[i].select))
+      continue;
+    off = (size_t)addr - start;
+    if (d[i].disconnect)
+      off &= ~(size_t)d[i].disconnect;
+    if (off < len)
+      return 1;
+  }
+  return 0;
+}
+
 /* Maps console addresses onto the core's memory: `descriptors` is the core's
  * retro_memory_descriptor array from SET_MEMORY_MAPS (may be NULL). */
 int slot_cheevos_set_memory(slot_cheevos* s, const void* descriptors, unsigned count, unsigned console) {
   struct retro_memory_map map;
-  map.descriptors = (const struct retro_memory_descriptor*)descriptors;
-  map.num_descriptors = count;
+  const struct retro_memory_descriptor* list = (const struct retro_memory_descriptor*)descriptors;
+  int use_map = descriptors && count > 0;
+  /* Game Boy and Game Boy Color: if the core's map has no WRAM at $C000 or the
+   * switched bank at $D000, ignore the map. rcheevos then lays RETRO_MEMORY_SYSTEM_RAM
+   * (mGBA's WRAM, bank 0 then the banks) onto C000-DFFF and the extra GBC banks. */
+  if (use_map && (console == RC_CONSOLE_GAMEBOY || console == RC_CONSOLE_GAMEBOY_COLOR) &&
+      (!descriptor_covers(list, count, 0xC000) || !descriptor_covers(list, count, 0xD000))) {
+    fprintf(stderr, "slot: cheevos: core map has no WRAM at C000-DFFF; using system RAM\n");
+    use_map = 0;
+  }
+  map.descriptors = list;
+  map.num_descriptors = use_map ? count : 0;
   if (s->has_regions)
     rc_libretro_memory_destroy(&s->regions);
   g_building = s;
-  s->has_regions = rc_libretro_memory_init(&s->regions, descriptors ? &map : NULL, get_core_memory, console);
+  s->has_regions = rc_libretro_memory_init(&s->regions, use_map ? &map : NULL, get_core_memory, console);
   g_building = NULL;
   return s->has_regions ? (int)s->regions.total_size : 0;
 }

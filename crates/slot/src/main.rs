@@ -5,13 +5,24 @@ mod host_app;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("--init-root") {
-        let Some(dir) = args.next() else {
-            eprintln!("slot: --init-root needs a directory");
-            std::process::exit(2);
-        };
-        slot::root::ensure(std::path::Path::new(&dir));
-        return;
+    match args.next().as_deref() {
+        Some("--init-root") => {
+            let Some(dir) = args.next() else {
+                eprintln!("slot: --init-root needs a directory");
+                std::process::exit(2);
+            };
+            slot::root::ensure(std::path::Path::new(&dir));
+            return;
+        }
+        Some("--video-queue") => {
+            let Some(dir) = args.next() else {
+                eprintln!("slot: --video-queue needs the Slot directory");
+                std::process::exit(2);
+            };
+            slot::video_queue::run(std::path::Path::new(&dir));
+            return;
+        }
+        _ => {}
     }
     // 1.6.0: on a crash, log the signal, thread and code location to stderr (slot.log).
     slot::crash::install();

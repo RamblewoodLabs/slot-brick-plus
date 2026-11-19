@@ -1059,7 +1059,12 @@ impl Frontend {
     /// Doze after a stretch without input; device_app then suspends as for a power press.
     #[cfg(feature = "brick")]
     pub fn idle_sleep(&mut self) {
-        if !self.auto_sleep || self.rebuild.is_some() || self.app().link_active() || self.app().video_playing() {return}
+        if !self.auto_sleep || self.rebuild.is_some() || self.app().link_active() || self.app().video_playing() || self.app().download_busy() {
+            if self.app().download_busy() {
+                self.last_input = Instant::now();
+            }
+            return;
+        }
         let limit = match self.app().phase() {
             Phase::Shelf | Phase::QuickMenu { .. } => IDLE_MENU,
             Phase::Playing { .. } => IDLE_GAME,

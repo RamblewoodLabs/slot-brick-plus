@@ -8,9 +8,9 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Outline, Platform,
-    Shader, ShellChoice, ShellFinish, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX,
-    AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
+    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Outline,
+    Platform, Shader, ShellChoice, ShellFinish, SlotState, StateEntry, StateRing, Theme,
+    AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
     VOLUME_MAX,
 };
 use slot_ui::{
@@ -438,6 +438,7 @@ pub struct App {
     headphones: bool,
     headphones_at: Millis,
     battery: Option<Battery>,
+    low_battery_told: bool,
     last_led: Option<LedState>,
     #[cfg(feature = "brick")]
     brick_leds: Option<crate::brick_led::BrickLeds>,
@@ -738,6 +739,7 @@ impl App {
             headphones: false,
             headphones_at: 0,
             battery: None,
+            low_battery_told: false,
             last_led: None,
             #[cfg(feature = "brick")]
             brick_leds: None,
@@ -856,7 +858,11 @@ impl App {
             let taken = shelf.take_faces();
             for (cart, face) in shelf.carts.iter().zip(taken) {
                 // What changed on the shelf (a label, a plastic) is kept for next time.
-                if let Some(kept) = self.all_carts.iter_mut().find(|c| c.platform == *platform && c.stem == cart.stem) {
+                if let Some(kept) = self
+                    .all_carts
+                    .iter_mut()
+                    .find(|c| c.platform == *platform && c.stem == cart.stem)
+                {
                     *kept = cart.clone();
                 }
                 if let Some(face) = face {
@@ -866,15 +872,35 @@ impl App {
         }
         // Hidden systems have no shelf; with every system that has games hidden, all are shown.
         let shown: Vec<Cart> = match self.all_carts.iter().any(|c| self.state.shows(c.platform)) {
-            true => self.all_carts.iter().filter(|c| self.state.shows(c.platform)).cloned().collect(),
+            true => self
+                .all_carts
+                .iter()
+                .filter(|c| self.state.shows(c.platform))
+                .cloned()
+                .collect(),
             false => self.all_carts.clone(),
         };
         let favorites_only = self.state.favorites_only && self.library.any_favorite(&shown);
         for ((platform, shelf), pick) in self.shelves.iter_mut().zip(picked) {
-            let mut carts: Vec<Cart> = shown.iter().filter(|c| c.platform == *platform).cloned().collect();
-            slot_store::arrange(&mut carts, self.state.library_sort, favorites_only, &self.library);
-            let shelf_faces = carts.iter().map(|c| faces.remove(&(*platform, c.stem.clone()))).collect();
-            let starred = carts.iter().map(|c| self.library.get(*platform, &c.stem).favorite).collect();
+            let mut carts: Vec<Cart> = shown
+                .iter()
+                .filter(|c| c.platform == *platform)
+                .cloned()
+                .collect();
+            slot_store::arrange(
+                &mut carts,
+                self.state.library_sort,
+                favorites_only,
+                &self.library,
+            );
+            let shelf_faces = carts
+                .iter()
+                .map(|c| faces.remove(&(*platform, c.stem.clone())))
+                .collect();
+            let starred = carts
+                .iter()
+                .map(|c| self.library.get(*platform, &c.stem).favorite)
+                .collect();
             shelf.replace(carts, shelf_faces, starred, pick.as_deref());
             if let Some(star) = self.star_face {
                 shelf.set_star(star);
@@ -902,7 +928,11 @@ impl App {
         let favorite = record.favorite;
         self.shelf_mut().set_favorite(at, favorite);
         let take = self.next_pop();
-        self.sound(if favorite { Sfx::Pop(take) } else { Sfx::Unpop(take) });
+        self.sound(if favorite {
+            Sfx::Pop(take)
+        } else {
+            Sfx::Unpop(take)
+        });
         self.save_library();
         // A game that is no longer a favorite leaves a shelf of favorites.
         if self.state.favorites_only {
@@ -965,7 +995,8 @@ impl App {
         if picker.is_shut() {
             self.picker_heard.0 = false;
         }
-        let lift = (crate::core_picker::SLIDE_MS as f32 - Sfx::CartOpen.lead() * 1000.0) / crate::core_picker::OPEN_MS as f32;
+        let lift = (crate::core_picker::SLIDE_MS as f32 - Sfx::CartOpen.lead() * 1000.0)
+            / crate::core_picker::OPEN_MS as f32;
         let lifting = !picker.closing() && !picker.waiting() && !picker.is_shut();
         if !self.picker_heard.0 && lifting && picker.openness(now) >= lift {
             self.picker_heard.0 = true;
@@ -975,8 +1006,13 @@ impl App {
         // of the (slower) closing pop lands then.
         // Only a lid that was heard to lift is heard to shut.
         let close_lead = Sfx::CartClose.lead() * 1000.0 / crate::core_picker::CLOSE_MS as f32;
-        let snap = crate::core_picker::SLIDE_MS as f32 / crate::core_picker::OPEN_MS as f32 + close_lead;
-        if self.picker_heard.0 && !self.picker_heard.1 && picker.closing() && picker.openness(now) <= snap {
+        let snap =
+            crate::core_picker::SLIDE_MS as f32 / crate::core_picker::OPEN_MS as f32 + close_lead;
+        if self.picker_heard.0
+            && !self.picker_heard.1
+            && picker.closing()
+            && picker.openness(now) <= snap
+        {
             self.picker_heard.1 = true;
             self.sound(Sfx::CartClose);
         }
@@ -990,11 +1026,15 @@ impl App {
             return;
         };
         let text = self.library.text();
-        let _ = std::thread::Builder::new().name("slot-library".into()).spawn(move || {
-            if let Err(e) = slot_store::atomic_write(&root.join(slot_store::LIBRARY_FILE), text.as_bytes()) {
-                eprintln!("slot: library: {e}");
-            }
-        });
+        let _ = std::thread::Builder::new()
+            .name("slot-library".into())
+            .spawn(move || {
+                if let Err(e) =
+                    slot_store::atomic_write(&root.join(slot_store::LIBRARY_FILE), text.as_bytes())
+                {
+                    eprintln!("slot: library: {e}");
+                }
+            });
     }
 
     /// Play time: counted while a game is on screen, in whole seconds, and saved each minute.
@@ -1024,7 +1064,9 @@ impl App {
             self.library.get_mut(platform, &cart).played_secs += secs;
             self.library_dirty = true;
             if self.companion.enabled {
-                let awards = self.companion.note_play(platform, &cart, secs, self.local_day(), &games);
+                let awards =
+                    self.companion
+                        .note_play(platform, &cart, secs, self.local_day(), &games);
                 if self.companion.toasts {
                     for award in &awards {
                         self.announce(&award.title, &award.detail);
@@ -1059,7 +1101,10 @@ impl App {
             })
             .collect();
         for (platform, stem, record) in self.library.records() {
-            if games.iter().any(|g| g.platform == platform && g.stem == stem) {
+            if games
+                .iter()
+                .any(|g| g.platform == platform && g.stem == stem)
+            {
                 continue;
             }
             games.push(slot_store::GameSeen {
@@ -1089,26 +1134,39 @@ impl App {
             .collect();
         self.companion.stamp(self.local_day(), &games, &fav_refs);
         let pip = self.companion.clone();
-        let _ = std::thread::Builder::new().name("slot-pip".into()).spawn(move || {
-            if let Err(e) = pip.write(&root) {
-                eprintln!("slot: companion: {e}");
-            }
-        });
+        let _ = std::thread::Builder::new()
+            .name("slot-pip".into())
+            .spawn(move || {
+                if let Err(e) = pip.write(&root) {
+                    eprintln!("slot: companion: {e}");
+                }
+            });
     }
 
     /// The selected game's play time, as the footer prints it beside the battery.
     pub fn played_text(&self) -> Option<String> {
-        if !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() || self.video_focus {
+        if !matches!(self.phase, Phase::Shelf)
+            || self.cart_menu.is_some()
+            || self.core_picker.is_some()
+            || self.video_focus
+        {
             return None;
         }
         let platform = self.shelves.get(self.shelf_at)?.0;
-        let secs = self.library.get(platform, self.selected_stem()?).played_secs;
+        let secs = self
+            .library
+            .get(platform, self.selected_stem()?)
+            .played_secs;
         slot_store::played_text(secs, self.state.play_time_hours)
     }
 
     /// The selected game's name, as its title card under the cart prints it.
     pub fn title_card_text(&self) -> Option<String> {
-        if !self.state.title_card || !matches!(self.phase, Phase::Shelf) || self.cart_menu.is_some() || self.core_picker.is_some() {
+        if !self.state.title_card
+            || !matches!(self.phase, Phase::Shelf)
+            || self.cart_menu.is_some()
+            || self.core_picker.is_some()
+        {
             return None;
         }
         if self.video_focus {
@@ -1160,9 +1218,13 @@ impl App {
             return;
         }
         let here = if self.video_focus {
-            stops.iter().position(|stop| matches!(stop, ShelfStop::Videos))
+            stops
+                .iter()
+                .position(|stop| matches!(stop, ShelfStop::Videos))
         } else {
-            stops.iter().position(|stop| matches!(stop, ShelfStop::Game(at) if *at == self.shelf_at))
+            stops
+                .iter()
+                .position(|stop| matches!(stop, ShelfStop::Game(at) if *at == self.shelf_at))
         };
         let Some(here) = here else {
             return;
@@ -1368,7 +1430,10 @@ impl App {
     /// SELECT on the shelf: the next order (A–Z, last played, most played), named in the slot.
     fn cycle_sort(&mut self) {
         let all = slot_store::LibrarySort::ALL;
-        let at = all.iter().position(|v| *v == self.state.library_sort).unwrap_or(0);
+        let at = all
+            .iter()
+            .position(|v| *v == self.state.library_sort)
+            .unwrap_or(0);
         self.state.library_sort = all[(at + 1) % all.len()];
         self.persist();
         self.arrange();
@@ -1384,10 +1449,13 @@ impl App {
     /// The slot turns into a disc slot on the PlayStation's shelf, and back on the others.
     fn turn_slot(&mut self, dt: f32) {
         let disc = match &self.phase {
-            Phase::Shelf | Phase::QuickMenu { .. } => {
-                self.shelves.get(self.shelf_at).is_some_and(|(p, _)| *p == Platform::Ps1)
-            }
-            _ => self.seated_cart().is_some_and(|c| c.platform == Platform::Ps1),
+            Phase::Shelf | Phase::QuickMenu { .. } => self
+                .shelves
+                .get(self.shelf_at)
+                .is_some_and(|(p, _)| *p == Platform::Ps1),
+            _ => self
+                .seated_cart()
+                .is_some_and(|c| c.platform == Platform::Ps1),
         };
         let step = dt * 1000.0 / DISC_SLOT_MS as f32;
         let to = if disc { 1.0 } else { 0.0 };
@@ -1555,13 +1623,21 @@ impl App {
 
     pub fn quick_value(&self, row: QuickRow) -> Option<QuickValue> {
         #[cfg(feature = "brick")]
-        if row.led_setting() { return self.brick_leds.as_ref().and_then(|leds| leds.value(row)).or(Some(QuickValue::Unavailable)); }
+        if row.led_setting() {
+            return self
+                .brick_leds
+                .as_ref()
+                .and_then(|leds| leds.value(row))
+                .or(Some(QuickValue::Unavailable));
+        }
 
         match row {
             QuickRow::FastForward => QuickValue::speed(self.state.ff_speed),
             QuickRow::FastForwardSound => Some(QuickValue::flag(self.state.ff_sound)),
             QuickRow::GbColourCorrection => Some(QuickValue::flag(self.state.colour_correction_gb)),
-            QuickRow::GbaColourCorrection => Some(QuickValue::flag(self.state.colour_correction_gba)),
+            QuickRow::GbaColourCorrection => {
+                Some(QuickValue::flag(self.state.colour_correction_gba))
+            }
             QuickRow::GbPalettes => Some(QuickValue::flag(self.state.gb_palettes)),
             QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
             QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
@@ -1597,12 +1673,60 @@ impl App {
                 false => QuickValue::Minutes,
             }),
             QuickRow::LibraryTitleCard => Some(QuickValue::flag(self.state.title_card)),
-            QuickRow::ShowGba | QuickRow::ShowGb | QuickRow::ShowGbc | QuickRow::ShowNes | QuickRow::ShowSnes | QuickRow::ShowPs1 => {
-                row.shelf_of().map(|p| QuickValue::flag(self.state.shows(p)))
-            }
+            QuickRow::ShowGba
+            | QuickRow::ShowGb
+            | QuickRow::ShowGbc
+            | QuickRow::ShowNes
+            | QuickRow::ShowSnes
+            | QuickRow::ShowPs1 => row
+                .shelf_of()
+                .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ShowVideos => Some(QuickValue::flag(self.state.show_videos)),
             QuickRow::ResetSettings => self.reset_asked,
-            QuickRow::Companion | QuickRow::Videos | QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds | QuickRow::SoundVolume => None,
+            QuickRow::Companion
+            | QuickRow::Videos
+            | QuickRow::GbOverlay
+            | QuickRow::GbcOverlay
+            | QuickRow::GbaOverlay
+            | QuickRow::NesOverlay
+            | QuickRow::SnesOverlay
+            | QuickRow::Ps1Overlay
+            | QuickRow::Wifi
+            | QuickRow::CartArt
+            | QuickRow::Achievements
+            | QuickRow::Update
+            | QuickRow::System
+            | QuickRow::Library
+            | QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::ScreenGb
+            | QuickRow::ScreenGba
+            | QuickRow::ScreenNes
+            | QuickRow::ScreenSnes
+            | QuickRow::ScreenPs1
+            | QuickRow::Game
+            | QuickRow::Lights
+            | QuickRow::LedMode
+            | QuickRow::LedTop
+            | QuickRow::LedButtons
+            | QuickRow::LedTriggers
+            | QuickRow::LedSticks
+            | QuickRow::LedColor
+            | QuickRow::LedEffect
+            | QuickRow::Font
+            | QuickRow::Online
+            | QuickRow::Clock
+            | QuickRow::Saving
+            | QuickRow::LibrarySystems
+            | QuickRow::AboutVersion
+            | QuickRow::AboutBuild
+            | QuickRow::AboutDevice
+            | QuickRow::AboutFirmware
+            | QuickRow::AboutCard
+            | QuickRow::AboutLabel
+            | QuickRow::SystemSounds
+            | QuickRow::SoundVolume => None,
         }
     }
 
@@ -1816,7 +1940,12 @@ impl App {
 
     /// A label fetched or deleted while running: the game's labels are read again (a NES
     /// game has one for each cart) and its face dropped so it is rebuilt.
-    pub fn adopt_label(&mut self, platform: Platform, stem: &str, label: Option<std::path::PathBuf>) {
+    pub fn adopt_label(
+        &mut self,
+        platform: Platform,
+        stem: &str,
+        label: Option<std::path::PathBuf>,
+    ) {
         let (own, famicom) = match &self.root {
             Some(root) => slot_store::labels_of(root, platform, stem),
             None => (label, None),
@@ -1900,7 +2029,10 @@ impl App {
     /// The overlay the game being played should have over it: the one chosen for its system.
     /// Asked every frame, so it never looks at the card: one that is missing simply fails to load.
     pub fn overlay_wanted(&self) -> Option<PathBuf> {
-        if !matches!(self.phase, Phase::Inserting { .. } | Phase::Playing { .. } | Phase::Polaroids { .. }) {
+        if !matches!(
+            self.phase,
+            Phase::Inserting { .. } | Phase::Playing { .. } | Phase::Polaroids { .. }
+        ) {
             return None;
         }
         let name = self.state.overlay(self.platform)?;
@@ -1933,7 +2065,14 @@ impl App {
 
     fn push_overlay(&self, out: &mut Vec<Draw>) {
         if let Some((tex, _)) = self.overlay_up() {
-            out.push(Draw::Tex { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, tex, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x: 0.0,
+                y: 0.0,
+                w: OUT_W as f32,
+                h: OUT_H as f32,
+                tex,
+                alpha: 1.0,
+            });
         }
     }
 
@@ -1952,9 +2091,13 @@ impl App {
             Some(platform) => self.overlay_text(*platform),
             None if at == Platform::ALL.len() => &self.font,
             None if at == QuickRow::NAMED - 1 => {
-                PERCENTS[((self.state.sound_volume / slot_store::SOUND_VOLUME_STEP) as usize).min(PERCENTS.len() - 1)]
+                PERCENTS[((self.state.sound_volume / slot_store::SOUND_VOLUME_STEP) as usize)
+                    .min(PERCENTS.len() - 1)]
             }
-            None => self.about.get(at - Platform::ALL.len() - 1).map_or("", String::as_str),
+            None => self
+                .about
+                .get(at - Platform::ALL.len() - 1)
+                .map_or("", String::as_str),
         }
     }
 
@@ -2273,7 +2416,11 @@ impl App {
 
     pub fn restore_brick_leds(&self) {
         #[cfg(feature = "brick")]
-        if let Some(leds)=&self.brick_leds { if let Err(e)=leds.restore() { eprintln!("slot: LED restore: {e}"); } }
+        if let Some(leds) = &self.brick_leds {
+            if let Err(e) = leds.restore() {
+                eprintln!("slot: LED restore: {e}");
+            }
+        }
     }
 
     pub fn restart(&mut self) {
@@ -2329,21 +2476,29 @@ impl App {
     /// A failed/cancelled link can leave the core in expensive link mode.
     /// Session performs the normal save/resume reload once the attempt settles.
     pub fn take_solo_reload(&mut self) -> Option<(String, &'static str)> {
-        if self.link_active() || self.starting.is_some() || self.reload.is_some()
-            || self.link_reload.is_some() || self.shutting_down()
+        if self.link_active()
+            || self.starting.is_some()
+            || self.reload.is_some()
+            || self.link_reload.is_some()
+            || self.shutting_down()
             || matches!(self.game_menu, Some(GameMenu::Working { .. }))
-            || !matches!(self.phase, Phase::Playing { .. }) {
+            || !matches!(self.phase, Phase::Playing { .. })
+        {
             return None;
         }
         let serial = self.solo_serial?;
-        if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {return None;}
+        if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {
+            return None;
+        }
         let stem = self.seated()?.to_string();
         self.solo_serial = None;
         let was_link_player = self.link_player.take().is_some();
         self.radio.ask(RadioJob::Cool);
         if was_link_player || self.link_loaded != Some(serial) {
             Some((stem, serial))
-        } else { None }
+        } else {
+            None
+        }
     }
 
     pub fn link_player(&self) -> Option<u8> {
@@ -2440,9 +2595,15 @@ impl App {
 
     pub fn apply(&mut self, action: Action) {
         #[cfg(feature = "brick")]
-        if let Some(wifi)=&mut self.wifi {
-            if matches!(action,Action::PowerTap|Action::PowerHold|Action::LidClose) && wifi.busy() {
-                wifi.cancel();self.wifi_power=Some(action);return;
+        if let Some(wifi) = &mut self.wifi {
+            if matches!(
+                action,
+                Action::PowerTap | Action::PowerHold | Action::LidClose
+            ) && wifi.busy()
+            {
+                wifi.cancel();
+                self.wifi_power = Some(action);
+                return;
             }
         }
         if self.power_menu.is_some() {
@@ -2472,15 +2633,23 @@ impl App {
             _ => {}
         }
         #[cfg(feature = "brick")]
-        if let Some(wifi)=&mut self.wifi {
+        if let Some(wifi) = &mut self.wifi {
             if wifi.input(action) {
                 // The label keyboard closed: with what was typed, the search for it begins.
                 let typed = wifi.take_label_query();
-                self.wifi=None;
+                self.wifi = None;
                 // Opened from the HOME menu (Wi-Fi, Cart Art, …): back to it, with its sound.
-                if matches!(self.phase, Phase::QuickMenu { .. }) {self.menu_sound(MenuSound::Back);}
-                let stem = self.cart_menu.as_ref().or(self.picker_look.as_ref()).map(|m| m.stem.clone());
-                if let (Some(query), Some(stem)) = (typed, stem) {self.search_labels(&stem, query);}
+                if matches!(self.phase, Phase::QuickMenu { .. }) {
+                    self.menu_sound(MenuSound::Back);
+                }
+                let stem = self
+                    .cart_menu
+                    .as_ref()
+                    .or(self.picker_look.as_ref())
+                    .map(|m| m.stem.clone());
+                if let (Some(query), Some(stem)) = (typed, stem) {
+                    self.search_labels(&stem, query);
+                }
             }
             return;
         }
@@ -2531,7 +2700,12 @@ impl App {
                 _ if self.label_grid_open() => self.label_grid_input(action),
                 _ if self.cart_menu.is_some() => self.cart_menu_input(action),
                 Action::GbaDown(Btn::Start) if self.core_picker.is_none() => {
-                    if self.shelf().carts.get(self.shelf().index).is_some_and(|c| c.platform == Platform::Gba) {
+                    if self
+                        .shelf()
+                        .carts
+                        .get(self.shelf().index)
+                        .is_some_and(|c| c.platform == Platform::Gba)
+                    {
                         self.open_core_picker();
                         if self.core_picker.is_some() {
                             let index = self.shelf().index;
@@ -2563,13 +2737,13 @@ impl App {
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 Action::GbaDown(Btn::Y) => self.toggle_favorite(),
-            Action::GbaDown(Btn::X) => {
-                self.open_pip();
-                if self.companion.sounds {
-                    self.menu_sound(MenuSound::Open);
+                Action::GbaDown(Btn::X) => {
+                    self.open_pip();
+                    if self.companion.sounds {
+                        self.menu_sound(MenuSound::Open);
+                    }
                 }
-            },
-            Action::GbaDown(Btn::Select) => self.cycle_sort(),
+                Action::GbaDown(Btn::Select) => self.cycle_sort(),
                 _ => {}
             },
             Phase::Inserting { .. } if action == Action::Eject => self.eject(),
@@ -2625,8 +2799,12 @@ impl App {
         self.quick_menu_step(row, action);
         let sound = match action {
             Action::GbaDown(Btn::Up | Btn::Down) => Some(MenuSound::Move),
-            Action::GbaDown(Btn::Left | Btn::Right) if self.row_says(row) != says => Some(MenuSound::Change),
-            Action::GbaDown(Btn::A) if self.menu_place() != place || self.row_says(row) != says => Some(MenuSound::Open),
+            Action::GbaDown(Btn::Left | Btn::Right) if self.row_says(row) != says => {
+                Some(MenuSound::Change)
+            }
+            Action::GbaDown(Btn::A) if self.menu_place() != place || self.row_says(row) != says => {
+                Some(MenuSound::Open)
+            }
             Action::GbaDown(Btn::B) | Action::QuickMenu => Some(MenuSound::Back),
             _ => None,
         };
@@ -2637,7 +2815,10 @@ impl App {
 
     /// What a HOME menu row reads: its value, or its text.
     fn row_says(&self, row: QuickRow) -> (Option<QuickValue>, Option<String>) {
-        (self.quick_value(row), row.named().map(|at| self.named_text(at).to_string()))
+        (
+            self.quick_value(row),
+            row.named().map(|at| self.named_text(at).to_string()),
+        )
     }
 
     /// Where the HOME menu is: the screen, the row, and whether an overlay (Wi-Fi) is open.
@@ -2646,7 +2827,11 @@ impl App {
         let overlay = self.wifi.is_some() || self.pip.is_some() || self.videos_visible;
         #[cfg(not(feature = "brick"))]
         let overlay = self.pip.is_some() || self.videos_visible;
-        (std::mem::discriminant(&self.phase), self.quick_menu(), overlay)
+        (
+            std::mem::discriminant(&self.phase),
+            self.quick_menu(),
+            overlay,
+        )
     }
 
     fn menu_sound(&mut self, sound: MenuSound) {
@@ -2777,24 +2962,43 @@ impl App {
 
     fn videos_online(&self) -> bool {
         #[cfg(feature = "brick")]
-        { self.net_up }
+        {
+            self.net_up
+        }
         #[cfg(not(feature = "brick"))]
-        { true }
+        {
+            true
+        }
     }
 
-    pub fn pip_open(&self) -> bool { self.pip.is_some() }
-    pub fn pip_game(&self) -> Option<String> { self.pip.as_ref().and_then(|menu| menu.game(&self.companion)) }
-    pub fn videos_open(&self) -> bool { self.videos_visible }
-    pub fn companion_xp(&self) -> u32 { self.companion.xp }
+    pub fn pip_open(&self) -> bool {
+        self.pip.is_some()
+    }
+    pub fn pip_game(&self) -> Option<String> {
+        self.pip
+            .as_ref()
+            .and_then(|menu| menu.game(&self.companion))
+    }
+    pub fn videos_open(&self) -> bool {
+        self.videos_visible
+    }
+    pub fn companion_xp(&self) -> u32 {
+        self.companion.xp
+    }
 
     pub fn sheet_dirty(&self) -> bool {
-        self.pip.as_ref().is_some_and(|menu| menu.dirty) || (self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.dirty))
+        self.pip.as_ref().is_some_and(|menu| menu.dirty)
+            || (self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.dirty))
     }
 
     pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
         let frame = self.now() / 160;
         let animate = self.companion.animate;
-        if self.pip.as_ref().is_none_or(|menu| !menu.needs_frame(frame, animate)) {
+        if self
+            .pip
+            .as_ref()
+            .is_none_or(|menu| !menu.needs_frame(frame, animate))
+        {
             return None;
         }
         let snapshot = self.companion.clone();
@@ -2808,41 +3012,68 @@ impl App {
     }
 
     pub fn set_pip_face(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.pip { menu.face = Some(tex); }
+        if let Some(menu) = &mut self.pip {
+            menu.face = Some(tex);
+        }
     }
 
     pub fn videos_render(&mut self) -> Option<slot_ui::UndoFace> {
-        if !self.videos_visible { return None; }
+        if !self.videos_visible {
+            return None;
+        }
         let menu = self.videos.as_mut()?;
-        if !menu.dirty { return None; }
+        if !menu.dirty {
+            return None;
+        }
         let face = menu.render();
         menu.dirty = false;
         Some(face)
     }
 
     pub fn set_videos_face(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.videos { menu.face = Some(tex); }
+        if let Some(menu) = &mut self.videos {
+            menu.face = Some(tex);
+        }
     }
 
     pub fn copy_video_frame(&self, seen: u64) -> Option<(u64, Vec<u8>)> {
-        if !self.videos_visible { return None; }
-        self.videos.as_ref().and_then(|menu| menu.frame_if_new(seen))
+        if !self.videos_visible {
+            return None;
+        }
+        self.videos
+            .as_ref()
+            .and_then(|menu| menu.frame_if_new(seen))
     }
 
     pub fn set_video_frame(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.videos { menu.frame_face = Some(tex); }
+        if let Some(menu) = &mut self.videos {
+            menu.frame_face = Some(tex);
+        }
     }
 
     pub fn take_video_pcm(&self) -> Vec<i16> {
-        self.videos.as_ref().map(|menu| menu.take_pcm()).unwrap_or_default()
+        self.videos
+            .as_ref()
+            .map(|menu| menu.take_pcm())
+            .unwrap_or_default()
     }
 
     pub fn video_volume_gain(&self) -> f32 {
-        self.videos.as_ref().map(|menu| menu.volume_gain()).unwrap_or(0.0)
+        self.videos
+            .as_ref()
+            .map(|menu| menu.volume_gain())
+            .unwrap_or(0.0)
     }
 
     pub fn video_playing(&self) -> bool {
         self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.playing())
+    }
+
+    /// A video is still downloading, so auto sleep and screen-off wait.
+    pub fn download_busy(&self) -> bool {
+        self.root
+            .as_deref()
+            .is_some_and(|root| !crate::video_queue::jobs(root).is_empty())
     }
 
     fn open_quick_row(&mut self, row: QuickRow) {
@@ -2851,29 +3082,48 @@ impl App {
             QuickRow::Videos => self.open_videos(),
             QuickRow::Wifi => {
                 #[cfg(feature = "brick")]
-                {self.wifi=Some(crate::brick_wifi::WifiMenu::new());}
-            },
-            QuickRow::CartArt => {
+                {
+                    self.wifi = Some(crate::brick_wifi::WifiMenu::new());
+                }
+            }
+            QuickRow::CartArt =>
+            {
                 #[cfg(feature = "brick")]
-                if self.net_up {self.wifi=Some(crate::brick_wifi::WifiMenu::cart_art());}
-            },
+                if self.net_up {
+                    self.wifi = Some(crate::brick_wifi::WifiMenu::cart_art());
+                }
+            }
             QuickRow::Achievements => {
                 #[cfg(feature = "brick")]
-                {self.wifi=Some(crate::brick_wifi::WifiMenu::achievements());}
-            },
-            QuickRow::Update => {
+                {
+                    self.wifi = Some(crate::brick_wifi::WifiMenu::achievements());
+                }
+            }
+            QuickRow::Update =>
+            {
                 #[cfg(feature = "brick")]
-                if let (true, Some(root)) = (self.net_up, &self.root) {self.wifi=Some(crate::brick_wifi::WifiMenu::update(root,self.auto_check.newer().cloned()));}
-            },
+                if let (true, Some(root)) = (self.net_up, &self.root) {
+                    self.wifi = Some(crate::brick_wifi::WifiMenu::update(
+                        root,
+                        self.auto_check.newer().cloned(),
+                    ));
+                }
+            }
             QuickRow::DateTime => {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => {
                 self.about = about_texts(self.root.as_deref());
-                self.phase = Phase::QuickMenu { row: QuickRow::ABOUT[0] };
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::ABOUT[0],
+                };
             }
             QuickRow::AboutLabel => self.phase = Phase::About,
-            QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard => {}
+            QuickRow::AboutVersion
+            | QuickRow::AboutBuild
+            | QuickRow::AboutDevice
+            | QuickRow::AboutFirmware
+            | QuickRow::AboutCard => {}
             QuickRow::ResetSettings => match self.reset_asked {
                 None => self.reset_asked = Some(QuickValue::ResetAsk),
                 Some(QuickValue::ResetAsk) => {
@@ -2944,15 +3194,25 @@ impl App {
             | QuickRow::SoundCartOpen
             | QuickRow::SoundLabel
             | QuickRow::SoundVolume
-            | QuickRow::Rumble | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect => {}
+            | QuickRow::Rumble
+            | QuickRow::LedMode
+            | QuickRow::LedTop
+            | QuickRow::LedButtons
+            | QuickRow::LedTriggers
+            | QuickRow::LedSticks
+            | QuickRow::LedColor
+            | QuickRow::LedEffect => {}
         }
     }
 
     fn change_setting(&mut self, row: QuickRow, right: bool) {
         #[cfg(feature = "brick")]
         if row.led_setting() {
-            if let Some(leds)=self.brick_leds.as_mut() {
-                if let Err(e)=leds.change(row,right) { eprintln!("slot: LED setting: {e}"); self.refuse(); }
+            if let Some(leds) = self.brick_leds.as_mut() {
+                if let Err(e) = leds.change(row, right) {
+                    eprintln!("slot: LED setting: {e}");
+                    self.refuse();
+                }
             }
             return;
         }
@@ -2982,7 +3242,11 @@ impl App {
             QuickRow::FastForwardSound => s.ff_sound = !s.ff_sound,
             QuickRow::GbColourCorrection | QuickRow::GbaColourCorrection => {
                 let gba = row == QuickRow::GbaColourCorrection;
-                let on = if gba { &mut s.colour_correction_gba } else { &mut s.colour_correction_gb };
+                let on = if gba {
+                    &mut s.colour_correction_gba
+                } else {
+                    &mut s.colour_correction_gb
+                };
                 *on = !*on;
                 // Only the system being played changes the picture now; the other waits for
                 // its next game.
@@ -3042,7 +3306,9 @@ impl App {
                 s.autosave_min = step(&AUTOSAVE_MINS, s.autosave_min, right);
                 self.autosave_at = self.now() + self.autosave_ms();
             }
-            QuickRow::BatteryShutdown => s.battery_shutdown = step(&BATTERY_SHUTDOWNS, s.battery_shutdown, right),
+            QuickRow::BatteryShutdown => {
+                s.battery_shutdown = step(&BATTERY_SHUTDOWNS, s.battery_shutdown, right)
+            }
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,
             QuickRow::SwapAb => s.swap_ab = !s.swap_ab,
@@ -3061,7 +3327,12 @@ impl App {
                 self.arrange();
                 return;
             }
-            QuickRow::ShowGba | QuickRow::ShowGb | QuickRow::ShowGbc | QuickRow::ShowNes | QuickRow::ShowSnes | QuickRow::ShowPs1 => {
+            QuickRow::ShowGba
+            | QuickRow::ShowGb
+            | QuickRow::ShowGbc
+            | QuickRow::ShowNes
+            | QuickRow::ShowSnes
+            | QuickRow::ShowPs1 => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };
@@ -3087,7 +3358,50 @@ impl App {
                     self.clock_sync_at = 0;
                 }
             }
-            QuickRow::Companion | QuickRow::Videos | QuickRow::GbOverlay | QuickRow::GbcOverlay | QuickRow::GbaOverlay | QuickRow::NesOverlay | QuickRow::SnesOverlay | QuickRow::Ps1Overlay | QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update | QuickRow::System | QuickRow::Library | QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::ScreenGb | QuickRow::ScreenGba | QuickRow::ScreenNes | QuickRow::ScreenSnes | QuickRow::ScreenPs1 | QuickRow::Game | QuickRow::Lights | QuickRow::LedMode | QuickRow::LedTop | QuickRow::LedButtons | QuickRow::LedTriggers | QuickRow::LedSticks | QuickRow::LedColor | QuickRow::LedEffect | QuickRow::Font | QuickRow::Online | QuickRow::Clock | QuickRow::Saving | QuickRow::LibrarySystems | QuickRow::ResetSettings | QuickRow::AboutVersion | QuickRow::AboutBuild | QuickRow::AboutDevice | QuickRow::AboutFirmware | QuickRow::AboutCard | QuickRow::AboutLabel | QuickRow::SystemSounds => return,
+            QuickRow::Companion
+            | QuickRow::Videos
+            | QuickRow::GbOverlay
+            | QuickRow::GbcOverlay
+            | QuickRow::GbaOverlay
+            | QuickRow::NesOverlay
+            | QuickRow::SnesOverlay
+            | QuickRow::Ps1Overlay
+            | QuickRow::Wifi
+            | QuickRow::CartArt
+            | QuickRow::Achievements
+            | QuickRow::Update
+            | QuickRow::System
+            | QuickRow::Library
+            | QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::ScreenGb
+            | QuickRow::ScreenGba
+            | QuickRow::ScreenNes
+            | QuickRow::ScreenSnes
+            | QuickRow::ScreenPs1
+            | QuickRow::Game
+            | QuickRow::Lights
+            | QuickRow::LedMode
+            | QuickRow::LedTop
+            | QuickRow::LedButtons
+            | QuickRow::LedTriggers
+            | QuickRow::LedSticks
+            | QuickRow::LedColor
+            | QuickRow::LedEffect
+            | QuickRow::Font
+            | QuickRow::Online
+            | QuickRow::Clock
+            | QuickRow::Saving
+            | QuickRow::LibrarySystems
+            | QuickRow::ResetSettings
+            | QuickRow::AboutVersion
+            | QuickRow::AboutBuild
+            | QuickRow::AboutDevice
+            | QuickRow::AboutFirmware
+            | QuickRow::AboutCard
+            | QuickRow::AboutLabel
+            | QuickRow::SystemSounds => return,
         }
         self.persist();
     }
@@ -3125,7 +3439,10 @@ impl App {
             #[cfg(feature = "brick")]
             if matches!(self.phase, Phase::Playing { .. }) && !self.menu_over_game() {
                 if let Some(leds) = &mut self.brick_leds {
-                    if let Err(e) = leds.toggle() { eprintln!("slot: LED shortcut: {e}"); self.refuse(); }
+                    if let Err(e) = leds.toggle() {
+                        eprintln!("slot: LED shortcut: {e}");
+                        self.refuse();
+                    }
                 }
             }
             return true;
@@ -3161,7 +3478,9 @@ impl App {
         }
         if action == Action::ColourCorrectionToggle {
             // A NES or SNES drew on a TV: there is no LCD colour to correct.
-            if matches!(self.platform, Platform::Nes | Platform::Snes) && matches!(self.phase, Phase::Playing { .. }) {
+            if matches!(self.platform, Platform::Nes | Platform::Snes)
+                && matches!(self.phase, Phase::Playing { .. })
+            {
                 self.refuse();
                 return true;
             }
@@ -3292,7 +3611,9 @@ impl App {
 
     #[cfg(feature = "brick")]
     pub fn set_brick_mute(&mut self, muted: bool) {
-        if self.brick_mute == Some(muted) {return;}
+        if self.brick_mute == Some(muted) {
+            return;
+        }
         let initial = self.brick_mute.is_none();
         self.brick_mute = Some(muted);
         if !muted && !initial {
@@ -3300,12 +3621,19 @@ impl App {
             self.state.muted_hp = false;
         }
         if !initial {
-            self.hud.show(HudKind::Volume,self.output_volume(),self.muted(),self.now());
+            self.hud.show(
+                HudKind::Volume,
+                self.output_volume(),
+                self.muted(),
+                self.now(),
+            );
         }
     }
     pub fn muted(&self) -> bool {
         #[cfg(feature = "brick")]
-        if self.brick_mute == Some(true) {return true;}
+        if self.brick_mute == Some(true) {
+            return true;
+        }
         if self.headphones {
             self.state.muted_hp
         } else {
@@ -3440,7 +3768,9 @@ impl App {
             }
             self.record_cart(seated);
             // Back on the shelf: the game just played may have moved up.
-            if matches!(self.phase, Phase::Shelf) && self.state.library_sort != slot_store::LibrarySort::Az {
+            if matches!(self.phase, Phase::Shelf)
+                && self.state.library_sort != slot_store::LibrarySort::Az
+            {
                 self.save_library();
                 self.arrange();
             }
@@ -3506,14 +3836,26 @@ impl App {
 
     fn timers(&mut self) {
         let now = self.now();
-        if self.banner.as_ref().is_some_and(|b| now.saturating_sub(b.4) >= BANNER_MS) {
+        if self
+            .banner
+            .as_ref()
+            .is_some_and(|b| now.saturating_sub(b.4) >= BANNER_MS)
+        {
             self.banner = None;
         }
         // A toast whose badge is still downloading waits for it, but not for long.
         let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
-        let notes = self.videos.as_mut().map(|videos| videos.poll()).unwrap_or_default();
+        if let Some(root) = self.root.clone() {
+            let playing = matches!(self.phase, Phase::Playing { .. }) && !self.menu_over_game();
+            crate::video_queue::note_game(&root, playing);
+        }
+        let notes = self
+            .videos
+            .as_mut()
+            .map(|videos| videos.poll())
+            .unwrap_or_default();
         let saved = notes.iter().any(|(title, _)| title == "Saved");
         for (title, detail) in notes {
             self.announce(&title, &detail);
@@ -3529,16 +3871,47 @@ impl App {
         }
         #[cfg(feature = "brick")]
         {
-            let battery = self.battery.map(|b| (b.percent, matches!(b.charge, Charge::Charging | Charge::Full)));
-            if let Some(wifi)=&mut self.wifi {wifi.set_battery(battery);wifi.poll();}
-            if self.wifi.as_mut().is_some_and(|w|w.take_restart()) {self.updating=true;self.wifi_power=None;}
-            for f in self.wifi.as_mut().map(|w|w.take_fetched()).unwrap_or_default() {self.adopt_label(f.platform,&f.stem,f.label);}
-            if let Some(newer)=self.wifi.as_mut().and_then(|w|w.take_update_verdict()) {let now=self.now();self.auto_check.set(now,newer);}
-            if let Some(t)=self.wifi.as_mut().and_then(|w|w.take_test_unlock()) {
-                self.achievement_notice(slot_cheevos::Notice::Unlocked{title:t.title,description:t.description,points:t.points,badge:String::new()},t.badge);
+            let battery = self.battery.map(|b| {
+                (
+                    b.percent,
+                    matches!(b.charge, Charge::Charging | Charge::Full),
+                )
+            });
+            if let Some(wifi) = &mut self.wifi {
+                wifi.set_battery(battery);
+                wifi.poll();
             }
-            if self.wifi.as_ref().map(|w|!w.busy()).unwrap_or(true) {
-                if let Some(action)=self.wifi_power.take(){self.apply(action);}
+            if self.wifi.as_mut().is_some_and(|w| w.take_restart()) {
+                self.updating = true;
+                self.wifi_power = None;
+            }
+            for f in self
+                .wifi
+                .as_mut()
+                .map(|w| w.take_fetched())
+                .unwrap_or_default()
+            {
+                self.adopt_label(f.platform, &f.stem, f.label);
+            }
+            if let Some(newer) = self.wifi.as_mut().and_then(|w| w.take_update_verdict()) {
+                let now = self.now();
+                self.auto_check.set(now, newer);
+            }
+            if let Some(t) = self.wifi.as_mut().and_then(|w| w.take_test_unlock()) {
+                self.achievement_notice(
+                    slot_cheevos::Notice::Unlocked {
+                        title: t.title,
+                        description: t.description,
+                        points: t.points,
+                        badge: String::new(),
+                    },
+                    t.badge,
+                );
+            }
+            if self.wifi.as_ref().map(|w| !w.busy()).unwrap_or(true) {
+                if let Some(action) = self.wifi_power.take() {
+                    self.apply(action);
+                }
             }
         }
         #[cfg(feature = "brick")]
@@ -3562,17 +3935,26 @@ impl App {
             }
             self.net_on = self.net_up || crate::brick_wifi::radio_on();
             let in_game = matches!(self.phase, Phase::Playing { .. } | Phase::Inserting { .. });
-            let (now, allowed) = (self.now(), self.state.update_check && self.net_up && !in_game);
+            let (now, allowed) = (
+                self.now(),
+                self.state.update_check && self.net_up && !in_game,
+            );
             if let Some(root) = &self.root {
                 self.auto_check.poll(root, now, allowed);
             }
             // On but offline: joined with no address, as waking from sleep can leave it, is
             // put right without turning Wi-Fi off and on. Not while the Wi-Fi screen is busy.
-            if self.net_on && !self.net_up && self.wifi.is_none() && self.now() >= self.lease_check_at {
+            if self.net_on
+                && !self.net_up
+                && self.wifi.is_none()
+                && self.now() >= self.lease_check_at
+            {
                 self.lease_check_at = self.now() + 5_000;
                 crate::brick_wifi::keep_lease();
             }
-            if let Ok(value) = std::fs::read_to_string(slot_power::hw("/sys/class/gpio/gpio243/value")) {
+            if let Ok(value) =
+                std::fs::read_to_string(slot_power::hw("/sys/class/gpio/gpio243/value"))
+            {
                 match value.trim() {
                     "0" => self.set_brick_mute(false),
                     "1" => self.set_brick_mute(true),
@@ -3611,6 +3993,15 @@ impl App {
             self.battery_at = self.now() + BATTERY_POLL_MS;
             self.battery = self.power.as_ref().and_then(|p| p.battery());
             if let Some(b) = self.battery {
+                let charging = matches!(b.charge, Charge::Charging | Charge::Full);
+                if b.percent <= 10 && !charging {
+                    if !self.low_battery_told {
+                        self.low_battery_told = true;
+                        self.announce("Battery low", "10% left. Plug in soon.");
+                    }
+                } else if b.percent > 10 {
+                    self.low_battery_told = false;
+                }
                 self.on_battery(b);
             }
         }
@@ -3829,12 +4220,17 @@ impl App {
 
     /// A toast with an image on its left (a badge, cached at `badge` or on its way there).
     pub fn announce_with(&mut self, title: &str, detail: &str, badge: Option<std::path::PathBuf>) {
-        self.banners.push_back((title.to_string(), detail.to_string(), badge, self.now()));
+        self.banners
+            .push_back((title.to_string(), detail.to_string(), badge, self.now()));
     }
 
     /// What RetroAchievements said, as a toast (or nothing worth interrupting play for).
     /// `badge`: where its image is cached, for unlocks and the game's own icon.
-    pub fn achievement_notice(&mut self, notice: slot_cheevos::Notice, badge: Option<std::path::PathBuf>) {
+    pub fn achievement_notice(
+        &mut self,
+        notice: slot_cheevos::Notice,
+        badge: Option<std::path::PathBuf>,
+    ) {
         use slot_cheevos::Notice;
         match notice {
             Notice::LoggedIn(Ok(())) | Notice::LeaderboardFailed { .. } => {}
@@ -3845,7 +4241,12 @@ impl App {
                 _ => self.announce_with("Achievements", &summary, badge),
             },
             Notice::GameLoaded(Err(e)) => self.announce("No achievements", &e),
-            Notice::Unlocked { title, description, points, .. } => {
+            Notice::Unlocked {
+                title,
+                description,
+                points,
+                ..
+            } => {
                 self.companion.note_cheer();
                 self.announce_with(&title, &format!("{points} pts - {description}"), badge)
             }
@@ -3853,7 +4254,9 @@ impl App {
                 self.companion.note_cheer();
                 self.announce_with("Every achievement earned", &title, badge)
             }
-            Notice::LeaderboardStarted { title, .. } => self.announce("Leaderboard attempt", &title),
+            Notice::LeaderboardStarted { title, .. } => {
+                self.announce("Leaderboard attempt", &title)
+            }
             Notice::LeaderboardSubmitted { title, score } => self.announce(&title, &score),
             Notice::ServerError { message, .. } => self.announce("Server error", &message),
             Notice::Disconnected => self.announce("Offline", "Unlocks will be sent later"),
@@ -3864,7 +4267,8 @@ impl App {
     /// The toast showing, if its face still has to be rendered: (id, title, detail, badge).
     pub fn banner_to_render(&self) -> Option<(u64, String, String, Option<std::path::PathBuf>)> {
         let (id, title, detail, badge, _) = self.banner.as_ref()?;
-        (self.banner_face.map(|(f, _)| f) != Some(*id)).then(|| (*id, title.clone(), detail.clone(), badge.clone()))
+        (self.banner_face.map(|(f, _)| f) != Some(*id))
+            .then(|| (*id, title.clone(), detail.clone(), badge.clone()))
     }
 
     pub fn set_banner_face(&mut self, id: u64, tex: TexId) {
@@ -3877,7 +4281,8 @@ impl App {
     }
 
     fn draw_banner(&self, out: &mut Vec<Draw>) {
-        let (Some((id, _, _, _, since)), Some((face_id, tex))) = (&self.banner, self.banner_face) else {
+        let (Some((id, _, _, _, since)), Some((face_id, tex))) = (&self.banner, self.banner_face)
+        else {
             return;
         };
         if *id != face_id {
@@ -3904,10 +4309,20 @@ impl App {
         let face = if self.pip.is_some() {
             self.pip.as_ref().and_then(|menu| menu.face)
         } else {
-            self.videos.as_ref().filter(|_| self.videos_visible).and_then(|menu| menu.face)
+            self.videos
+                .as_ref()
+                .filter(|_| self.videos_visible)
+                .and_then(|menu| menu.face)
         };
         if let Some(tex) = face {
-            out.push(Draw::Tex { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, tex, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x: 0.0,
+                y: 0.0,
+                w: OUT_W as f32,
+                h: OUT_H as f32,
+                tex,
+                alpha: 1.0,
+            });
         }
         if self.videos_visible {
             if let Some(tex) = self.videos.as_ref().and_then(|menu| menu.frame_face) {
@@ -3955,8 +4370,18 @@ impl App {
             return;
         }
         #[cfg(feature = "brick")]
-        if let Some(wifi)=&self.wifi {
-            if let Some(tex)=wifi.face {out.push(Draw::Tex{x:0.0,y:0.0,w:640.0,h:480.0,tex,alpha:1.0});return;}
+        if let Some(wifi) = &self.wifi {
+            if let Some(tex) = wifi.face {
+                out.push(Draw::Tex {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 640.0,
+                    h: 480.0,
+                    tex,
+                    alpha: 1.0,
+                });
+                return;
+            }
         }
         if self.pip.is_some() || self.videos_visible {
             self.draw_sheet(out);
@@ -3978,15 +4403,31 @@ impl App {
                 picker.draw(line, hint, back, out);
                 return;
             }
-            Phase::QuickMenu { row } => QuickMenu {
-                row: *row,
-                values: QuickRow::ALL.map(|r| self.quick_value(r)),
-                clock: self.quick_clock_faces,
-                texts: QuickRow::ALL.map(|r| self.named_texts[r.named()?].as_ref().map(|(_, faces)| *faces)),
-                faces: self.quick_menu_faces.as_ref(),
-                disabled: QuickRow::ALL.map(|r| self.quick_disabled(r)),
+            Phase::QuickMenu { row } => {
+                QuickMenu {
+                    row: *row,
+                    values: QuickRow::ALL.map(|r| self.quick_value(r)),
+                    clock: self.quick_clock_faces,
+                    texts: QuickRow::ALL.map(|r| {
+                        self.named_texts[r.named()?]
+                            .as_ref()
+                            .map(|(_, faces)| *faces)
+                    }),
+                    faces: self.quick_menu_faces.as_ref(),
+                    disabled: QuickRow::ALL.map(|r| self.quick_disabled(r)),
+                }
+                .draw(out);
+                crate::menu_status::start();
+                let live = crate::menu_status::current();
+                slot_ui::draw_menu_header(
+                    live.percent,
+                    live.charging,
+                    self.battery_percent,
+                    self.bolt,
+                    live.wifi,
+                    out,
+                );
             }
-            .draw(out),
             Phase::Shelf => {
                 draw_backdrop(self.wallpaper, out);
                 match (self.core_picker_shown(), self.selected_stem()) {
@@ -3994,7 +4435,13 @@ impl App {
                     _ if self.disc_picker.is_some() => {
                         let picker = self.disc_picker.as_ref().expect("checked above");
                         let open = ease(picker.openness(self.now()));
-                        self.shelf().draw_row(Some(&picker.stem), 0.0, CORE_PICKER_RECEDE * open, 1.0, out);
+                        self.shelf().draw_row(
+                            Some(&picker.stem),
+                            0.0,
+                            CORE_PICKER_RECEDE * open,
+                            1.0,
+                            out,
+                        );
                         let fallback = self.shelf().find(&picker.stem).and_then(|(_, f)| f);
                         picker.draw(&self.disc_faces, fallback, self.now(), out);
                         draw_empty_slot(out);
@@ -4007,14 +4454,24 @@ impl App {
                         draw_empty_slot(out);
                     }
                     _ if self.video_focus => {
-                        slot_ui::draw_title_card(self.title_card, slot_ui::tape_foot(), self.title_card_alpha(), out);
+                        slot_ui::draw_title_card(
+                            self.title_card,
+                            slot_ui::tape_foot(),
+                            self.title_card_alpha(),
+                            out,
+                        );
                         self.draw_tapes(out);
                         draw_empty_slot(out);
                         draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                     _ => {
                         if let Some(foot) = self.shelf().selected_foot() {
-                            slot_ui::draw_title_card(self.title_card, foot, self.title_card_alpha(), out);
+                            slot_ui::draw_title_card(
+                                self.title_card,
+                                foot,
+                                self.title_card_alpha(),
+                                out,
+                            );
                         }
                         self.shelf().draw(self.shelf_shake(), out);
                         draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
@@ -4139,7 +4596,11 @@ impl App {
             return;
         };
         // A disc picked from a game's several goes in wearing its own face.
-        let face = self.chosen_disc.and_then(|(_, f)| f).filter(|_| cart.platform == Platform::Ps1).or(face);
+        let face = self
+            .chosen_disc
+            .and_then(|(_, f)| f)
+            .filter(|_| cart.platform == Platform::Ps1)
+            .or(face);
         let alpha = self.alert_alpha();
         let (rest, scale) = self.shelf().selected_at();
         SlotChrome {
@@ -4355,15 +4816,35 @@ impl App {
         }
 
         // While a sticker is on its way the lid lies shut with its slot clear, for it to land in.
-        let clear = self.peel.as_ref().filter(|p| p.picker).zip(self.label_adjust_faces.as_ref());
+        let clear = self
+            .peel
+            .as_ref()
+            .filter(|p| p.picker)
+            .zip(self.label_adjust_faces.as_ref());
         if let Some((peel, faces)) = clear {
             // The recess is the cart's plastic, as chosen, a shade darker: the board must not
             // show through it.
             let (sx, sy, sw, sh) = peel.to;
-            let colour = self.picker_look.as_ref().map_or(slot_ui::opening(), |look| recess_colour(look.plastic()));
-            out.push(Draw::Rect { x: sx, y: sy, w: sw, h: sh, colour });
+            let colour = self
+                .picker_look
+                .as_ref()
+                .map_or(slot_ui::opening(), |look| recess_colour(look.plastic()));
+            out.push(Draw::Rect {
+                x: sx,
+                y: sy,
+                w: sw,
+                h: sh,
+                colour,
+            });
             let (x, y, w, h) = self.picker_front();
-            out.push(Draw::Tex { x, y, w, h, tex: faces.cart, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x,
+                y,
+                w,
+                h,
+                tex: faces.cart,
+                alpha: 1.0,
+            });
         } else if ready {
             if let Some(tex) = self.core_lid_face {
                 let (lid, turn) = lid_from(shelf, progress);
@@ -4398,7 +4879,10 @@ impl App {
         // Finish, A. A face is drawn HINT_EDGE wider than its ink.
         let hints = &self.core_legend_faces;
         if !hints.is_empty() {
-            let inked: f32 = hints.iter().map(|(_, w)| w.saturating_sub(HINT_EDGE) as f32).sum();
+            let inked: f32 = hints
+                .iter()
+                .map(|(_, w)| w.saturating_sub(HINT_EDGE) as f32)
+                .sum();
             let room = OUT_W as f32 - 2.0 * CORE_LEGEND_MARGIN;
             let gaps = (hints.len() - 1) as f32;
             let gap = ((room - inked) / gaps).clamp(8.0, slot_ui::LEGEND_GAP);
@@ -4534,7 +5018,13 @@ impl App {
                     .and_then(|r| slot_store::ini::value(r, crate::disc_picker::DISCS_FILE, &stem))
                     .and_then(|v| v.parse::<usize>().ok())
                     .map_or(0, |n| n.saturating_sub(1));
-                self.disc_picker = Some(crate::disc_picker::DiscPicker::open(stem, discs, last, clean, self.now()));
+                self.disc_picker = Some(crate::disc_picker::DiscPicker::open(
+                    stem,
+                    discs,
+                    last,
+                    clean,
+                    self.now(),
+                ));
                 self.disc_faces.clear();
                 self.disc_faces_wanted = true;
             }
@@ -4557,7 +5047,12 @@ impl App {
                 let (at, clean) = (picker.selected(), picker.clean);
                 if let Some(root) = &self.root {
                     let n = (at + 1).to_string();
-                    if let Err(e) = slot_store::ini::write(root, crate::disc_picker::DISCS_FILE, &picker.stem, &n) {
+                    if let Err(e) = slot_store::ini::write(
+                        root,
+                        crate::disc_picker::DISCS_FILE,
+                        &picker.stem,
+                        &n,
+                    ) {
                         eprintln!("slot: discs: {e}");
                     }
                 }
@@ -4577,7 +5072,12 @@ impl App {
             return None;
         }
         let picker = self.disc_picker.as_ref()?;
-        let game = self.shelf().carts.iter().find(|c| c.stem == picker.stem)?.clone();
+        let game = self
+            .shelf()
+            .carts
+            .iter()
+            .find(|c| c.stem == picker.stem)?
+            .clone();
         let root = self.root.clone();
         Some(
             picker
@@ -4586,8 +5086,14 @@ impl App {
                 .enumerate()
                 .map(|(i, disc)| {
                     let mut cart = game.clone();
-                    let stem = disc.file_stem().and_then(|s| s.to_str()).unwrap_or(&game.stem).to_string();
-                    let own = root.as_ref().and_then(|r| slot_store::labels_of(r, Platform::Ps1, &stem).0);
+                    let stem = disc
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&game.stem)
+                        .to_string();
+                    let own = root
+                        .as_ref()
+                        .and_then(|r| slot_store::labels_of(r, Platform::Ps1, &stem).0);
                     cart.label = own.or(game.label.clone());
                     cart.stem = stem;
                     (cart, i + 1)
@@ -4702,7 +5208,9 @@ impl App {
 
     fn doze(&mut self) {
         #[cfg(feature = "brick")]
-        {self.wifi=None;}
+        {
+            self.wifi = None;
+        }
         self.pip = None;
         self.companion.settle();
         self.save_companion();
@@ -4737,7 +5245,9 @@ impl App {
         self.dozed_at = self.now();
         #[cfg(feature = "brick")]
         if let Some(leds) = &mut self.brick_leds {
-            if let Err(e) = leds.sleep() { eprintln!("slot: LEDs sleep: {e}"); }
+            if let Err(e) = leds.sleep() {
+                eprintln!("slot: LEDs sleep: {e}");
+            }
         }
         self.radio.ask(RadioJob::Cool);
         if let Some(power) = &mut self.power {
@@ -4748,8 +5258,13 @@ impl App {
     /// Idle timeout: same as a power press, but only from calm screens and never mid-link.
     #[cfg(feature = "brick")]
     pub(crate) fn idle_doze(&mut self) {
-        if self.link_active() {return}
-        if matches!(self.phase, Phase::Shelf | Phase::QuickMenu { .. } | Phase::Playing { .. }) {
+        if self.link_active() {
+            return;
+        }
+        if matches!(
+            self.phase,
+            Phase::Shelf | Phase::QuickMenu { .. } | Phase::Playing { .. }
+        ) {
             self.doze();
         }
     }
@@ -4764,7 +5279,9 @@ impl App {
         };
         #[cfg(feature = "brick")]
         if let Some(leds) = &mut self.brick_leds {
-            if let Err(e) = leds.wake() { eprintln!("slot: LEDs wake: {e}"); }
+            if let Err(e) = leds.wake() {
+                eprintln!("slot: LEDs wake: {e}");
+            }
         }
         if let Some(power) = &mut self.power {
             power.on_open();
@@ -4964,10 +5481,16 @@ impl App {
         };
         let (found, stem) = (pick.choices.len(), pick.stem.clone());
         let by: isize = match action {
-            Action::GbaDown(Btn::B) | Action::GbaDown(Btn::Start) => return self.end_label_pick(false),
+            Action::GbaDown(Btn::B) | Action::GbaDown(Btn::Start) => {
+                return self.end_label_pick(false)
+            }
             // Nothing found yet means nothing to frame: A then just goes back.
             Action::GbaDown(Btn::A) | Action::Insert => {
-                return if found > 0 { self.open_label_adjust() } else { self.end_label_pick(false) }
+                return if found > 0 {
+                    self.open_label_adjust()
+                } else {
+                    self.end_label_pick(false)
+                }
             }
             Action::GbaDown(Btn::Y) => {
                 self.close_label_grid();
@@ -5004,10 +5527,16 @@ impl App {
         };
         let (source, cut) = (choice.source.clone(), choice.frame);
         // The picture has to be readable to be framed; if it is not, keep the cut as it is.
-        let Some(size) = std::fs::read(&source).ok().and_then(|png| crate::cart_art::png_size(&png)) else {
+        let Some(size) = std::fs::read(&source)
+            .ok()
+            .and_then(|png| crate::cart_art::png_size(&png))
+        else {
             return self.end_label_pick(true);
         };
-        let Some(cart) = self.shelf_index_of(&pick.stem).and_then(|i| self.shelf().carts.get(i)) else {
+        let Some(cart) = self
+            .shelf_index_of(&pick.stem)
+            .and_then(|i| self.shelf().carts.get(i))
+        else {
             return;
         };
         // As the shelf's faces do: the scan leaves ROM headers unread, and a GBA cart's own
@@ -5016,8 +5545,17 @@ impl App {
         cart.read_header();
         let (face, slot) = slot_ui::cart_cutout_face(&cart);
         let crop = (cut.x as f32, cut.y as f32, cut.w as f32, cut.h as f32);
-        let mut adjust =
-            Adjust { source, size, crop, original: crop, face: (face.w, face.h), slot, cart, sizing: false, held: None };
+        let mut adjust = Adjust {
+            source,
+            size,
+            crop,
+            original: crop,
+            face: (face.w, face.h),
+            slot,
+            cart,
+            sizing: false,
+            held: None,
+        };
         adjust.clamp();
         if let Some(pick) = &mut self.label_pick {
             pick.adjust = Some(adjust);
@@ -5136,7 +5674,8 @@ impl App {
             return;
         }
         let run = held - REPEAT_DELAY_MS;
-        let every = REPEAT_MS - (REPEAT_MS - REPEAT_FAST_MS) * run.min(REPEAT_RAMP_MS) / REPEAT_RAMP_MS;
+        let every =
+            REPEAT_MS - (REPEAT_MS - REPEAT_FAST_MS) * run.min(REPEAT_RAMP_MS) / REPEAT_RAMP_MS;
         if now.saturating_sub(last) < every {
             return;
         }
@@ -5148,14 +5687,22 @@ impl App {
     fn keep_framed_label(&mut self, source: &Path, frame: crate::cart_art::Frame) {
         // Where the slot was on the framing screen, read before the framing ends.
         let framing = self.label_adjust_layout();
-        let slot = self.label_pick.as_ref().and_then(|p| p.adjust.as_ref()).map(|a| (a.face, a.slot));
+        let slot = self
+            .label_pick
+            .as_ref()
+            .and_then(|p| p.adjust.as_ref())
+            .map(|a| (a.face, a.slot));
         let Some(pick) = self.label_pick.take() else {
             return;
         };
         let Some(root) = self.root.clone() else {
             return;
         };
-        let Some(mut cart) = self.shelf_index_of(&pick.stem).and_then(|i| self.shelf().carts.get(i)).cloned() else {
+        let Some(mut cart) = self
+            .shelf_index_of(&pick.stem)
+            .and_then(|i| self.shelf().carts.get(i))
+            .cloned()
+        else {
             return;
         };
         (cart.label, cart.famicom_label) = pick.original.clone();
@@ -5171,7 +5718,17 @@ impl App {
             None
         };
         if let (Some(framing), Some(slot), Some(on)) = (framing, slot, on) {
-            if let Some(peel) = Peel::start(&root, cart.clone(), source, frame, framing, slot, on, picker, self.now()) {
+            if let Some(peel) = Peel::start(
+                &root,
+                cart.clone(),
+                source,
+                frame,
+                framing,
+                slot,
+                on,
+                picker,
+                self.now(),
+            ) {
                 self.peel = Some(peel);
                 if let Some(p) = &mut self.core_picker {
                     if picker {
@@ -5200,13 +5757,15 @@ impl App {
             return;
         };
         let kept = peel.poll();
-        let (stem, platform, started, asked) = (peel.stem.clone(), peel.platform, peel.started, peel.asked);
+        let (stem, platform, started, asked) =
+            (peel.stem.clone(), peel.platform, peel.started, peel.asked);
         let peel_on_picker = peel.picker;
         // Nothing to fly: the label could not be cut, so there are no curls.
         let nothing = peel.curled && peel.baked.is_none() && peel.faces.is_none();
         let written = peel.written;
         // The slap, started early enough to land as the label touches down.
-        let slap_at = slot_ui::PEEL_LAND_MS.saturating_sub((Sfx::Label(0).lead() * 1000.0) as Millis);
+        let slap_at =
+            slot_ui::PEEL_LAND_MS.saturating_sub((Sfx::Label(0).lead() * 1000.0) as Millis);
         let slap = !peel.sounded && started.is_some_and(|at| now.saturating_sub(at) >= slap_at);
         peel.sounded |= slap;
         if slap {
@@ -5233,7 +5792,9 @@ impl App {
         }
         let face_ready = match peel_on_picker {
             true => self.core_faces_ready(),
-            false => self.shelf_index_of(&stem).is_none_or(|i| self.shelf().face(i).is_some()),
+            false => self
+                .shelf_index_of(&stem)
+                .is_none_or(|i| self.shelf().face(i).is_some()),
         };
         let over = match started {
             // Flat on the cart, and the cart's own face ready to take over from it.
@@ -5323,8 +5884,13 @@ impl App {
     pub fn label_grid_page(&self) -> Option<(usize, Vec<PathBuf>, String)> {
         let pick = self.label_pick.as_ref().filter(|p| p.grid)?;
         let page = pick.page();
-        let paths: Vec<PathBuf> =
-            pick.choices.iter().skip(page * slot_ui::PAGE).take(slot_ui::PAGE).map(|c| c.path.clone()).collect();
+        let paths: Vec<PathBuf> = pick
+            .choices
+            .iter()
+            .skip(page * slot_ui::PAGE)
+            .take(slot_ui::PAGE)
+            .map(|c| c.path.clone())
+            .collect();
         Some((page, paths, pick.grid_caption()))
     }
 
@@ -5338,7 +5904,11 @@ impl App {
 
     /// Y on the label row (or in the core picker): the keyboard, starting from the game's name.
     fn type_label_search(&mut self, stem: &str) {
-        let Some(cart) = self.shelf_index_of(stem).and_then(|i| self.shelf().carts.get(i)).cloned() else {
+        let Some(cart) = self
+            .shelf_index_of(stem)
+            .and_then(|i| self.shelf().carts.get(i))
+            .cloned()
+        else {
             return;
         };
         // Y is greyed out without Wi-Fi, so there is nothing to say here: it simply does not go.
@@ -5348,7 +5918,10 @@ impl App {
         let pick = self.label_pick.get_or_insert_with(|| LabelPick::new(&cart));
         #[cfg(feature = "brick")]
         {
-            let start = pick.query.clone().unwrap_or_else(|| slot_ui::label_text(&cart));
+            let start = pick
+                .query
+                .clone()
+                .unwrap_or_else(|| slot_ui::label_text(&cart));
             self.wifi = Some(crate::brick_wifi::WifiMenu::label_query(&start));
         }
     }
@@ -5361,7 +5934,11 @@ impl App {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let Some(cart) = self.shelf_index_of(stem).and_then(|i| self.shelf().carts.get(i)).cloned() else {
+        let Some(cart) = self
+            .shelf_index_of(stem)
+            .and_then(|i| self.shelf().carts.get(i))
+            .cloned()
+        else {
             return;
         };
         let net_up = self.online();
@@ -5389,7 +5966,11 @@ impl App {
             return;
         };
         let (own, famicom) = pick.original.clone();
-        let chosen = pick.at.checked_sub(1).and_then(|i| pick.choices.get(i)).map(|c| c.path.clone());
+        let chosen = pick
+            .at
+            .checked_sub(1)
+            .and_then(|i| pick.choices.get(i))
+            .map(|c| c.path.clone());
         let stem = pick.stem.clone();
         let Some(index) = self.shelf_index_of(&stem) else {
             return;
@@ -5418,7 +5999,11 @@ impl App {
             return;
         };
         pick.search = None;
-        let chosen = pick.at.checked_sub(1).and_then(|i| pick.choices.get(i)).map(|c| c.path.clone());
+        let chosen = pick
+            .at
+            .checked_sub(1)
+            .and_then(|i| pick.choices.get(i))
+            .map(|c| c.path.clone());
         let (Some(root), Some(path), true) = (self.root.clone(), chosen, keep) else {
             pick.at = 0;
             self.label_pick = Some(pick);
@@ -5429,7 +6014,11 @@ impl App {
             }
             return;
         };
-        let Some(mut cart) = self.shelf_index_of(&pick.stem).and_then(|i| self.shelf().carts.get(i)).cloned() else {
+        let Some(mut cart) = self
+            .shelf_index_of(&pick.stem)
+            .and_then(|i| self.shelf().carts.get(i))
+            .cloned()
+        else {
             return;
         };
         (cart.label, cart.famicom_label) = pick.original.clone();
@@ -5488,8 +6077,18 @@ impl App {
     /// pictures both cost allocations to work out, and most frames change neither.
     pub fn label_grid_key(&self) -> Option<GridKey> {
         let pick = self.label_pick.as_ref().filter(|p| p.grid)?;
-        let on_page = pick.choices.len().saturating_sub(pick.page() * slot_ui::PAGE).min(slot_ui::PAGE);
-        Some((pick.page(), on_page, pick.cursor(), pick.choices.len(), pick.search.is_some()))
+        let on_page = pick
+            .choices
+            .len()
+            .saturating_sub(pick.page() * slot_ui::PAGE)
+            .min(slot_ui::PAGE);
+        Some((
+            pick.page(),
+            on_page,
+            pick.cursor(),
+            pick.choices.len(),
+            pick.search.is_some(),
+        ))
     }
 
     /// The same for the framing screen.
@@ -5507,7 +6106,9 @@ impl App {
 
     /// The words the grid was last given, which change far more often than its pictures.
     pub fn label_grid_caption_built(&self) -> Option<&str> {
-        self.label_grid_faces.as_ref().map(|g| g.caption_built.as_str())
+        self.label_grid_faces
+            .as_ref()
+            .map(|g| g.caption_built.as_str())
     }
 
     pub fn set_label_grid_faces(
@@ -5519,7 +6120,14 @@ impl App {
         cells: Vec<Option<(TexId, u32, u32)>>,
         legend: [(TexId, u32); 3],
     ) {
-        self.label_grid_faces = Some(LabelGridFaces { built, caption_built, title, caption, cells, legend });
+        self.label_grid_faces = Some(LabelGridFaces {
+            built,
+            caption_built,
+            title,
+            caption,
+            cells,
+            legend,
+        });
     }
 
     /// Only the words again: the pictures on the page have not changed.
@@ -5531,7 +6139,10 @@ impl App {
 
     /// What was typed, for the grid's heading.
     pub fn label_grid_query(&self) -> Option<String> {
-        self.label_pick.as_ref().filter(|p| p.grid).and_then(|p| p.query.clone())
+        self.label_pick
+            .as_ref()
+            .filter(|p| p.grid)
+            .and_then(|p| p.query.clone())
     }
 
     /// The cart on the shelf wears `shell`; its face is rebuilt for the next frame.
@@ -5553,7 +6164,8 @@ impl App {
             return;
         };
         let value = chosen.map_or("auto".to_string(), |c| c.to_value());
-        let written = slot_store::ini::write(&root, slot_store::LABELS_SHELL_FILE, &menu.stem, &value);
+        let written =
+            slot_store::ini::write(&root, slot_store::LABELS_SHELL_FILE, &menu.stem, &value);
         if let Err(e) = &written {
             eprintln!("slot: cart shell: {e}");
         }
@@ -5566,8 +6178,12 @@ impl App {
         // While a sticker is on its way the slot is clear, for the sticker to land in.
         let peel = self.peel.as_ref().filter(|p| p.stem == menu.stem);
         let clear = peel.and(self.label_adjust_faces.as_ref());
-        let tex = clear.map(|f| f.cart).or_else(|| index.and_then(|i| self.shelf().face(i)));
-        let recess = clear.and(peel).map(|p| (recess_colour(menu.plastic()), p.to));
+        let tex = clear
+            .map(|f| f.cart)
+            .or_else(|| index.and_then(|i| self.shelf().face(i)));
+        let recess = clear
+            .and(peel)
+            .map(|p| (recess_colour(menu.plastic()), p.to));
         let face = tex.zip(cart).map(|(tex, cart)| {
             let (w, h) = slot_ui::cart_box(cart.platform);
             (tex, w, h)
@@ -5613,7 +6229,10 @@ impl App {
         let (stand, frame) = slot_ui::slot_stand(adjust.face, adjust.slot);
         let (cx, cy, cw, ch) = stand;
         // The picture behind, stretched so the piece inside the slot fills it exactly.
-        let (sx, sy) = (frame.2 / adjust.crop.2.max(1.0), frame.3 / adjust.crop.3.max(1.0));
+        let (sx, sy) = (
+            frame.2 / adjust.crop.2.max(1.0),
+            frame.3 / adjust.crop.3.max(1.0),
+        );
         let picture = (
             frame.0 - adjust.crop.0 * sx,
             frame.1 - adjust.crop.1 * sy,
@@ -5637,7 +6256,11 @@ impl App {
             true => format!("{across:.0}%"),
             false => format!("{across:.0}% x {down:.0}%  stretched"),
         };
-        Some((adjust.source.clone(), format!("{}   {size}", choice.caption), cart))
+        Some((
+            adjust.source.clone(),
+            format!("{}   {size}", choice.caption),
+            cart,
+        ))
     }
 
     /// The hints already uploaded, so moving the frame does not draw them again.
@@ -5646,7 +6269,9 @@ impl App {
     }
 
     pub fn label_adjust_built(&self) -> Option<(&Path, &str)> {
-        self.label_adjust_faces.as_ref().map(|f| (f.built.0.as_path(), f.built.1.as_str()))
+        self.label_adjust_faces
+            .as_ref()
+            .map(|f| (f.built.0.as_path(), f.built.1.as_str()))
     }
 
     pub fn set_label_adjust_faces(
@@ -5657,16 +6282,29 @@ impl App {
         caption: (TexId, u32, u32),
         legend: [(TexId, u32); 5],
     ) {
-        self.label_adjust_faces = Some(LabelAdjustFaces { built, picture, cart, caption, legend });
+        self.label_adjust_faces = Some(LabelAdjustFaces {
+            built,
+            picture,
+            cart,
+            caption,
+            legend,
+        });
     }
 
     fn draw_label_grid(&self, out: &mut Vec<Draw>) {
-        let cells = self.label_grid_faces.as_ref().map(|g| g.cells.as_slice()).unwrap_or(&[]);
+        let cells = self
+            .label_grid_faces
+            .as_ref()
+            .map(|g| g.cells.as_slice())
+            .unwrap_or(&[]);
         slot_ui::LabelGridView {
             title: self.label_grid_faces.as_ref().map(|g| g.title),
             caption: self.label_grid_faces.as_ref().map(|g| g.caption),
             cells,
-            at: self.label_pick.as_ref().map_or(0, |p| p.cursor() % slot_ui::PAGE),
+            at: self
+                .label_pick
+                .as_ref()
+                .map_or(0, |p| p.cursor() % slot_ui::PAGE),
             legend: self.label_grid_faces.as_ref().map(|g| g.legend),
         }
         .draw(out);
@@ -5712,7 +6350,11 @@ impl App {
         if let Action::GbaDown(dir @ (Btn::Up | Btn::Down)) = action {
             let open = self.core_picker.is_some_and(|p| !p.closing());
             if let (true, Some(mut look)) = (open, self.picker_look.take()) {
-                look.row = if dir == Btn::Up { slot_ui::CartRow::Colour } else { slot_ui::CartRow::Finish };
+                look.row = if dir == Btn::Up {
+                    slot_ui::CartRow::Colour
+                } else {
+                    slot_ui::CartRow::Finish
+                };
                 look.step_value(1);
                 // The lid shows it (rebuilt off the UI thread); the shelf's own picture of the
                 // cart, hidden under the lid, is redrawn once when the picker closes.
@@ -5740,7 +6382,11 @@ impl App {
         let outcome = picker.press(press, now);
         if !closing && picker.closing() {
             if let Some(look) = self.picker_look.take() {
-                let kept = if press == Press::Keep { look.chosen() } else { look.before };
+                let kept = if press == Press::Keep {
+                    look.chosen()
+                } else {
+                    look.before
+                };
                 self.end_label_pick(press == Press::Keep);
                 self.preview_shell(&look.stem, kept);
                 if press == Press::Keep {
@@ -6507,8 +7153,13 @@ fn clock_screen(utc: i64, offset_min: i16, from_menu: bool) -> Phase {
 }
 
 /// System → System Sounds → Volume, as its row reads.
-const PERCENTS: [&str; 11] = ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"];
-const _: () = assert!(slot_store::SOUND_VOLUME_STEP as usize * (PERCENTS.len() - 1) == 100, "PERCENTS is one per step");
+const PERCENTS: [&str; 11] = [
+    "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%",
+];
+const _: () = assert!(
+    slot_store::SOUND_VOLUME_STEP as usize * (PERCENTS.len() - 1) == 100,
+    "PERCENTS is one per step"
+);
 
 /// One of `n` takes at random, never `last` again; `last` becomes it.
 fn another(last: &mut Option<usize>, n: usize) -> usize {
@@ -6530,7 +7181,10 @@ fn system_nanos() -> u32 {
 
 fn system_secs() -> i64 {
     #[cfg(feature = "sim")]
-    if let Some(secs) = std::env::var("SLOT_SIM_TIME").ok().and_then(|v| v.parse().ok()) {
+    if let Some(secs) = std::env::var("SLOT_SIM_TIME")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
         return secs;
     }
     std::time::SystemTime::now()
@@ -6581,13 +7235,13 @@ fn draw_menu_rows(
     top: f32,
     out: &mut Vec<Draw>,
 ) {
-    let row_w = faces.iter().map(|(_,w,_)|*w).max().unwrap_or(0) as f32;
+    let row_w = faces.iter().map(|(_, w, _)| *w).max().unwrap_or(0) as f32;
     for (row, (tex, w, h)) in faces.iter().copied().enumerate() {
         let y = top + POWER_MENU_PITCH * row as f32;
         let x = ((OUT_W as f32 - w as f32) / 2.0).round();
         if index == Some(row) {
             out.push(Draw::Rect {
-                x: ((OUT_W as f32-row_w)/2.0).round(),
+                x: ((OUT_W as f32 - row_w) / 2.0).round(),
                 y: y + POWER_MENU_BAR_INSET,
                 w: row_w,
                 h: POWER_MENU_PITCH - 2.0 * POWER_MENU_BAR_INSET,
@@ -6744,29 +7398,42 @@ impl Peel {
         now: Millis,
     ) -> Option<Self> {
         let (kx, ky) = (w / face.0.max(1) as f32, h / face.1.max(1) as f32);
-        let to = (x + slot.0 as f32 * kx, y + slot.1 as f32 * ky, slot.2 as f32 * kx, slot.3 as f32 * ky);
+        let to = (
+            x + slot.0 as f32 * kx,
+            y + slot.1 as f32 * ky,
+            slot.2 as f32 * kx,
+            slot.3 as f32 * ky,
+        );
         let label = slot_ui::label_size(&cart);
         let (tx, rx) = std::sync::mpsc::channel();
         let (stem, platform) = (cart.stem.clone(), cart.platform);
         let (root, source) = (root.to_path_buf(), source.to_path_buf());
-        let spawned = std::thread::Builder::new().name("slot-label-peel".into()).spawn(move || {
-            let began = std::time::Instant::now();
-            let cut = std::fs::read(&source).and_then(|png| {
-                crate::cart_art::cut_label(&png, frame, label)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        let spawned = std::thread::Builder::new()
+            .name("slot-label-peel".into())
+            .spawn(move || {
+                let began = std::time::Instant::now();
+                let cut = std::fs::read(&source).and_then(|png| {
+                    crate::cart_art::cut_label(&png, frame, label)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                });
+                // The curls first, from the label as the cart will wear it, fitted from the cut in
+                // memory: the sticker sets off at once, and the card is written while it flies.
+                let curls = cut.as_ref().ok().and_then(|(rgba, cw, ch)| {
+                    let art = slot_ui::fitted_label_rgba(&cart, rgba, *cw, *ch, label.0, label.1)?;
+                    Some((
+                        bake_curls(&art, label),
+                        slot_ui::peel_shadow_face(label.0, label.1),
+                    ))
+                });
+                let curled = began.elapsed().as_millis();
+                let _ = tx.send(PeelBaked::Curls(curls));
+                let kept = cut.and_then(|cut| crate::cart_art::keep_cut(&root, &cart, &cut));
+                eprintln!(
+                    "slot: label: curls ready in {curled} ms, written in {} ms",
+                    began.elapsed().as_millis()
+                );
+                let _ = tx.send(PeelBaked::Kept(kept));
             });
-            // The curls first, from the label as the cart will wear it, fitted from the cut in
-            // memory: the sticker sets off at once, and the card is written while it flies.
-            let curls = cut.as_ref().ok().and_then(|(rgba, cw, ch)| {
-                let art = slot_ui::fitted_label_rgba(&cart, rgba, *cw, *ch, label.0, label.1)?;
-                Some((bake_curls(&art, label), slot_ui::peel_shadow_face(label.0, label.1)))
-            });
-            let curled = began.elapsed().as_millis();
-            let _ = tx.send(PeelBaked::Curls(curls));
-            let kept = cut.and_then(|cut| crate::cart_art::keep_cut(&root, &cart, &cut));
-            eprintln!("slot: label: curls ready in {curled} ms, written in {} ms", began.elapsed().as_millis());
-            let _ = tx.send(PeelBaked::Kept(kept));
-        });
         if let Err(e) = spawned {
             eprintln!("slot: label: {e}");
             return None;
@@ -6817,14 +7484,19 @@ impl Peel {
 fn bake_curls(art: &[u8], (w, h): (u32, u32)) -> Vec<slot_ui::CartFace> {
     let steps = slot_ui::PEEL_STEPS;
     let step = |i: usize| i as f32 / (steps - 1) as f32;
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+    let cores = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, 4);
     let mut faces: Vec<Option<slot_ui::CartFace>> = (0..steps).map(|_| None).collect();
     std::thread::scope(|scope| {
         // Each takes every `cores`th curl, so all of them finish at about the same time.
         let runs: Vec<_> = (0..cores)
             .map(|first| {
                 scope.spawn(move || {
-                    (first..steps).step_by(cores).map(|i| (i, slot_ui::peel_face(art, w, h, step(i)))).collect::<Vec<_>>()
+                    (first..steps)
+                        .step_by(cores)
+                        .map(|i| (i, slot_ui::peel_face(art, w, h, step(i))))
+                        .collect::<Vec<_>>()
                 })
             })
             .collect();
@@ -6835,7 +7507,11 @@ fn bake_curls(art: &[u8], (w, h): (u32, u32)) -> Vec<slot_ui::CartFace> {
             }
         }
     });
-    faces.into_iter().enumerate().map(|(i, f)| f.unwrap_or_else(|| slot_ui::peel_face(art, w, h, step(i)))).collect()
+    faces
+        .into_iter()
+        .enumerate()
+        .map(|(i, f)| f.unwrap_or_else(|| slot_ui::peel_face(art, w, h, step(i))))
+        .collect()
 }
 
 /// Framing a picked label. What is held is the piece of the picture the frame covers, in the
@@ -6870,7 +7546,8 @@ impl Adjust {
         self.crop.2 = self.crop.2.clamp(MIN_FRAME_PX.min(pw), pw * MOST_OF_IT);
         self.crop.3 = self.crop.3.clamp(MIN_FRAME_PX.min(ph), ph * MOST_OF_IT);
         // Whichever of the two is larger holds the other, so the ends swap over as it passes.
-        let span = |picture: f32, frame: f32| (0.0f32.min(picture - frame), 0.0f32.max(picture - frame));
+        let span =
+            |picture: f32, frame: f32| (0.0f32.min(picture - frame), 0.0f32.max(picture - frame));
         let (lo, hi) = span(pw, self.crop.2);
         self.crop.0 = self.crop.0.clamp(lo, hi);
         let (lo, hi) = span(ph, self.crop.3);
@@ -6891,7 +7568,11 @@ impl Adjust {
     fn even_up(&mut self) {
         let shape = self.original.2 / self.original.3.max(1.0);
         let (w, h) = (self.crop.2, self.crop.3);
-        let (want_w, want_h) = if w / h.max(1.0) > shape { (h * shape, h) } else { (w, w / shape) };
+        let (want_w, want_h) = if w / h.max(1.0) > shape {
+            (h * shape, h)
+        } else {
+            (w, w / shape)
+        };
         self.resize(want_w - w, want_h - h);
     }
 
@@ -6964,9 +7645,12 @@ impl LabelPick {
         // "of 20+" while more are still coming: the list has no end until the search ends.
         let more = if self.search.is_some() { "+" } else { "" };
         let choice = &self.choices[self.cursor().min(found - 1)];
-        format!("{}   ({} of {found}{more})", choice.caption, self.cursor() + 1)
+        format!(
+            "{}   ({} of {found}{more})",
+            choice.caption,
+            self.cursor() + 1
+        )
     }
-
 }
 
 fn finish_of(finish: ShellFinish) -> slot_ui::Finish {
@@ -7007,8 +7691,13 @@ fn offered_colours(
     if !nes {
         return (0..colours.len()).collect();
     }
-    const NES_PLASTICS: [&str; 5] =
-        ["NES grey", "Zelda gold", "Tengen black", "Color Dreams blue", "Camerica silver"];
+    const NES_PLASTICS: [&str; 5] = [
+        "NES grey",
+        "Zelda gold",
+        "Tengen black",
+        "Color Dreams blue",
+        "Camerica silver",
+    ];
     let wanted = |name: &str| match famicom {
         true => slot_ui::FAMICOM_NAMES.contains(&name),
         // A colour set in Cart Studio belongs to no console's list, but has to stay reachable
@@ -7016,7 +7705,13 @@ fn offered_colours(
         false => NES_PLASTICS.contains(&name),
     } || name == "Custom";
     let mut out = vec![0];
-    out.extend(colours.iter().enumerate().filter(|(_, (n, _))| wanted(n)).map(|(i, _)| i));
+    out.extend(
+        colours
+            .iter()
+            .enumerate()
+            .filter(|(_, (n, _))| wanted(n))
+            .map(|(i, _)| i),
+    );
     out
 }
 
@@ -7028,24 +7723,45 @@ impl CartMenu {
         plain.read_header();
         let own = slot_ui::shell_for(&plain);
         let mut colours = slot_ui::colour_choices();
-        let finish_at = |f: slot_ui::Finish| slot_ui::FINISHES.iter().position(|x| *x == f).unwrap_or(0);
-        let famicom = (cart.platform == Platform::Nes)
-            .then(|| (slot_ui::nes_famicom_of(&plain), slot_ui::famicom_shell(&cart.stem).colour));
+        let finish_at =
+            |f: slot_ui::Finish| slot_ui::FINISHES.iter().position(|x| *x == f).unwrap_or(0);
+        let famicom = (cart.platform == Platform::Nes).then(|| {
+            (
+                slot_ui::nes_famicom_of(&plain),
+                slot_ui::famicom_shell(&cart.stem).colour,
+            )
+        });
         let (colour, finish, shape) = match cart.shell {
             None => (0, finish_at(own.finish), 0),
             Some(choice) => {
                 let finish = finish_of(choice.finish);
-                let colour = match colours.iter().position(|(_, s)| s.is_some_and(|s| s.colour == choice.colour)) {
+                let colour = match colours
+                    .iter()
+                    .position(|(_, s)| s.is_some_and(|s| s.colour == choice.colour))
+                {
                     // A Famicom cart in the plastic its name picks wears its own.
                     _ if famicom.is_some_and(|(_, own)| own == choice.colour) => 0,
                     Some(at) => at,
                     // A colour from elsewhere (Cart Studio): offered as "Custom", last.
                     None => {
-                        colours.push(("Custom", Some(slot_ui::Shell { colour: choice.colour, finish })));
+                        colours.push((
+                            "Custom",
+                            Some(slot_ui::Shell {
+                                colour: choice.colour,
+                                finish,
+                            }),
+                        ));
                         colours.len() - 1
                     }
                 };
-                (colour, finish_at(finish), OUTLINES.iter().position(|o| *o == choice.outline).unwrap_or(0))
+                (
+                    colour,
+                    finish_at(finish),
+                    OUTLINES
+                        .iter()
+                        .position(|o| *o == choice.outline)
+                        .unwrap_or(0),
+                )
             }
         };
         // NES and SNES carts came in their system's grey: only their shape changes, and a
@@ -7059,7 +7775,12 @@ impl CartMenu {
             // A NES cart's plastic can be chosen: the Zeldas came in gold, the rest in grey.
             Platform::Nes => vec![CartRow::Shape, CartRow::Colour, CartRow::Reset],
             Platform::Snes => vec![CartRow::Shape, CartRow::Reset],
-            Platform::Gb | Platform::Gbc => vec![CartRow::Colour, CartRow::Finish, CartRow::Shape, CartRow::Reset],
+            Platform::Gb | Platform::Gbc => vec![
+                CartRow::Colour,
+                CartRow::Finish,
+                CartRow::Shape,
+                CartRow::Reset,
+            ],
             Platform::Gba => vec![CartRow::Colour, CartRow::Finish, CartRow::Reset],
             // A stand-in cart (see slot_ui::PS1_SHELL): nothing of it to choose yet.
             Platform::Ps1 => vec![CartRow::Reset],
@@ -7083,17 +7804,18 @@ impl CartMenu {
 
     /// A NES game on the Famicom cart: its shape as chosen, or its own.
 
-
     /// The shell these values make: None while they are all the game's own.
     /// On the Famicom shape a cart is offered the Famicom plastics, on the NES shape the NES
     /// ones. Stepping the shape moves it from one set to the other, so it keeps the plastic it
     /// is wearing if that is in both and falls back to its own if it is not.
     fn fit_colours(&mut self) {
-        let famicom = self.famicom.is_some_and(|(own, _)| match OUTLINES[self.shape] {
-            Outline::Auto => own,
-            Outline::Notched => false,
-            Outline::Rounded => true,
-        });
+        let famicom = self
+            .famicom
+            .is_some_and(|(own, _)| match OUTLINES[self.shape] {
+                Outline::Auto => own,
+                Outline::Notched => false,
+                Outline::Rounded => true,
+            });
         self.offered = offered_colours(self.famicom.is_some(), famicom, &self.colours);
         // A plastic the other shape came in is not one this shape came in: back to its own.
         if !self.offered.contains(&self.colour) {
@@ -7138,7 +7860,11 @@ impl CartMenu {
         match self.row {
             // The finish stays as it is: a colour only changes the colour.
             slot_ui::CartRow::Colour => {
-                let at = self.offered.iter().position(|i| *i == self.colour).unwrap_or(0);
+                let at = self
+                    .offered
+                    .iter()
+                    .position(|i| *i == self.colour)
+                    .unwrap_or(0);
                 self.colour = self.offered[step(at, self.offered.len())];
             }
             slot_ui::CartRow::Finish => self.finish = step(self.finish, slot_ui::FINISHES.len()),
@@ -7152,8 +7878,10 @@ impl CartMenu {
 
     fn reset(&mut self) {
         self.colour = 0;
-        self.finish = slot_ui::FINISHES.iter().position(|f| *f == self.own.finish).unwrap_or(0);
+        self.finish = slot_ui::FINISHES
+            .iter()
+            .position(|f| *f == self.own.finish)
+            .unwrap_or(0);
         self.shape = 0;
     }
 }
-

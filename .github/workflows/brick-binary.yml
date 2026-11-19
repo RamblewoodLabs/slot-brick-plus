@@ -1,0 +1,60 @@
+# A vX.Y tag builds the Brick slot binary and publishes it, with its sha256, on this
+# repository's release. HOME → Online → Update installs those two files and nothing else.
+name: Brick binary
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to attach slot and slot.sha256 to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: brick-binary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'jfink22-design/slot-brick-plus'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the Brick binary
+        run: |
+          set -eu
+          docker build -t slot-brick-build -f brick/Dockerfile brick
+          mkdir -p .docker-cache/cargo dist-release
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src \
+            -e HOME=/tmp -e CARGO_HOME=/src/.docker-cache/cargo \
+            slot-brick-build sh brick/publish-slot.sh /src/dist-release
+          test -s dist-release/slot
+          test -s dist-release/slot.sha256
+          ( cd dist-release && sha256sum -c slot.sha256 )
+
+      - name: Publish slot and slot.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -eu
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::$TAG is not a vX.Y tag"; exit 1 ;;
+          esac
+          notes=$(bash brick/release-notes.sh "$TAG" || true)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/slot dist-release/slot.sha256 --clobber
+          else
+            gh release create "$TAG" dist-release/slot dist-release/slot.sha256 \
+              --title "$TAG" --notes "$notes"
+          fi

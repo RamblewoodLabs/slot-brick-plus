@@ -91,9 +91,19 @@ if [ "$status" -ge 128 ]; then
     ls -1t "$CRASH"/slot-*.log 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
 fi
 sync
-# An update swapped in (see crates/slot/src/update.rs): Slot removes .slot-update/pending once
-# the new one has shown a frame. Still there when it ends, the new one never started, so the
-# files it replaced go back, and the old one starts instead.
+# A binary update (see crates/slot/src/update.rs) keeps the previous Slot as slot.bak and
+# writes slot.pending until the new one has shown a frame. Still there when it ends, the new
+# one never started, so the previous binary goes back and starts instead.
+if [ "$status" != 66 ] && [ -f "$SYS/slot.pending" ] && [ -f "$SYS/slot.bak" ]; then
+    echo 'The update did not start: putting the previous Slot back'
+    mv -f "$SYS/slot.bak" "$SYS/slot"
+    chmod +x "$SYS/slot"
+    rm -f "$SYS/slot.pending" "$SYS/slot.new"
+    sync
+    status=66
+fi
+# An older update swapped a whole card in: Slot removes .slot-update/pending once the new one
+# has shown a frame. Still there when it ends, the files it replaced go back.
 UPDATE="$(dirname "$SLOT_ROOT")/.slot-update"
 if [ "$status" != 66 ] && [ -f "$UPDATE/pending" ] && [ -d "$UPDATE/old" ]; then
     echo 'The update did not start: putting the previous version back'

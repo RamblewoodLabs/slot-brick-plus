@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use slot::boot_times::mark as boot_time;
 use slot::frontend::Frontend;
 #[cfg(all(feature = "brick", not(feature = "sim")))]
 use slot::input::BrickInput;
-#[cfg(feature = "sim")]
-use slot::input::SimInput as BrickInput;
 #[cfg(not(feature = "brick"))]
 use slot::input::DeviceInput;
+#[cfg(feature = "sim")]
+use slot::input::SimInput as BrickInput;
 use slot_gfx::{Compositor, FbdevSurface, Surface};
-use slot::boot_times::mark as boot_time;
 use slot_power::trace_first_frame;
 #[cfg(feature = "brick")]
 use slot_power::BrickPlatform;
@@ -83,7 +83,10 @@ fn wait_for_gpu() {
     while !ready.exists() && since.elapsed() < Duration::from_secs(10) {
         std::thread::sleep(Duration::from_millis(5));
     }
-    boot_time(&format!("GPU driver ready (waited {} ms)", since.elapsed().as_millis()));
+    boot_time(&format!(
+        "GPU driver ready (waited {} ms)",
+        since.elapsed().as_millis()
+    ));
 }
 
 /// Runs System/sleep.sh without going deaf: a Power press that lands while the
@@ -91,12 +94,19 @@ fn wait_for_gpu() {
 /// being swallowed, which used to need a second press to wake. Once the script
 /// has announced the kernel request (/tmp/slot-suspending) the press is the wake key.
 #[cfg(all(feature = "brick", not(feature = "sim")))]
-fn run_sleep_script(root: &std::path::Path, input: &mut BrickInput, frontend: &Frontend) -> (std::io::Result<std::process::ExitStatus>, bool) {
+fn run_sleep_script(
+    root: &std::path::Path,
+    input: &mut BrickInput,
+    frontend: &Frontend,
+) -> (std::io::Result<std::process::ExitStatus>, bool) {
     use slot_input::{Btn, InputSource, RawEvent};
     const SUSPENDING: &str = "/tmp/slot-suspending";
     let _ = std::fs::remove_file(SUSPENDING);
     let mut child = match std::process::Command::new("/bin/sh")
-        .arg(root.join("System/sleep.sh")).env("SLOT_ROOT", root).spawn() {
+        .arg(root.join("System/sleep.sh"))
+        .env("SLOT_ROOT", root)
+        .spawn()
+    {
         Ok(c) => c,
         Err(e) => return (Err(e), false),
     };
@@ -109,7 +119,12 @@ fn run_sleep_script(root: &std::path::Path, input: &mut BrickInput, frontend: &F
             Ok(None) => {}
             Err(e) => return (Err(e), pressed),
         }
-        if !pressed && input.poll(frontend.now()).into_iter().any(|e| matches!(e, RawEvent::Down(Btn::Power))) {
+        if !pressed
+            && input
+                .poll(frontend.now())
+                .into_iter()
+                .any(|e| matches!(e, RawEvent::Down(Btn::Power)))
+        {
             pressed = true;
             if !std::path::Path::new(SUSPENDING).exists() {
                 eprintln!("slot: sleep: Power pressed while preparing; cancelling the suspend");
@@ -123,7 +138,12 @@ fn run_sleep_script(root: &std::path::Path, input: &mut BrickInput, frontend: &F
 /// The simulator's suspend: the screen goes dark and stays so until Power is pressed, as the
 /// kernel's would; System/sleep.sh is never run, it would act on the real machine.
 #[cfg(feature = "sim")]
-fn sim_sleep(input: &mut BrickInput, frontend: &Frontend, sim: &slot::sim::Shared, surface: &FbdevSurface) -> (std::io::Result<std::process::ExitStatus>, bool) {
+fn sim_sleep(
+    input: &mut BrickInput,
+    frontend: &Frontend,
+    sim: &slot::sim::Shared,
+    surface: &FbdevSurface,
+) -> (std::io::Result<std::process::ExitStatus>, bool) {
     use slot_input::{Btn, InputSource, RawEvent};
     use std::os::unix::process::ExitStatusExt;
     eprintln!("slot: sim: suspended; press Power to wake");
@@ -131,8 +151,14 @@ fn sim_sleep(input: &mut BrickInput, frontend: &Frontend, sim: &slot::sim::Share
         if let Some(code) = sim.quit_requested() {
             std::process::exit(code);
         }
-        sim.tick(format!("{:?}", frontend.app().phase()), false, true, || surface.read_rgba());
-        if input.poll(frontend.now()).into_iter().any(|e| matches!(e, RawEvent::Down(Btn::Power))) {
+        sim.tick(format!("{:?}", frontend.app().phase()), false, true, || {
+            surface.read_rgba()
+        });
+        if input
+            .poll(frontend.now())
+            .into_iter()
+            .any(|e| matches!(e, RawEvent::Down(Btn::Power)))
+        {
             return (Ok(std::process::ExitStatus::from_raw(0)), true);
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -160,7 +186,9 @@ pub fn run() {
     // Knowing the model means reading all of the stock MainUI (several MB): on a
     // thread of its own, while the screen and sound open. The first to ask waits for it.
     #[cfg(feature = "brick")]
-    let _ = std::thread::Builder::new().name("slot-model".into()).spawn(slot_power::model);
+    let _ = std::thread::Builder::new()
+        .name("slot-model".into())
+        .spawn(slot_power::model);
     // The font, before anything is drawn in it.
     eprintln!("slot: font: {}", slot::fonts::load_chosen(&root));
     // The sound output opens, and the app boots, beside the screen, for Session::boot to take.
@@ -278,7 +306,7 @@ pub fn run() {
         #[cfg(feature = "brick")]
         {
             frontend.idle_sleep();
-            cpu.mode(frontend.power_mode(),frontend.audio_underruns());
+            cpu.mode(frontend.power_mode(), frontend.audio_underruns());
             if matches!(frontend.app().phase(), slot::app::Phase::Doze { .. }) {
                 let since = *sleep_since.get_or_insert_with(Instant::now);
                 // Let the paused audio sink release ALSA and pending saves finish.
@@ -286,15 +314,17 @@ pub fn run() {
                     sleep_attempted = true;
                     if frontend.prepare_sleep() {
                         slot::brick_link::quiesce();
-                        let suspended_before=slot::brick_power::suspended_seconds();
+                        let suspended_before = slot::brick_power::suspended_seconds();
                         #[cfg(not(feature = "sim"))]
                         let (result, cancelled) = run_sleep_script(&root, &mut input, &frontend);
                         #[cfg(feature = "sim")]
                         let (result, cancelled) = sim_sleep(&mut input, &frontend, &sim, &surface);
                         let returned = Instant::now();
-                        let suspended=slot::brick_power::suspended_seconds().zip(suspended_before).map(|(a,b)|(a-b).max(0.0));
-                        let confirmed=suspended.is_some_and(|v|v>0.05);
-                        cpu.mode(slot::brick_power::Mode::Boost,frontend.audio_underruns());
+                        let suspended = slot::brick_power::suspended_seconds()
+                            .zip(suspended_before)
+                            .map(|(a, b)| (a - b).max(0.0));
+                        let confirmed = suspended.is_some_and(|v| v > 0.05);
+                        cpu.mode(slot::brick_power::Mode::Boost, frontend.audio_underruns());
                         let woke = match &result {
                             Ok(status) if status.success() || confirmed || cancelled => {
                                 frontend.resume_sleep(&mut input);
@@ -302,11 +332,18 @@ pub fn run() {
                                 sleep_attempted = false;
                                 true
                             }
-                            other => {eprintln!("slot: suspend unavailable ({other:?}); using standby"); false}
+                            other => {
+                                eprintln!("slot: suspend unavailable ({other:?}); using standby");
+                                false
+                            }
                         };
                         {
                             use std::io::Write;
-                            if let Ok(mut log)=std::fs::OpenOptions::new().create(true).append(true).open(root.join("Logs/sleep.log")) {
+                            if let Ok(mut log) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(root.join("Logs/sleep.log"))
+                            {
                                 let _=writeln!(log,"Slot verification: suspended_seconds={suspended:?}, confirmed={confirmed}, power_pressed_during_sleep_entry={cancelled}, helper={result:?}, screen_on={woke} {} ms after the helper returned",returned.elapsed().as_millis());
                             }
                         }
@@ -314,7 +351,9 @@ pub fn run() {
                 }
                 pacer = Pacer::new();
                 #[cfg(feature = "sim")]
-                sim.tick(format!("{:?}", frontend.app().phase()), false, true, || surface.read_rgba());
+                sim.tick(format!("{:?}", frontend.app().phase()), false, true, || {
+                    surface.read_rgba()
+                });
                 std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
@@ -325,7 +364,12 @@ pub fn run() {
         if !frontend.needs_render() {
             pacer = Pacer::new();
             #[cfg(feature = "sim")]
-            sim.tick(format!("{:?}", frontend.app().phase()), false, false, || surface.read_rgba());
+            sim.tick(
+                format!("{:?}", frontend.app().phase()),
+                false,
+                false,
+                || surface.read_rgba(),
+            );
             std::thread::sleep(Duration::from_millis(25));
             continue;
         }
@@ -342,7 +386,7 @@ pub fn run() {
         let swap = Instant::now();
         let work = swap - began;
         #[cfg(feature = "brick")]
-        cpu.sample(frame_ready,work,pacer.period,frontend.audio_underruns());
+        cpu.sample(frame_ready, work, pacer.period, frontend.audio_underruns());
         if let Err(e) = surface.swap() {
             eprintln!("slot: {e}");
             #[cfg(feature = "brick")]
@@ -351,7 +395,9 @@ pub fn run() {
         }
         let swap_took = swap.elapsed();
         #[cfg(feature = "sim")]
-        sim.tick(format!("{:?}", frontend.app().phase()), true, false, || surface.read_rgba());
+        sim.tick(format!("{:?}", frontend.app().phase()), true, false, || {
+            surface.read_rgba()
+        });
         slot::latency::swapped(swap_took.as_secs_f64() * 1000.0);
         let dropped = pacer.swapped(work, swap_took > Duration::from_millis(1));
         if slot::latency::tracing() {

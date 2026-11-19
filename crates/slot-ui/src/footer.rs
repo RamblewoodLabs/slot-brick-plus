@@ -59,10 +59,155 @@ pub fn draw_footer(
 /// How far a note sits from the battery's percent.
 const NOTE_GAP: f32 = 22.0;
 
+/// Battery and Wi-Fi at the top right of the system menu. A missing reading draws nothing
+/// for that half, and every coordinate stays inside the screen.
+pub fn draw_menu_header(
+    percent: Option<u8>,
+    charging: bool,
+    percent_face: Printed,
+    bolt: Option<TexId>,
+    wifi: Option<u8>,
+    out: &mut Vec<Draw>,
+) {
+    let y = 8.0;
+    let h = HINT_H as f32;
+    let mut right = OUT_W as f32 - 16.0;
+    if let Some(level) = wifi {
+        right = draw_wifi(right, y, h, level, out);
+        right -= 12.0;
+    }
+    if percent.is_none() {
+        return;
+    }
+    if percent_face.w > 0 {
+        right -= percent_face.w as f32;
+        if right >= 8.0 {
+            draw_printed(right, y, percent_face, out);
+        }
+        right -= 8.0;
+    }
+    let gauge_w = 34.0;
+    let gauge_h = 16.0;
+    right -= gauge_w + 4.0;
+    if right < 8.0 {
+        return;
+    }
+    let colour = battery_colour(percent.unwrap_or(100));
+    let gy = y + (h - gauge_h) / 2.0;
+    let rect = |x: f32, y: f32, w: f32, h: f32, out: &mut Vec<Draw>| {
+        if w <= 0.0
+            || h <= 0.0
+            || x < 0.0
+            || y < 0.0
+            || x + w > OUT_W as f32
+            || y + h > OUT_H as f32
+        {
+            return;
+        }
+        out.push(Draw::Rect { x, y, w, h, colour });
+    };
+    rect(right, gy, gauge_w, 2.0, out);
+    rect(right, gy + gauge_h - 2.0, gauge_w, 2.0, out);
+    rect(right, gy, 2.0, gauge_h, out);
+    rect(right + gauge_w - 2.0, gy, 2.0, gauge_h, out);
+    rect(right + gauge_w, gy + 5.0, 3.0, 6.0, out);
+    let fill = (gauge_w - 8.0) * f32::from(percent.unwrap_or(0).min(100)) / 100.0;
+    if fill > 0.0 {
+        rect(right + 4.0, gy + 4.0, fill, gauge_h - 8.0, out);
+    }
+    if charging {
+        if let Some(tex) = bolt {
+            out.push(Draw::Tex {
+                x: (right - 16.0).max(8.0),
+                y,
+                w: 14.0,
+                h: 14.0,
+                tex,
+                alpha: 1.0,
+            });
+        }
+    }
+}
+
+/// Above 20% stays the menu ink. Below 20% is yellow. 10% and under is red.
+pub fn battery_colour(percent: u8) -> [f32; 4] {
+    if percent <= 10 {
+        [0.86, 0.22, 0.18, 1.0]
+    } else if percent < 20 {
+        [0.93, 0.76, 0.22, 1.0]
+    } else {
+        [
+            crate::hud::HUD_INK[0] as f32 / 255.0,
+            crate::hud::HUD_INK[1] as f32 / 255.0,
+            crate::hud::HUD_INK[2] as f32 / 255.0,
+            1.0,
+        ]
+    }
+}
+
+fn draw_wifi(right: f32, y: f32, h: f32, level: u8, out: &mut Vec<Draw>) -> f32 {
+    let colour = [
+        crate::hud::HUD_INK[0] as f32 / 255.0,
+        crate::hud::HUD_INK[1] as f32 / 255.0,
+        crate::hud::HUD_INK[2] as f32 / 255.0,
+        1.0,
+    ];
+    let bars = 4u8;
+    let bw = 4.0;
+    let gap = 3.0;
+    let total = bars as f32 * bw + (bars - 1) as f32 * gap;
+    let x0 = right - total;
+    if x0 < 8.0 {
+        return right;
+    }
+    let base = y + h - 4.0;
+    for i in 0..bars {
+        let bh = 6.0 + i as f32 * 4.0;
+        let on = level > 0 && i < level;
+        out.push(Draw::Rect {
+            x: x0 + i as f32 * (bw + gap),
+            y: base - bh,
+            w: bw,
+            h: bh,
+            colour: if on {
+                colour
+            } else {
+                [colour[0], colour[1], colour[2], 0.28]
+            },
+        });
+    }
+    if level == 0 {
+        out.push(Draw::Rect {
+            x: x0,
+            y: y + 4.0,
+            w: total,
+            h: 2.0,
+            colour: [0.86, 0.22, 0.18, 1.0],
+        });
+    }
+    x0
+}
+
 /// A note beside the battery's percent (the selected game's play time, on the shelf).
 pub fn draw_footer_note(percent: Printed, note: Printed, out: &mut Vec<Draw>) {
     let x = crate::battery::gauge_end(FOOTER_MARGIN, percent) + NOTE_GAP;
     printed(x.round(), note, out);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::battery_colour;
+
+    #[test]
+    fn the_battery_is_yellow_below_twenty_and_red_at_ten() {
+        assert!(battery_colour(21)[0] > 0.8 && battery_colour(21)[1] > 0.8);
+        assert!(battery_colour(20)[0] > 0.8 && battery_colour(20)[1] > 0.8);
+        let yellow = battery_colour(19);
+        assert!(yellow[0] > 0.8 && yellow[1] > 0.6 && yellow[2] < 0.4);
+        let red = battery_colour(10);
+        assert!(red[0] > 0.8 && red[1] < 0.4);
+        assert!(battery_colour(0)[0] > red[1]);
+    }
 }
 
 pub(crate) fn draw_printed(x: f32, y: f32, p: Printed, out: &mut Vec<Draw>) {
