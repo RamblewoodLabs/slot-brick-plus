@@ -365,7 +365,15 @@ impl MusicMenu {
                             .enumerate()
                             .map(|(i, job)| {
                                 if i == 0 {
-                                    format!("DOWNLOADING  {}", job)
+                                    let phase =
+                                        std::fs::read_to_string(self.root.join("Music/status.txt"))
+                                            .unwrap_or_default();
+                                    let phase = phase.trim();
+                                    if phase.is_empty() {
+                                        format!("DOWNLOADING  {job}")
+                                    } else {
+                                        format!("{phase}  {job}")
+                                    }
                                 } else {
                                     format!("QUEUED  {job}")
                                 }

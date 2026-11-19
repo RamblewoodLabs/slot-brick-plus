@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos and HOME → Music can fetch through a computer on your home network first. While that computer is getting the file, Downloads says "Relay downloading…", then "Transferring…" as it copies onto the card. Slot checks the file before keeping it. If that computer is off, the download uses YouTube as before. The computer's name, port, and token go in Config/videos.txt as relay_host, relay_port, and relay_token.
 - HOME no longer lists Companion, and Pip does not suggest a game or show a mission. The companion itself is still in Slot, switched off.
 - HOME → Videos: a download that stops sending is given up after about 30 seconds and tried again, up to five times, including from another source. The percent, size and speed update while it is still coming in, and they stay the same size on screen. Pausing or removing it takes effect straight away, and continuing starts a fresh request. Downloads says "Retrying 2/5…" while it tries, and "Failed — press A to retry" when it stops. A video is not kept when it has no sound. Logs/videos.log lines start with the time. Videos and Music show the battery, Wi-Fi and clock. Saved thumbnails are drawn as a film strip.
 - HOME → Videos: leaving a video clears the picture, so the list underneath is visible. X while it plays switches between filling the screen and fitting it with black bars, and that choice is remembered. A file with no sound says so, is marked in Saved, and Y queues it for download again.

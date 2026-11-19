@@ -248,6 +248,7 @@ fn innertube(method: &str, body: &str) -> Result<String, String> {
         form: None,
         json: Some(body),
         agent: Some(net::BROWSER),
+        bearer: None,
         limit: 4 << 20,
     })?;
     if reply.status != 200 {

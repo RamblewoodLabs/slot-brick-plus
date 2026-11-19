@@ -1161,6 +1161,7 @@ fn post_form(body: &str) -> Result<(u16, Vec<u8>), String> {
         form: Some(body),
         json: None,
         agent: None,
+        bearer: None,
         limit: 4 << 20,
     })?;
     Ok((reply.status, reply.body))

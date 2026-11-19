@@ -101,6 +101,7 @@ impl slot_cheevos::Http for Http {
             form: request.post.as_deref(),
             json: None,
             agent: None,
+            bearer: None,
             limit: 4 << 20,
         })
         .map(|reply| (reply.status, reply.body));
@@ -146,6 +147,7 @@ fn login2(form: &str) -> Result<(Profile, Option<String>), String> {
         form: Some(form),
         json: None,
         agent: None,
+        bearer: None,
         limit: 1 << 16,
     })?;
     let ms = started.elapsed().as_millis();
