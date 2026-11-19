@@ -3186,8 +3186,20 @@ impl App {
 
     pub fn set_video_frame(&mut self, tex: TexId) {
         if let Some(menu) = &mut self.videos {
-            menu.frame_face = Some(tex);
+            if menu.shows_frame() {
+                menu.frame_face = Some(tex);
+            }
         }
+    }
+
+    pub fn video_frame_pixels(&self) -> (u32, u32) {
+        self.videos
+            .as_ref()
+            .map(|menu| {
+                let (_, _, w, h) = menu.frame_box();
+                (w, h)
+            })
+            .unwrap_or((crate::videos::FRAME_W, crate::videos::FRAME_H))
     }
 
     pub fn take_video_pcm(&self) -> Vec<i16> {
@@ -4479,16 +4491,18 @@ impl App {
             });
         }
         if self.videos_visible {
-            if let Some(tex) = self.videos.as_ref().and_then(|menu| menu.frame_face) {
-                let (x, y) = crate::videos::frame_origin();
-                out.push(Draw::Tex {
-                    x: x as f32,
-                    y: y as f32,
-                    w: crate::videos::FRAME_W as f32,
-                    h: crate::videos::FRAME_H as f32,
-                    tex,
-                    alpha: 1.0,
-                });
+            if let Some(menu) = self.videos.as_ref().filter(|menu| menu.shows_frame()) {
+                if let Some(tex) = menu.frame_face {
+                    let (x, y, w, h) = menu.frame_box();
+                    out.push(Draw::Tex {
+                        x: x as f32,
+                        y: y as f32,
+                        w: w as f32,
+                        h: h as f32,
+                        tex,
+                        alpha: 1.0,
+                    });
+                }
             }
         }
     }

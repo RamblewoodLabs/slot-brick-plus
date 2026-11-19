@@ -80,6 +80,7 @@ pub struct Frontend {
     tape_key: String,
     tape_tex: Vec<(TexId, u32, u32)>,
     video_frame_tex: Option<TexId>,
+    video_frame_wh: Option<(u32, u32)>,
     video_frame_seq: u64,
     video_resampler: Option<crate::resample::Resampler>,
     #[cfg(feature = "brick")]
@@ -409,6 +410,7 @@ impl Frontend {
             tape_key: String::new(),
             tape_tex: Vec::new(),
             video_frame_tex: None,
+            video_frame_wh: None,
             video_frame_seq: 0,
             video_resampler: None,
             #[cfg(feature = "brick")]
@@ -914,12 +916,14 @@ impl Frontend {
         }
         self.sync_tape_faces(compositor);
         if let Some((seq, rgba)) = self.session.app().copy_video_frame(self.video_frame_seq) {
-            let (w, h) = (crate::videos::FRAME_W, crate::videos::FRAME_H);
-            let tex = match self.video_frame_tex {
+            let (w, h) = self.session.app().video_frame_pixels();
+            let same = self.video_frame_wh == Some((w, h));
+            let tex = match self.video_frame_tex.filter(|_| same) {
                 Some(id) => { compositor.update_texture(id, w, h, &rgba); id }
                 None => compositor.create_texture(w, h, &rgba),
             };
             self.video_frame_tex = Some(tex);
+            self.video_frame_wh = Some((w, h));
             self.video_frame_seq = seq;
             self.session.app_mut().set_video_frame(tex);
         }

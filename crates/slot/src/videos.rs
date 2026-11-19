@@ -12,7 +12,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use slot_gfx::OUT_W;
+use slot_gfx::{OUT_H, OUT_W};
 use slot_input::{Action, Btn};
 use slot_ui::{TexId, UndoFace};
 
@@ -142,6 +142,9 @@ pub struct VideoMenu {
     pace_got: u64,
     pace_bps: u64,
     failed_note: Option<String>,
+    /// Fill the screen, cropping to keep the picture's shape. Off is a letterboxed fit.
+    fill: bool,
+    silent: std::collections::HashSet<String>,
     pub dirty: bool,
     pub face: Option<TexId>,
     pub frame_face: Option<TexId>,
@@ -183,6 +186,8 @@ impl VideoMenu {
             pace_got: 0,
             pace_bps: 0,
             failed_note: None,
+            fill: true,
+            silent: std::collections::HashSet::new(),
             dirty: true,
             face: None,
             frame_face: None,
@@ -190,6 +195,8 @@ impl VideoMenu {
         menu.library = read_index(&menu.root);
         menu.subs = read_subs(&menu.root);
         menu.limit_mb = read_limit(&menu.root);
+        menu.fill = read_fill(&menu.root);
+        menu.silent = read_silent(&menu.root);
         menu.view = menu.opening_tab();
         menu.back = menu.view;
         if menu.view == View::Library {
@@ -326,6 +333,16 @@ impl VideoMenu {
         // partial file, so it carries on after the Brick wakes or restarts.
         self.stop_player(true);
         self.view = View::Home;
+        self.frame_face = None;
+    }
+
+    /// The decoded picture is only drawn while the player is the screen in front.
+    pub fn shows_frame(&self) -> bool {
+        self.view == View::Player
+    }
+
+    pub fn frame_box(&self) -> (u32, u32, u32, u32) {
+        frame_box(self.fill)
     }
 
     /// New picture, when ffmpeg has drawn another one.
@@ -580,8 +597,8 @@ impl VideoMenu {
     }
 
     fn render_player(&self, sheet: &mut Sheet) {
-        let (x, y) = frame_origin();
-        sheet.rect(x, y, FRAME_W, FRAME_H, [0.05, 0.05, 0.06, 1.0]);
+        let (x, y, w, h) = self.frame_box();
+        sheet.rect(x, y, w, h, [0.05, 0.05, 0.06, 1.0]);
         let title = self
             .playing
             .as_ref()
@@ -605,8 +622,8 @@ impl VideoMenu {
             sheet.text(
                 note,
                 x + 8,
-                y + FRAME_H / 2 - 20,
-                FRAME_W.saturating_sub(16),
+                y + h / 2 - 20,
+                w.saturating_sub(16),
                 MENU_H,
                 MENU_PX,
                 true,
@@ -631,7 +648,7 @@ impl VideoMenu {
         sheet.text(
             &format!("{state}    {clock}"),
             16,
-            y + FRAME_H + 8,
+            y + h + 8,
             OUT_W.saturating_sub(32),
             MENU_H,
             MENU_PX,
@@ -642,7 +659,10 @@ impl VideoMenu {
     fn legend(&self) -> String {
         match self.view {
             View::Search => "A TYPE    X DELETE    Y PAGE    START SEARCH    B BACK".into(),
-            View::Player => "A PLAY/PAUSE    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into(),
+            View::Player if self.playing.as_ref().is_some_and(|s| self.silent.contains(&s.id)) => {
+                "A PLAY/PAUSE    X FILL    Y RE-DOWNLOAD    B BACK".into()
+            }
+            View::Player => "A PLAY/PAUSE    X FILL    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into(),
             View::Library => "A PLAY    Y DELETE    X WATCHED    L1/R1 TABS    B BACK".into(),
             View::Queue if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    L1/R1 TABS    B BACK".into(),
             View::Queue if self.row == self.pause_row() => "LEFT/RIGHT    L1/R1 TABS    B BACK".into(),
@@ -720,7 +740,13 @@ impl VideoMenu {
                             };
                             format!(
                                 "{ask}{}{}  {}",
-                                if s.watched { "WATCHED  " } else { "" },
+                                if self.silent.contains(&s.id) {
+                                    "NO SOUND  "
+                                } else if s.watched {
+                                    "WATCHED  "
+                                } else {
+                                    ""
+                                },
                                 s.title,
                                 mb(s.bytes)
                             )
@@ -888,6 +914,24 @@ impl VideoMenu {
             } else {
                 "Download continuing".into()
             };
+        }
+    }
+
+    fn redownload(&mut self) {
+        let Some(saved) = self.playing.clone() else {
+            return;
+        };
+        match crate::video_queue::enqueue(
+            &self.root,
+            &saved.id,
+            &saved.title,
+            &saved.channel,
+            saved.duration_ms,
+        ) {
+            Ok(()) => {
+                self.status = "Queued again. The new copy replaces this one.".into();
+            }
+            Err(e) => self.status = e,
         }
     }
 
@@ -1178,7 +1222,27 @@ impl VideoMenu {
             Action::GbaDown(Btn::B) => {
                 self.stop_player(true);
                 self.view = self.back;
+                self.frame_face = None;
                 self.status = "Saved on the card".into();
+                false
+            }
+            Action::GbaDown(Btn::X) => {
+                self.fill = !self.fill;
+                let _ = write_fill(&self.root, self.fill);
+                self.frame_face = None;
+                if let Some(id) = self.playing.as_ref().map(|s| s.id.clone()) {
+                    let at = self.player.as_ref().map(Player::position_ms).unwrap_or(0);
+                    self.play_at(&id, at);
+                }
+                self.status = if self.fill {
+                    "Filling the screen".into()
+                } else {
+                    "Fitted, with black bars".into()
+                };
+                false
+            }
+            Action::GbaDown(Btn::Y) if self.playing.as_ref().is_some_and(|s| self.silent.contains(&s.id)) => {
+                self.redownload();
                 false
             }
             Action::GbaDown(Btn::A) => {
@@ -1294,7 +1358,15 @@ impl VideoMenu {
             self.playing = Some(saved);
             return;
         };
-        match Player::start(&bin, &file, at_ms) {
+        if !file_has_audio(&bin, &file) {
+            self.silent.insert(id.to_string());
+            let _ = write_silent(&self.root, &self.silent);
+            self.status = "This video has no sound — re-download it".into();
+        } else {
+            self.silent.remove(id);
+            let _ = write_silent(&self.root, &self.silent);
+        }
+        match Player::start(&bin, &file, at_ms, self.fill) {
             Ok(player) => {
                 self.player = Some(player);
                 self.playing = Some(saved);
@@ -1315,6 +1387,7 @@ impl VideoMenu {
         if let Some(mut player) = self.player.take() {
             player.stop();
         }
+        self.frame_face = None;
         if save {
             if let (Some(pos), Some(saved)) = (pos, &self.playing) {
                 let id = saved.id.clone();
@@ -1425,7 +1498,7 @@ impl Drop for VideoMenu {
 }
 
 impl Player {
-    fn start(bin: &Path, file: &Path, at_ms: u64) -> Result<Player, String> {
+    fn start(bin: &Path, file: &Path, at_ms: u64, fill: bool) -> Result<Player, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let paused = Arc::new(AtomicBool::new(false));
         let ended = Arc::new(AtomicBool::new(false));
@@ -1435,8 +1508,13 @@ impl Player {
             seq: 0,
         }));
         let pcm = Arc::new(Mutex::new(Vec::new()));
-        let mut video = spawn_video(bin, file, at_ms)?;
-        let mut audio = spawn_audio(bin, file, at_ms).ok();
+        let (fw, fh) = frame_pixels(fill);
+        let mut video = spawn_video(bin, file, at_ms, fw, fh, fill)?;
+        let mut audio = if file_has_audio(bin, file) {
+            spawn_audio(bin, file, at_ms).ok()
+        } else {
+            None
+        };
         let video_out = video.stdout.take().ok_or("ffmpeg gave no picture")?;
         let audio_out = audio.as_mut().and_then(|c| c.stdout.take());
         let mut threads = Vec::new();
@@ -1450,7 +1528,7 @@ impl Player {
                 thread::Builder::new()
                     .name("slot-video-pic".into())
                     .spawn(move || {
-                        picture_loop(video_out, frame, frames, stop, paused, ended);
+                        picture_loop(video_out, frame, frames, stop, paused, ended, fw, fh);
                     })
                     .map_err(|e| e.to_string())?,
             );
@@ -1521,8 +1599,10 @@ fn picture_loop(
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     ended: Arc<AtomicBool>,
+    fw: u32,
+    fh: u32,
 ) {
-    let n = (FRAME_W * FRAME_H * 4) as usize;
+    let n = (fw * fh * 4) as usize;
     let mut buf = vec![0u8; n];
     let mut start = Instant::now();
     let mut drawn = 0u64;
@@ -1600,16 +1680,21 @@ fn read_full(reader: &mut impl std::io::Read, buf: &mut [u8]) -> bool {
     true
 }
 
-fn spawn_video(bin: &Path, file: &Path, at_ms: u64) -> Result<std::process::Child, String> {
+fn spawn_video(
+    bin: &Path,
+    file: &Path,
+    at_ms: u64,
+    w: u32,
+    h: u32,
+    fill: bool,
+) -> Result<std::process::Child, String> {
     Command::new(bin)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-ss"])
         .arg(secs(at_ms))
         .arg("-i")
         .arg(file)
         .args(["-an", "-vf"])
-        .arg(format!(
-            "scale={FRAME_W}:{FRAME_H}:force_original_aspect_ratio=decrease,pad={FRAME_W}:{FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=black"
-        ))
+        .arg(scale_filter(w, h, fill))
         .args(["-pix_fmt", "rgba", "-r"])
         .arg(FPS.to_string())
         .args(["-f", "rawvideo", "pipe:1"])
@@ -1642,6 +1727,56 @@ fn secs(ms: u64) -> String {
 
 pub fn frame_origin() -> (u32, u32) {
     ((OUT_W - FRAME_W) / 2, 52)
+}
+
+pub fn frame_box(fill: bool) -> (u32, u32, u32, u32) {
+    if fill {
+        // Cover the screen and keep the button line visible along the bottom.
+        (0, 0, OUT_W, OUT_H.saturating_sub(60))
+    } else {
+        let (x, y) = frame_origin();
+        (x, y, FRAME_W, FRAME_H)
+    }
+}
+
+fn frame_pixels(fill: bool) -> (u32, u32) {
+    let (_, _, w, h) = frame_box(fill);
+    (w, h)
+}
+
+/// Fill crops to cover the screen. Fit letterboxes inside the window.
+pub fn scale_filter(w: u32, h: u32, fill: bool) -> String {
+    if fill {
+        format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}")
+    } else {
+        format!(
+            "scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"
+        )
+    }
+}
+
+/// A short decode. Empty output means there is no audio track, or ffmpeg cannot play it.
+pub fn file_has_audio(bin: &Path, file: &Path) -> bool {
+    let Ok(out) = Command::new(bin)
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-t",
+            "0.05",
+            "-i",
+        ])
+        .arg(file)
+        .args(["-vn", "-ac", "2", "-ar", "22050", "-f", "s16le", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return false;
+    };
+    out.stdout.len() >= 4
 }
 
 pub(crate) fn ffmpeg_path(root: &Path) -> Option<PathBuf> {
@@ -1989,7 +2124,7 @@ fn read_limit(root: &Path) -> u32 {
 }
 
 fn write_limit(root: &Path, limit_mb: u32) -> std::io::Result<()> {
-    write_config(root, limit_mb, read_tab(root))
+    write_config(root, limit_mb, read_tab(root), read_fill(root))
 }
 
 fn read_tab(root: &Path) -> Option<View> {
@@ -2003,12 +2138,42 @@ fn read_tab(root: &Path) -> Option<View> {
 }
 
 fn write_tab(root: &Path, view: View) -> std::io::Result<()> {
-    write_config(root, read_limit(root), Some(view))
+    write_config(root, read_limit(root), Some(view), read_fill(root))
 }
 
-fn write_config(root: &Path, limit_mb: u32, tab: Option<View>) -> std::io::Result<()> {
+fn read_fill(root: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join("Config/videos.txt")) else {
+        return true;
+    };
+    text.lines()
+        .find_map(|line| line.strip_prefix("fill="))
+        .map(|v| v.trim() != "0")
+        .unwrap_or(true)
+}
+
+fn write_fill(root: &Path, fill: bool) -> std::io::Result<()> {
+    write_config(root, read_limit(root), read_tab(root), fill)
+}
+
+fn read_silent(root: &Path) -> std::collections::HashSet<String> {
+    std::fs::read_to_string(root.join("Videos/silent.txt"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn write_silent(root: &Path, ids: &std::collections::HashSet<String>) -> std::io::Result<()> {
+    let mut rows: Vec<_> = ids.iter().cloned().collect();
+    rows.sort();
+    let _ = std::fs::create_dir_all(root.join("Videos"));
+    std::fs::write(root.join("Videos/silent.txt"), rows.join("\n"))
+}
+
+fn write_config(root: &Path, limit_mb: u32, tab: Option<View>, fill: bool) -> std::io::Result<()> {
     let _ = std::fs::create_dir_all(root.join("Config"));
-    let mut text = format!("limit_mb={limit_mb}\n");
+    let mut text = format!("limit_mb={limit_mb}\nfill={}\n", u8::from(fill));
     if let Some(view) = tab {
         let name = match view {
             View::Library => "saved",
@@ -2322,6 +2487,60 @@ mod tests {
         menu.input(Action::GbaDown(Btn::B));
         assert_eq!(menu.view, View::Home);
         assert!(menu.keys.is_none());
+    }
+
+    #[test]
+    fn leaving_the_player_clears_the_picture_and_fill_is_remembered() {
+        let root = tempfile::tempdir().unwrap();
+        let mut menu = VideoMenu::open(root.path().to_path_buf(), false);
+        assert!(menu.fill);
+        let (x, y, w, h) = menu.frame_box();
+        assert_eq!((x, y), (0, 0));
+        assert!(w >= FRAME_W && h > FRAME_H);
+        menu.view = View::Player;
+        menu.frame_face = Some(slot_ui::TexId::from_raw(7));
+        assert!(menu.shows_frame());
+        menu.input(Action::GbaDown(Btn::B));
+        assert!(!menu.shows_frame());
+        assert!(menu.frame_face.is_none());
+        menu.fill = false;
+        let _ = write_fill(root.path(), false);
+        let again = VideoMenu::open(root.path().to_path_buf(), false);
+        assert!(!again.fill);
+        assert!(scale_filter(640, 420, true).contains("increase"));
+        assert!(scale_filter(480, 270, false).contains("decrease"));
+    }
+
+    #[test]
+    fn a_file_with_no_audio_is_not_treated_as_playable_sound() {
+        let root = tempfile::tempdir().unwrap();
+        let junk = root.path().join("not-a-video.txt");
+        std::fs::write(&junk, b"hello").unwrap();
+        let Some(bin) = ffmpeg_path(root.path()) else {
+            return;
+        };
+        assert!(!file_has_audio(&bin, &junk));
+        let tone = root.path().join("tone.wav");
+        let made = Command::new(&bin)
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.2",
+                "-ac",
+                "2",
+            ])
+            .arg(&tone)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()
+            .is_some_and(|status| status.success());
+        if made {
+            assert!(file_has_audio(&bin, &tone));
+        }
     }
 
     #[test]
