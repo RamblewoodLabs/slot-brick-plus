@@ -476,3 +476,46 @@ int slot_cheevos_measure_map(const char* memaddr, const slot_span* spans, unsign
                              unsigned* value, unsigned* target, int* triggered) {
   return measure_spans(memaddr, spans, count, value, target, triggered);
 }
+
+/* Compare `prev` with `now` on one trigger, so a delta (`d0x`) sees the real previous
+ * value. Two settles on `prev` clear the "changed" flag before `now` is read. */
+int slot_cheevos_measure_delta(const char* memaddr, const slot_span* prev, unsigned prev_count,
+                               const slot_span* now, unsigned now_count, unsigned* value,
+                               unsigned* target, int* triggered) {
+  int size;
+  void* buffer;
+  rc_trigger_t* trigger;
+  slot_map view;
+  if (!memaddr || !memaddr[0] || !now || !value || !target || !triggered)
+    return 0;
+  *value = 0;
+  *target = 0;
+  *triggered = 0;
+  size = rc_trigger_size(memaddr);
+  if (size < 0)
+    return 0;
+  buffer = malloc((size_t)size);
+  if (!buffer)
+    return 0;
+  trigger = rc_parse_trigger(buffer, memaddr, NULL, 0);
+  if (!trigger) {
+    free(buffer);
+    return 0;
+  }
+  trigger->state = RC_TRIGGER_STATE_ACTIVE;
+  if (prev && prev_count) {
+    view.spans = prev;
+    view.count = prev_count;
+    rc_evaluate_trigger(trigger, slot_peek, &view, NULL);
+    trigger->state = RC_TRIGGER_STATE_ACTIVE;
+    rc_evaluate_trigger(trigger, slot_peek, &view, NULL);
+    trigger->state = RC_TRIGGER_STATE_ACTIVE;
+  }
+  view.spans = now;
+  view.count = now_count;
+  *triggered = rc_evaluate_trigger(trigger, slot_peek, &view, NULL) == RC_TRIGGER_STATE_TRIGGERED;
+  *value = trigger->measured_value;
+  *target = trigger->measured_target;
+  free(buffer);
+  return 1;
+}

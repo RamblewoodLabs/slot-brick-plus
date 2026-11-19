@@ -93,6 +93,16 @@ extern "C" {
         target: *mut c_uint,
         triggered: *mut c_int,
     ) -> c_int;
+    fn slot_cheevos_measure_delta(
+        memaddr: *const c_char,
+        prev: *const RawSpan,
+        prev_count: c_uint,
+        now: *const RawSpan,
+        now_count: c_uint,
+        value: *mut c_uint,
+        target: *mut c_uint,
+        triggered: *mut c_int,
+    ) -> c_int;
 }
 
 #[repr(C)]
@@ -156,6 +166,47 @@ pub fn measure_map(memaddr: &str, regions: &[(u32, &[u8])]) -> Option<Measure> {
             memaddr.as_ptr(),
             spans.as_ptr(),
             spans.len() as c_uint,
+            &mut value,
+            &mut target,
+            &mut triggered,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    Some(Measure {
+        value,
+        target,
+        triggered: triggered != 0,
+    })
+}
+
+/// Evaluate `memaddr` against `now`, after priming deltas from `prev`.
+/// A rising edge is true only when `now` differs from `prev`.
+pub fn measure_delta(memaddr: &str, prev: &[(u32, &[u8])], now: &[(u32, &[u8])]) -> Option<Measure> {
+    let memaddr = CString::new(memaddr).ok()?;
+    let to_spans = |regions: &[(u32, &[u8])]| {
+        regions
+            .iter()
+            .map(|(start, data)| RawSpan {
+                start: *start,
+                data: data.as_ptr(),
+                len: data.len() as u32,
+            })
+            .collect::<Vec<_>>()
+    };
+    let prev_spans = to_spans(prev);
+    let now_spans = to_spans(now);
+    let mut value = 0u32;
+    let mut target = 0u32;
+    let mut triggered = 0i32;
+    let ok = unsafe {
+        slot_cheevos_measure_delta(
+            memaddr.as_ptr(),
+            prev_spans.as_ptr(),
+            prev_spans.len() as c_uint,
+            now_spans.as_ptr(),
+            now_spans.len() as c_uint,
             &mut value,
             &mut target,
             &mut triggered,
@@ -643,7 +694,7 @@ impl Drop for Cheevos {
 
 #[cfg(test)]
 mod tests {
-    use super::{measure, measure_map};
+    use super::{measure, measure_delta, measure_map};
 
     #[test]
     fn a_byte_in_the_fixture_completes_the_condition() {
@@ -668,5 +719,15 @@ mod tests {
         assert!(hit.triggered);
         let miss = measure_map("0xH00C0>=1", &[(0x0000, ram.as_slice())]).unwrap();
         assert!(!miss.triggered);
+    }
+
+    #[test]
+    fn a_delta_is_true_only_when_the_value_changes() {
+        let ten = [10u8];
+        let nine = [9u8];
+        let held = measure_delta("d0xH0000>0xH0000", &[(0, &ten)], &[(0, &ten)]).unwrap();
+        assert!(!held.triggered);
+        let fired = measure_delta("d0xH0000>0xH0000", &[(0, &ten)], &[(0, &nine)]).unwrap();
+        assert!(fired.triggered);
     }
 }

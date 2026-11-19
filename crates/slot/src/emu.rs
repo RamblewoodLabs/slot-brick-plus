@@ -1174,8 +1174,8 @@ struct RetroMemDesc {
 fn mission_image(core: &mut dyn RetroCore) -> Vec<(u32, Vec<u8>)> {
     const SYSTEM_RAM: u64 = 1 << 2;
     const CONST: u64 = 1 << 0;
-    const MAX_REGION: usize = 128 * 1024;
-    const MAX_TOTAL: usize = 256 * 1024;
+    const MAX_REGION: usize = 256 * 1024;
+    const MAX_TOTAL: usize = 512 * 1024;
     let mut out = Vec::new();
     let mut total = 0usize;
     let (ptr, count) = core.memory_map();
@@ -1202,7 +1202,7 @@ fn mission_image(core: &mut dyn RetroCore) -> Vec<(u32, Vec<u8>)> {
             let bytes = unsafe { std::slice::from_raw_parts(desc.ptr, n) }.to_vec();
             total += n;
             out.push((desc.start as u32, bytes));
-            if out.len() == 8 {
+            if out.len() == 16 {
                 break;
             }
         }
@@ -1216,6 +1216,19 @@ fn mission_image(core: &mut dyn RetroCore) -> Vec<(u32, Vec<u8>)> {
             }
         }
     }
+    // RetroAchievements addresses GBA IWRAM at 0 and EWRAM at 0x8000, while the
+    // core publishes the physical bus addresses. Keep both so a condition can use
+    // the RA address.
+    let aliases: Vec<(u32, Vec<u8>)> = out
+        .iter()
+        .filter_map(|(start, bytes)| match *start {
+            0x0300_0000 if bytes.len() <= 0x8000 => Some((0, bytes.clone())),
+            0x0200_0000 if bytes.len() <= 0x4_0000 => Some((0x8000, bytes.clone())),
+            0x8000_0000 if bytes.len() >= 0x20_0000 => Some((0, bytes[..0x20_0000].to_vec())),
+            _ => None,
+        })
+        .collect();
+    out.extend(aliases);
     out
 }
 

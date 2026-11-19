@@ -269,6 +269,8 @@ pub struct Companion {
     pub pumped: bool,
     book: Vec<crate::goals::GoalOffer>,
     goals_ready: bool,
+    /// Previous RAM sample for this cart, so a delta condition can see a real change.
+    last_regions: Option<(Platform, String, Vec<(u32, Vec<u8>)>)>,
 }
 
 impl Default for Companion {
@@ -303,6 +305,7 @@ impl Default for Companion {
             pumped: false,
             book: Vec::new(),
             goals_ready: false,
+            last_regions: None,
         }
     }
 }
@@ -1055,6 +1058,24 @@ impl Companion {
         regions: &[(u32, &[u8])],
         day: i64,
     ) -> Vec<Award> {
+        let now_owned: Vec<(u32, Vec<u8>)> = regions
+            .iter()
+            .map(|(start, bytes)| (*start, bytes.to_vec()))
+            .collect();
+        let prev_owned = self.last_regions.take().filter(|(platform_at, stem_at, _)| {
+            *platform_at == platform && stem_at == stem
+        });
+        let prev_owned = prev_owned
+            .map(|(_, _, bytes)| bytes)
+            .unwrap_or_else(|| now_owned.clone());
+        let prev_view: Vec<(u32, &[u8])> = prev_owned
+            .iter()
+            .map(|(start, bytes)| (*start, bytes.as_slice()))
+            .collect();
+        let now_view: Vec<(u32, &[u8])> = now_owned
+            .iter()
+            .map(|(start, bytes)| (*start, bytes.as_slice()))
+            .collect();
         let mut awards = Vec::new();
         let mut done_here = false;
         let indexes: Vec<usize> = self
@@ -1073,10 +1094,14 @@ impl Companion {
             let cond = self.missions[index].extra.clone();
             let need = self.missions[index].need;
             let before = self.missions[index].progress;
-            let Some(measured) = slot_cheevos::measure_map(&cond, regions) else {
+            let Some(measured) = measured_for(&cond, &prev_view, &now_view) else {
                 continue;
             };
-            let preview = byte_in(&cond, regions);
+            let preview = if counter_preview(&cond) {
+                byte_in(&cond, &now_view)
+            } else {
+                None
+            };
             let mut shown = measured.value;
             if let Some((value, _)) = preview {
                 shown = shown.max(value);
@@ -1085,6 +1110,9 @@ impl Companion {
                 shown = shown.max(need);
             }
             shown = shown.min(need);
+            if !counter_preview(&cond) && measured.triggered {
+                shown = before.saturating_add(1).min(need);
+            }
             if shown > before {
                 self.missions[index].progress = shown;
                 let title = self.missions[index].title.clone();
@@ -1096,7 +1124,7 @@ impl Companion {
                     });
                 }
             }
-            if measured.triggered || shown >= need {
+            if measured.triggered && counter_preview(&cond) || shown >= need {
                 self.missions[index].done = true;
                 self.missions[index].progress = need;
                 let mission = self.missions[index].clone();
@@ -1107,12 +1135,14 @@ impl Companion {
                 done_here = true;
             }
         }
-        let streak_hit = done_here || self.streak_condition_met(platform, stem, regions);
+        let streak_hit =
+            done_here || self.streak_condition_met(platform, stem, &prev_view, &now_view);
         if streak_hit {
             if let Some(award) = self.bump_game_streak(platform, stem, day) {
                 awards.push(award);
             }
         }
+        self.last_regions = Some((platform, stem.to_string(), now_owned));
         awards
     }
 
@@ -1120,7 +1150,8 @@ impl Companion {
         &self,
         platform: Platform,
         stem: &str,
-        regions: &[(u32, &[u8])],
+        prev: &[(u32, &[u8])],
+        now: &[(u32, &[u8])],
     ) -> bool {
         let Some(streak) = self
             .game_streaks
@@ -1132,7 +1163,7 @@ impl Companion {
         if streak.cond.is_empty() {
             return false;
         }
-        slot_cheevos::measure_map(&streak.cond, regions).is_some_and(|m| m.triggered)
+        measured_for(&streak.cond, prev, now).is_some_and(|m| m.triggered)
     }
 
     fn bump_game_streak(&mut self, platform: Platform, stem: &str, day: i64) -> Option<Award> {
@@ -1847,6 +1878,23 @@ fn parse_system(value: &str) -> Option<SystemStat> {
     })
 }
 
+fn counter_preview(cond: &str) -> bool {
+    let lower = cond.to_ascii_lowercase();
+    !lower.contains("d0x") && !cond.contains('.') && !cond.contains('_')
+}
+
+fn measured_for(
+    cond: &str,
+    prev: &[(u32, &[u8])],
+    now: &[(u32, &[u8])],
+) -> Option<slot_cheevos::Measure> {
+    if counter_preview(cond) {
+        slot_cheevos::measure_map(cond, now)
+    } else {
+        slot_cheevos::measure_delta(cond, prev, now)
+    }
+}
+
 fn byte_in(cond: &str, regions: &[(u32, &[u8])]) -> Option<(u32, u32)> {
     let (addr, target) = parse_byte(cond)?;
     for (start, data) in regions {
@@ -2455,6 +2503,7 @@ mod tests {
                 streak: "Clear 10 lines".into(),
                 streak_cond: "0xH0002>=1".into(),
                 auto: false,
+                verified_from: String::new(),
             }],
             0,
         );
