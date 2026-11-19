@@ -100,6 +100,9 @@ pub enum QuickRow {
 }
 
 impl QuickRow {
+    /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
+    pub const PIP: bool = false;
+
     pub const ALL: [QuickRow; 82] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
@@ -186,7 +189,16 @@ impl QuickRow {
     ];
 
     #[cfg(not(feature = "brick"))]
-    pub const MAIN: [QuickRow; 7] = [
+    pub const MAIN: [QuickRow; 6] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Videos,
+        QuickRow::Music,
+        QuickRow::System,
+    ];
+    #[cfg(not(feature = "brick"))]
+    const MAIN_PIP: [QuickRow; 7] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
@@ -207,7 +219,17 @@ impl QuickRow {
     ];
 
     #[cfg(feature = "brick")]
-    pub const MAIN: [QuickRow; 8] = [
+    pub const MAIN: [QuickRow; 7] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Videos,
+        QuickRow::Music,
+        QuickRow::Online,
+        QuickRow::System,
+    ];
+    #[cfg(feature = "brick")]
+    const MAIN_PIP: [QuickRow; 8] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
@@ -217,6 +239,23 @@ impl QuickRow {
         QuickRow::Online,
         QuickRow::System,
     ];
+
+    /// The HOME menu. Companion is on it only while [`PIP`](Self::PIP) is on.
+    pub fn home() -> &'static [QuickRow] {
+        if Self::PIP {
+            &Self::MAIN_PIP
+        } else {
+            &Self::MAIN
+        }
+    }
+
+    pub const fn home_len() -> usize {
+        if Self::PIP {
+            Self::MAIN_PIP.len()
+        } else {
+            Self::MAIN.len()
+        }
+    }
     /// System: the Brick's lights, its clock, the font, rumble, Slot's sounds, the battery,
     /// asking GitHub for a newer Slot, every setting back to how it came, and what Slot is.
     #[cfg(feature = "brick")]
@@ -483,7 +522,7 @@ impl QuickRow {
             QuickRow::Wifi | QuickRow::CartArt | QuickRow::Achievements | QuickRow::Update => {
                 &QuickRow::ONLINE
             }
-            _ => &QuickRow::MAIN,
+            _ => QuickRow::home(),
         }
     }
 
@@ -839,9 +878,11 @@ impl QuickValue {
     }
 }
 
+pub const PIP: bool = QuickRow::PIP;
+
 pub const QUICK_PITCH: f32 = 52.0;
 pub const QUICK_TOP: f32 =
-    (OUT_H as f32 - quick_pitch(QuickRow::MAIN.len()) * QuickRow::MAIN.len() as f32) / 2.0;
+    (OUT_H as f32 - quick_pitch(QuickRow::home_len()) * QuickRow::home_len() as f32) / 2.0;
 
 /// Row spacing for a page of `rows`: QUICK_PITCH, or tighter for a page that would
 /// otherwise run into the legend (the Brick's main menu).

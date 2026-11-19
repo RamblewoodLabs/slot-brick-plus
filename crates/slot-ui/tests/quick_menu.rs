@@ -78,14 +78,14 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 #[test]
 fn the_rows_run_in_the_order_the_user_chose() {
     #[cfg(not(feature = "brick"))]
-    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "Companion", "Videos", "Music", "System"]);
+    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "Videos", "Music", "System"]);
     #[cfg(not(feature = "brick"))]
     assert_eq!(
         QuickRow::SYSTEM.map(QuickRow::label),
         ["Date & Time", "Font", "Rumble", "System Sounds", "Low Battery Shutdown", "Reset Settings", "About"]
     );
     #[cfg(feature = "brick")]
-    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "Companion", "Videos", "Music", "Online", "System"]);
+    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "Videos", "Music", "Online", "System"]);
     #[cfg(feature = "brick")]
     assert_eq!(
         QuickRow::SYSTEM.map(QuickRow::label),

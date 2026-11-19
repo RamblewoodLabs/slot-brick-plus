@@ -24,28 +24,23 @@ fn press(a: &mut App, btn: Btn) {
 }
 
 #[test]
-fn x_opens_pip_and_b_closes_it() {
+fn x_on_the_shelf_does_not_open_pip() {
     let (_d, mut app) = on_carousel();
     press(&mut app, Btn::X);
-    assert!(app.pip_open());
-    press(&mut app, Btn::B);
     assert!(!app.pip_open());
     assert!(matches!(app.phase(), Phase::Shelf));
 }
 
 #[test]
-fn the_home_menu_opens_videos_and_pip() {
+fn the_home_menu_opens_videos() {
     let (_d, mut app) = on_carousel();
     app.apply(Action::QuickMenu);
     for _ in 0..3 {
         press(&mut app, Btn::Down);
     }
     press(&mut app, Btn::A);
-    assert!(app.pip_open());
-    press(&mut app, Btn::B);
-    press(&mut app, Btn::Down);
-    press(&mut app, Btn::A);
     assert!(app.videos_open());
+    assert!(!app.pip_open());
     press(&mut app, Btn::B);
     assert!(!app.videos_open());
 }
