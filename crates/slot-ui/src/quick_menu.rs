@@ -96,10 +96,11 @@ pub enum QuickRow {
     Companion,
     Videos,
     ShowVideos,
+    Music,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 81] = [
+    pub const ALL: [QuickRow; 82] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -181,15 +182,17 @@ impl QuickRow {
         QuickRow::Companion,
         QuickRow::Videos,
         QuickRow::ShowVideos,
+        QuickRow::Music,
     ];
 
     #[cfg(not(feature = "brick"))]
-    pub const MAIN: [QuickRow; 6] = [
+    pub const MAIN: [QuickRow; 7] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
         QuickRow::Companion,
         QuickRow::Videos,
+        QuickRow::Music,
         QuickRow::System,
     ];
     #[cfg(not(feature = "brick"))]
@@ -204,12 +207,13 @@ impl QuickRow {
     ];
 
     #[cfg(feature = "brick")]
-    pub const MAIN: [QuickRow; 7] = [
+    pub const MAIN: [QuickRow; 8] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
         QuickRow::Companion,
         QuickRow::Videos,
+        QuickRow::Music,
         QuickRow::Online,
         QuickRow::System,
     ];
@@ -546,6 +550,7 @@ impl QuickRow {
             QuickRow::UpdateCheck => "Check for Updates",
             QuickRow::Companion => "Companion",
             QuickRow::Videos => "Videos",
+            QuickRow::Music => "Music",
             QuickRow::Font => "Font",
             QuickRow::Lights => "LEDs",
             QuickRow::LedMode => "All LEDs",
@@ -633,6 +638,7 @@ impl QuickRow {
                 | QuickRow::Library
                 | QuickRow::Companion
                 | QuickRow::Videos
+                | QuickRow::Music
                 | QuickRow::LibrarySystems
                 | QuickRow::ResetSettings
                 | QuickRow::AboutLabel

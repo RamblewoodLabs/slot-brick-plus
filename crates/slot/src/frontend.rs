@@ -778,6 +778,10 @@ impl Frontend {
 
     fn pump_video_audio(&mut self) {
         let samples = self.session.app().take_video_pcm();
+        let music = self.session.app().take_music_pcm();
+        if !music.is_empty() {
+            self.push_pcm(&music, false);
+        }
         if samples.is_empty() {
             return;
         }
@@ -793,6 +797,25 @@ impl Frontend {
             resampler.process(&samples, &mut out);
         }
         let gain = crate::audio::volume::gain(self.session.app().output_volume()) * self.session.app().video_volume_gain();
+        for sample in &mut out {
+            *sample = (*sample as f32 * gain) as i16;
+        }
+        self.session.audio_ring().push(&out);
+    }
+
+    fn push_pcm(&mut self, samples: &[i16], video: bool) {
+        let rate = self.session.audio_ring().sample_rate();
+        if rate == 0 || samples.is_empty() {
+            return;
+        }
+        let mut resampler = crate::resample::Resampler::new(22_050.0, rate as f64);
+        let mut out = Vec::new();
+        resampler.process(samples, &mut out);
+        let gain = if video {
+            crate::audio::volume::gain(self.session.app().output_volume()) * self.session.app().video_volume_gain()
+        } else {
+            crate::audio::volume::gain(self.session.app().output_volume())
+        };
         for sample in &mut out {
             *sample = (*sample as f32 * gain) as i16;
         }
@@ -872,6 +895,14 @@ impl Frontend {
             };
             self.pip_tex = Some(tex);
             self.session.app_mut().set_pip_face(tex);
+        }
+        if let Some(face) = self.session.app_mut().music_render() {
+            let tex = match self.videos_tex {
+                Some(id) => { compositor.update_texture(id, face.w, face.h, &face.rgba); id }
+                None => compositor.create_texture(face.w, face.h, &face.rgba),
+            };
+            self.videos_tex = Some(tex);
+            self.session.app_mut().set_music_face(tex);
         }
         if let Some(face) = self.session.app_mut().videos_render() {
             let tex = match self.videos_tex {

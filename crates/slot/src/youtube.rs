@@ -1028,6 +1028,130 @@ pub fn parse_handle_page(html: &str, handle: &str) -> Option<Channel> {
     })
 }
 
+/// A playlist link or a bare `PL…` id. Playlists are how a lot of music is kept.
+pub fn playlist_id(text: &str) -> Option<String> {
+    let text = text.trim();
+    if let Some(at) = text.find("list=") {
+        let id = text[at + 5..]
+            .split(['&', '#', ' ', '?'])
+            .next()
+            .unwrap_or("");
+        return valid_playlist(id).then(|| id.to_string());
+    }
+    valid_playlist(text).then(|| text.to_string())
+}
+
+fn valid_playlist(id: &str) -> bool {
+    (10..=80).contains(&id.len())
+        && (id.starts_with("PL") || id.starts_with("OL") || id.starts_with("UU"))
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+pub fn playlist_videos(id: &str, name: &str) -> Result<Vec<Video>, String> {
+    let Some(id) = playlist_id(id).or_else(|| valid_playlist(id).then(|| id.to_string())) else {
+        return Err("That playlist address cannot be used".into());
+    };
+    let feed = format!("https://www.youtube.com/feeds/videos.xml?playlist_id={id}");
+    let body = get_text(&feed, 1 << 20).map_err(|e| format!("YouTube's playlist: {e}"))?;
+    let found = parse_rss(&body, name);
+    if found.is_empty() {
+        return Err("That playlist has no videos".into());
+    }
+    Ok(found)
+}
+
+/// Audio only: AAC 128k (itag 140) when it is there, otherwise Opus (itag 251).
+pub fn pick_audio_url(body: &str) -> Option<(u32, String)> {
+    let text = body
+        .replace("\\u0026", "&")
+        .replace("\\u002F", "/")
+        .replace("\\/", "/");
+    let mut aac = None;
+    let mut opus = None;
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("https://") {
+        rest = &rest[at..];
+        let end = rest.find(['"', '\\', ' ']).unwrap_or(rest.len());
+        let end = rest.floor_char_boundary(end);
+        let url = &rest[..end];
+        rest = &rest[end.max(1)..];
+        if !url.contains("googlevideo.com/videoplayback") && !url.contains("mime=audio") {
+            if !url.contains("itag=140") && !url.contains("itag=251") {
+                continue;
+            }
+        }
+        if url.contains("itag=140") {
+            aac = Some(url.to_string());
+        } else if url.contains("itag=251") && opus.is_none() {
+            opus = Some(url.to_string());
+        }
+    }
+    if let Some(url) = aac {
+        Some((140, url))
+    } else {
+        opus.map(|url| (251, url))
+    }
+}
+
+/// One audio address in the same client rotation as a video download.
+pub fn audio_at(video_id: &str, index: usize) -> Option<Result<(String, String), String>> {
+    if !valid_id(video_id) {
+        return Some(Err("That video address cannot be used".into()));
+    }
+    let clients = player_clients(video_id);
+    if let Some((name, body)) = clients.get(index) {
+        return Some(match innertube("player", body) {
+            Ok(body) => pick_audio_url(&body)
+                .map(|(_, url)| ((*name).to_string(), url))
+                .ok_or_else(|| format!("{name} sent no audio address")),
+            Err(e) => Err(format!("{name}: {e}")),
+        });
+    }
+    let mut at = index - clients.len();
+    for base in piped_bases() {
+        if at == 0 {
+            let url = format!("{base}/streams/{video_id}");
+            let name = format!("Piped {base}");
+            return Some(match get_text(&url, 2 << 20) {
+                Ok(body) => parse_piped_audio(&body)
+                    .map(|audio| (name.clone(), audio))
+                    .ok_or_else(|| format!("{base} had no audio")),
+                Err(e) => Err(format!("{base}: {e}")),
+            });
+        }
+        at -= 1;
+    }
+    None
+}
+
+fn parse_piped_audio(body: &str) -> Option<String> {
+    let value = parse_json(body)?;
+    let J::Arr(items) = value.get("audioStreams")? else {
+        return None;
+    };
+    let mut best: Option<(u32, String)> = None;
+    for item in items {
+        let url = item.get("url").and_then(J::as_str)?.to_string();
+        if url.is_empty() {
+            continue;
+        }
+        let mime = item.get("mimeType").and_then(J::as_str).unwrap_or("");
+        let rank = if mime.contains("mp4a") || mime.contains("audio/mp4") {
+            0
+        } else if mime.contains("opus") || mime.contains("webm") {
+            1
+        } else {
+            2
+        };
+        if best.as_ref().is_none_or(|(r, _)| rank < *r) {
+            best = Some((rank, url));
+        }
+    }
+    best.map(|(_, url)| url)
+}
+
 pub fn parse_rss(xml: &str, channel: &str) -> Vec<Video> {
     let mut out = Vec::new();
     for entry in xml.split("<entry>").skip(1) {
@@ -1418,6 +1542,30 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_prefers_aac_then_opus() {
+        let aac = pick_audio_url(
+            r#"{"url":"https://rr.googlevideo.com/videoplayback?itag=251&x=1","url":"https://rr.googlevideo.com/videoplayback?itag=140&x=2"}"#,
+        );
+        assert_eq!(aac.unwrap().0, 140);
+        let opus =
+            pick_audio_url(r#"{"url":"https://rr.googlevideo.com/videoplayback?itag=251&x=1"}"#);
+        assert_eq!(opus.unwrap().0, 251);
+        assert!(
+            pick_audio_url(r#"{"url":"https://rr.googlevideo.com/videoplayback?itag=18"}"#)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_playlist_link_keeps_only_the_id() {
+        assert_eq!(
+            playlist_id("https://www.youtube.com/playlist?list=PLabc_def-12&si=x"),
+            Some("PLabc_def-12".into())
+        );
+        assert!(playlist_id("not a playlist").is_none());
+    }
 
     #[test]
     fn piped_search_and_channel_and_streams_pick_a_muxed_360p() {

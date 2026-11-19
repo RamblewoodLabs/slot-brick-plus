@@ -245,6 +245,7 @@ pub const UNPLUG_HOLD_MS: Millis = 420;
 enum ShelfStop {
     Game(usize),
     Videos,
+    Music,
 }
 
 #[derive(Debug)]
@@ -473,6 +474,10 @@ pub struct App {
     pip: Option<crate::pip::PipMenu>,
     videos: Option<crate::videos::VideoMenu>,
     videos_visible: bool,
+    music: Option<crate::music::MusicMenu>,
+    music_visible: bool,
+    music_focus: bool,
+    tracks: Vec<crate::videos::Tape>,
     /// Saved videos on the shelf beside the game systems. Empty, or hidden in
     /// Library → Systems, and the shelf is not there.
     tapes: Vec<crate::videos::Tape>,
@@ -671,6 +676,10 @@ impl App {
             pip: None,
             videos: None,
             videos_visible: false,
+            music: None,
+            music_visible: false,
+            music_focus: false,
+            tracks: Vec::new(),
             tapes: Vec::new(),
             tape_at: 0,
             video_focus: false,
@@ -1149,6 +1158,7 @@ impl App {
             || self.cart_menu.is_some()
             || self.core_picker.is_some()
             || self.video_focus
+            || self.music_focus
         {
             return None;
         }
@@ -1168,6 +1178,9 @@ impl App {
             || self.core_picker.is_some()
         {
             return None;
+        }
+        if self.music_focus {
+            return self.tracks.get(self.tape_at).map(|tape| tape.title.clone());
         }
         if self.video_focus {
             return self.tapes.get(self.tape_at).map(|tape| tape.title.clone());
@@ -1217,7 +1230,11 @@ impl App {
         if stops.len() < 2 {
             return;
         }
-        let here = if self.video_focus {
+        let here = if self.music_focus {
+            stops
+                .iter()
+                .position(|stop| matches!(stop, ShelfStop::Music))
+        } else if self.video_focus {
             stops
                 .iter()
                 .position(|stop| matches!(stop, ShelfStop::Videos))
@@ -1233,9 +1250,14 @@ impl App {
         self.play_held = None;
         self.video_delete = None;
         match stops[next] {
-            ShelfStop::Videos => self.enter_videos(),
+            ShelfStop::Videos => {
+                self.music_focus = false;
+                self.enter_videos();
+            }
+            ShelfStop::Music => self.enter_music_shelf(),
             ShelfStop::Game(at) => {
                 self.video_focus = false;
+                self.music_focus = false;
                 self.land_shelf(at);
             }
         }
@@ -1252,6 +1274,7 @@ impl App {
     }
 
     fn enter_videos(&mut self) {
+        self.music_focus = false;
         self.video_focus = true;
         self.shelf_platform = slot_ui::Printed::default();
         self.slot_letter = None;
@@ -1277,7 +1300,24 @@ impl App {
         if self.videos_on_shelf() {
             stops.push(ShelfStop::Videos);
         }
+        if self.music_on_shelf() {
+            stops.push(ShelfStop::Music);
+        }
         stops
+    }
+
+    fn music_on_shelf(&self) -> bool {
+        !self.tracks.is_empty()
+    }
+
+    fn enter_music_shelf(&mut self) {
+        self.video_focus = false;
+        self.music_focus = true;
+        self.shelf_platform = slot_ui::Printed::default();
+        self.name_pending = true;
+        if let Some(root) = &self.root {
+            self.tracks = crate::music::tracks_for_shelf(root);
+        }
     }
 
     fn reload_tapes(&mut self) {
@@ -1285,6 +1325,7 @@ impl App {
             return;
         };
         self.tapes = crate::videos::tapes(&root);
+        self.tracks = crate::music::tracks_for_shelf(&root);
         if self.tape_at >= self.tapes.len() {
             self.tape_at = self.tapes.len().saturating_sub(1);
         }
@@ -1367,11 +1408,19 @@ impl App {
         }
     }
 
+    fn shown(&self) -> &[crate::videos::Tape] {
+        if self.music_focus {
+            &self.tracks
+        } else {
+            &self.tapes
+        }
+    }
+
     pub fn tape_list(&self) -> Vec<(String, String, Option<PathBuf>)> {
         if !self.videos_on_shelf() {
             return Vec::new();
         }
-        self.tapes
+        self.shown()
             .iter()
             .map(|tape| (tape.id.clone(), tape.title.clone(), tape.thumb.clone()))
             .collect()
@@ -1382,7 +1431,7 @@ impl App {
     }
 
     fn draw_tapes(&self, out: &mut Vec<Draw>) {
-        let n = self.tapes.len();
+        let n = self.shown().len();
         if n == 0 || self.tape_tex.len() != n {
             return;
         }
@@ -1726,7 +1775,8 @@ impl App {
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
-            | QuickRow::SoundVolume => None,
+            | QuickRow::SoundVolume
+            | QuickRow::Music => None,
         }
     }
 
@@ -1839,6 +1889,9 @@ impl App {
     }
 
     pub fn shelf_platform_name(&self) -> Option<&'static str> {
+        if self.music_focus {
+            return Some("Music");
+        }
         if self.video_focus {
             return Some("Videos");
         }
@@ -2653,7 +2706,7 @@ impl App {
             }
             return;
         }
-        if self.pip.is_some() || self.videos_visible {
+        if self.pip.is_some() || self.videos_visible || self.music_visible {
             return self.sheet_input(action);
         }
         if let Phase::SetClock {
@@ -2692,6 +2745,7 @@ impl App {
         }
         let now = self.now();
         match self.phase {
+            Phase::Shelf if self.music_focus => self.music_shelf_input(action),
             Phase::Shelf if self.video_focus => self.video_shelf_input(action),
             Phase::Shelf => match action {
                 // Like the core picker's lid closing: the sticker is never cut short.
@@ -2824,9 +2878,10 @@ impl App {
     /// Where the HOME menu is: the screen, the row, and whether an overlay (Wi-Fi) is open.
     fn menu_place(&self) -> (std::mem::Discriminant<Phase>, Option<QuickRow>, bool) {
         #[cfg(feature = "brick")]
-        let overlay = self.wifi.is_some() || self.pip.is_some() || self.videos_visible;
+        let overlay =
+            self.wifi.is_some() || self.pip.is_some() || self.videos_visible || self.music_visible;
         #[cfg(not(feature = "brick"))]
-        let overlay = self.pip.is_some() || self.videos_visible;
+        let overlay = self.pip.is_some() || self.videos_visible || self.music_visible;
         (
             std::mem::discriminant(&self.phase),
             self.quick_menu(),
@@ -2912,6 +2967,15 @@ impl App {
                 self.menu_sound(MenuSound::Back);
             }
         }
+        if self.music_visible && self.music.as_mut().is_some_and(|menu| menu.input(action)) {
+            self.music_visible = false;
+            if let Some(root) = &self.root {
+                self.tracks = crate::music::tracks_for_shelf(root);
+            }
+            if matches!(self.phase, Phase::QuickMenu { .. }) {
+                self.menu_sound(MenuSound::Back);
+            }
+        }
     }
 
     fn open_pip(&mut self) {
@@ -2960,6 +3024,24 @@ impl App {
         self.videos_visible = self.videos.is_some();
     }
 
+    fn open_music(&mut self) {
+        self.pip = None;
+        self.videos_visible = false;
+        let online = self.videos_online();
+        match &mut self.music {
+            Some(menu) => menu.set_online(online),
+            None => {
+                if let Some(root) = &self.root {
+                    self.music = Some(crate::music::MusicMenu::open(root.clone(), online));
+                }
+            }
+        }
+        if let Some(menu) = &mut self.music {
+            menu.dirty = true;
+        }
+        self.music_visible = self.music.is_some();
+    }
+
     fn videos_online(&self) -> bool {
         #[cfg(feature = "brick")]
         {
@@ -2989,6 +3071,7 @@ impl App {
     pub fn sheet_dirty(&self) -> bool {
         self.pip.as_ref().is_some_and(|menu| menu.dirty)
             || (self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.dirty))
+            || (self.music_visible && self.music.as_ref().is_some_and(|menu| menu.dirty))
     }
 
     pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
@@ -3015,6 +3098,62 @@ impl App {
         if let Some(menu) = &mut self.pip {
             menu.face = Some(tex);
         }
+    }
+
+    fn music_shelf_input(&mut self, action: Action) {
+        let count = self.tracks.len();
+        if count == 0 {
+            self.music_focus = false;
+            return;
+        }
+        match action {
+            Action::GbaDown(Btn::Left) => self.tape_at = (self.tape_at + count - 1) % count,
+            Action::GbaDown(Btn::Right) => self.tape_at = (self.tape_at + 1) % count,
+            Action::GbaDown(Btn::A) => {
+                let index = self.tape_at;
+                self.open_music();
+                if let Some(menu) = &mut self.music {
+                    menu.play_library(index);
+                }
+            }
+            Action::GbaDown(Btn::B) => {
+                self.music_focus = false;
+                if let Some(ShelfStop::Game(at)) = self.shelf_stops().into_iter().next() {
+                    self.land_shelf(at);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn music_render(&mut self) -> Option<slot_ui::UndoFace> {
+        if !self.music_visible {
+            return None;
+        }
+        let menu = self.music.as_mut()?;
+        if !menu.dirty && menu.face.is_some() {
+            return None;
+        }
+        let face = menu.render();
+        menu.dirty = false;
+        Some(face)
+    }
+
+    pub fn set_music_face(&mut self, tex: TexId) {
+        if let Some(menu) = &mut self.music {
+            menu.face = Some(tex);
+        }
+    }
+
+    pub fn music_playing(&self) -> bool {
+        self.music.as_ref().is_some_and(|menu| menu.playing())
+    }
+
+    pub fn take_music_pcm(&self) -> Vec<i16> {
+        self.music
+            .as_ref()
+            .map(|menu| menu.take_pcm())
+            .unwrap_or_default()
     }
 
     pub fn videos_render(&mut self) -> Option<slot_ui::UndoFace> {
@@ -3071,15 +3210,16 @@ impl App {
 
     /// A video is still downloading, so auto sleep and screen-off wait.
     pub fn download_busy(&self) -> bool {
-        self.root
-            .as_deref()
-            .is_some_and(|root| !crate::video_queue::jobs(root).is_empty())
+        self.root.as_deref().is_some_and(|root| {
+            !crate::video_queue::jobs(root).is_empty() || crate::music_queue::downloading(root)
+        })
     }
 
     fn open_quick_row(&mut self, row: QuickRow) {
         match row {
             QuickRow::Companion => self.open_pip(),
             QuickRow::Videos => self.open_videos(),
+            QuickRow::Music => self.open_music(),
             QuickRow::Wifi => {
                 #[cfg(feature = "brick")]
                 {
@@ -3401,7 +3541,8 @@ impl App {
             | QuickRow::AboutFirmware
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
-            | QuickRow::SystemSounds => return,
+            | QuickRow::SystemSounds
+            | QuickRow::Music => return,
         }
         self.persist();
     }
@@ -3860,6 +4001,16 @@ impl App {
         for (title, detail) in notes {
             self.announce(&title, &detail);
         }
+        if matches!(self.phase, Phase::Playing { .. }) {
+            if let Some(music) = &mut self.music {
+                if music.playing() {
+                    music.stop_for_game();
+                }
+            }
+        }
+        if let Some(music) = &mut self.music {
+            music.poll();
+        }
         if saved {
             self.reload_tapes();
         }
@@ -4308,6 +4459,8 @@ impl App {
     fn draw_sheet(&self, out: &mut Vec<Draw>) {
         let face = if self.pip.is_some() {
             self.pip.as_ref().and_then(|menu| menu.face)
+        } else if self.music_visible {
+            self.music.as_ref().and_then(|menu| menu.face)
         } else {
             self.videos
                 .as_ref()
@@ -4383,7 +4536,7 @@ impl App {
                 return;
             }
         }
-        if self.pip.is_some() || self.videos_visible {
+        if self.pip.is_some() || self.videos_visible || self.music_visible {
             self.draw_sheet(out);
             return;
         }
@@ -4453,7 +4606,7 @@ impl App {
                             .draw_row(Some(stem), 0.0, CORE_PICKER_RECEDE * open, dim, out);
                         draw_empty_slot(out);
                     }
-                    _ if self.video_focus => {
+                    _ if self.video_focus || self.music_focus => {
                         slot_ui::draw_title_card(
                             self.title_card,
                             slot_ui::tape_foot(),
@@ -5112,6 +5265,9 @@ impl App {
     }
 
     fn insert(&mut self, clean: bool) {
+        if let Some(music) = &mut self.music {
+            music.stop_for_game();
+        }
         if !self.on_shelf() {
             return;
         }
