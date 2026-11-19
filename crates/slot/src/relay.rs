@@ -355,6 +355,7 @@ pub(crate) fn serve_ready(body: Vec<u8>) -> u16 {
     serve_claimed(body, None)
 }
 
+#[cfg(test)]
 pub(crate) fn serve_claimed(body: Vec<u8>, claimed: Option<String>) -> u16 {
     use std::io::{Read, Write};
     use std::sync::{Arc, Mutex};
