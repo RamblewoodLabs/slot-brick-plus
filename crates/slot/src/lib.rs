@@ -40,6 +40,7 @@ mod pip_art;
 pub mod prefetch;
 pub mod quiet;
 pub mod ra;
+mod relay;
 pub mod resample;
 pub mod rewind;
 pub mod root;

@@ -215,6 +215,64 @@ struct Stream {
     audio_url: Option<String>,
 }
 
+/// The Mac relay, when `relay_token` is set. `Ok(true)` means the video is saved.
+/// `Ok(false)` means Slot should use YouTube directly.
+fn take_relay(root: &Path, job: &Job) -> Result<bool, String> {
+    let Some(cfg) = crate::relay::settings(root) else {
+        videos::log_line(root, &format!("source direct video {}", job.id));
+        return Ok(false);
+    };
+    let part = part_path(root, &job.id);
+    if let Some(dir) = part.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let watch = |root: &Path, id: &str| {
+        if !still_queued(root, id) {
+            crate::net::Watch::Stop
+        } else if held(root) {
+            crate::net::Watch::Pause
+        } else {
+            crate::net::Watch::Go
+        }
+    };
+    match crate::relay::fetch_file(
+        &cfg,
+        &job.id,
+        crate::relay::Kind::Video,
+        &part,
+        &mut || watch(root, &job.id),
+        &mut |phase, got, total| {
+            let _ = fs::write(root.join(STATUS_FILE), format!("{phase}\n"));
+            write_progress(root, &job.id, got, total, 0);
+        },
+    ) {
+        Ok(ready) => {
+            clear_note(root);
+            finish(root, job, &part)?;
+            if let Err(e) = crate::relay::confirm(&cfg, &ready.id) {
+                videos::log_line(root, &format!("relay delete {} {e}", job.id));
+            }
+            videos::log_line(root, &format!("source relay video {}", job.id));
+            Ok(true)
+        }
+        Err(e) if e == "removed" => {
+            let _ = fs::remove_file(&part);
+            let _ = crate::relay::confirm(&cfg, &crate::relay::Kind::Video.job_id(&job.id));
+            clear_note(root);
+            Err(e)
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&part);
+            clear_note(root);
+            videos::log_line(
+                root,
+                &format!("relay video {} {e}; source direct video {}", job.id, job.id),
+            );
+            Ok(false)
+        }
+    }
+}
+
 fn has_sound(media: &Stream) -> bool {
     media.audio_url.is_some() || matches!(media.itag.as_str(), "18" | "22" | "17" | "36" | "37")
 }
@@ -224,6 +282,11 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
     let part = part_path(root, &job.id);
     if let Some(dir) = part.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    match take_relay(root, job) {
+        Ok(true) => return Ok(()),
+        Ok(false) => {}
+        Err(e) => return Err(e),
     }
     let mut source = 0usize;
     let mut media = next_audible(&job.id, &mut source)?;
@@ -625,6 +688,7 @@ fn finish(root: &Path, job: &Job, part: &Path) -> Result<(), String> {
     });
     videos::write_index(root, &library).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(root.join(PROGRESS));
+    #[cfg(not(test))]
     let _ = videos::fetch_thumbnail(root, &job.id);
     let mut rows = jobs(root);
     rows.retain(|row| row.id != job.id);
@@ -649,6 +713,7 @@ fn index_saved(root: &Path, job: &Job, dest: &Path) -> Result<(), String> {
     });
     videos::write_index(root, &library).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(root.join(PROGRESS));
+    #[cfg(not(test))]
     let _ = videos::fetch_thumbnail(root, &job.id);
     let mut rows = jobs(root);
     rows.retain(|row| row.id != job.id);
@@ -1210,5 +1275,51 @@ mod tests {
         );
         assert!(again.is_ok(), "{again:?}");
         assert!(fs::metadata(&part).unwrap().len() > kept);
+    }
+
+    fn relay_config(root: &std::path::Path, host: &str, port: u16, token: &str) {
+        fs::create_dir_all(root.join("Config")).unwrap();
+        fs::write(
+            root.join("Config/videos.txt"),
+            format!("relay_host={host}\nrelay_port={port}\nrelay_token={token}\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_relay_file_is_saved_and_a_closed_relay_falls_back() {
+        let body = b"relay-video-bytes-0123456789abcdef".to_vec();
+        let port = crate::relay::serve_ready(body.clone());
+        let root = tempfile::tempdir().unwrap();
+        relay_config(root.path(), "127.0.0.1", port, "secret");
+        enqueue(root.path(), "abcdefghijk", "One", "Chan", 1000).unwrap();
+        let job = jobs(root.path()).remove(0);
+        assert_eq!(take_relay(root.path(), &job).unwrap(), true);
+        assert_eq!(
+            fs::read(videos::video_path(root.path(), "abcdefghijk")).unwrap(),
+            body
+        );
+        let log = fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
+        assert!(log.contains("source relay video abcdefghijk"), "{log}");
+        assert!(jobs(root.path()).is_empty());
+
+        let other = tempfile::tempdir().unwrap();
+        relay_config(other.path(), "127.0.0.1", 1, "secret");
+        enqueue(other.path(), "bbbbbbbbbbb", "Two", "Chan", 1000).unwrap();
+        let job = jobs(other.path()).remove(0);
+        assert_eq!(take_relay(other.path(), &job).unwrap(), false);
+        assert!(!videos::video_path(other.path(), "bbbbbbbbbbb").exists());
+        let log = fs::read_to_string(other.path().join("Logs/videos.log")).unwrap();
+        assert!(log.contains("source direct video bbbbbbbbbbb"), "{log}");
+    }
+
+    #[test]
+    fn without_a_token_the_download_stays_on_the_direct_path() {
+        let root = tempfile::tempdir().unwrap();
+        enqueue(root.path(), "ccccccccccc", "Three", "Chan", 1000).unwrap();
+        let job = jobs(root.path()).remove(0);
+        assert_eq!(take_relay(root.path(), &job).unwrap(), false);
+        let log = fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
+        assert!(log.contains("source direct video ccccccccccc"), "{log}");
     }
 }

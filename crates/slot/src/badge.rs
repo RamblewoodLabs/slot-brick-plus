@@ -87,6 +87,7 @@ fn fetch(url: &str, path: &Path) -> Result<(), String> {
         form: None,
         json: None,
         agent: None,
+        bearer: None,
         limit: BADGE_MAX,
     })?;
     if reply.status != 200 {

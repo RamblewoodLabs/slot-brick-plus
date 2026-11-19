@@ -28,6 +28,8 @@ pub struct Request<'a> {
     pub json: Option<&'a str>,
     /// Replaces Slot's own name on this request.
     pub agent: Option<&'a str>,
+    /// `Authorization: Bearer`, when the server asks for a shared token.
+    pub bearer: Option<&'a str>,
     /// The most body accepted.
     pub limit: usize,
 }
@@ -91,6 +93,12 @@ pub fn send(req: &Request) -> Result<Response, String> {
         req.path,
         req.agent.unwrap_or(&user_agent())
     );
+    if let Some(token) = req.bearer {
+        if !plain(token) {
+            return Err("bad request address".into());
+        }
+        text.push_str(&format!("Authorization: Bearer {token}\r\n"));
+    }
     if let Some(form) = req.form {
         text.push_str(&format!(
             "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\n\r\n{form}",
@@ -370,6 +378,8 @@ pub struct Ranged {
     pub total: Option<u64>,
     /// Bytes in this reply, from Content-Length.
     pub content_length: Option<u64>,
+    /// The whole file's sha256, when the server sent `X-Sha256`.
+    pub sha256: Option<String>,
     pub reader: Box<dyn Read + Send>,
 }
 
@@ -386,6 +396,7 @@ pub fn get_range(url: &str, start: u64, end: Option<u64>) -> Result<Ranged, Stri
         Duration::from_secs(30),
         IDLE_LIMIT,
         &mut || Watch::Go,
+        "",
     )
 }
 
@@ -399,7 +410,19 @@ pub fn get_range_polled(
     idle: Duration,
     watch: &mut dyn FnMut() -> Watch,
 ) -> Result<Ranged, String> {
-    range_request(url, start, end, READ_SLICE, idle, watch)
+    range_request(url, start, end, READ_SLICE, idle, watch, "")
+}
+
+/// The same ranged GET, with `Authorization: Bearer`.
+pub fn get_range_polled_bearer(
+    url: &str,
+    start: u64,
+    end: Option<u64>,
+    idle: Duration,
+    watch: &mut dyn FnMut() -> Watch,
+    bearer: &str,
+) -> Result<Ranged, String> {
+    range_request(url, start, end, READ_SLICE, idle, watch, bearer)
 }
 
 fn range_request(
@@ -409,11 +432,19 @@ fn range_request(
     read_timeout: Duration,
     idle: Duration,
     watch: &mut dyn FnMut() -> Watch,
+    bearer: &str,
 ) -> Result<Ranged, String> {
     let mut url = url.to_string();
+    let auth = if bearer.is_empty() {
+        String::new()
+    } else if plain(bearer) {
+        format!("Authorization: Bearer {bearer}\r\n")
+    } else {
+        return Err("bad request address".into());
+    };
     let range = match end {
-        Some(end) => format!("Range: bytes={start}-{end}\r\n"),
-        None => format!("Range: bytes={start}-\r\n"),
+        Some(end) => format!("{auth}Range: bytes={start}-{end}\r\n"),
+        None => format!("{auth}Range: bytes={start}-\r\n"),
     };
     for _ in 0..5 {
         let (tls, server, path) = split_url(&url).ok_or("bad download address")?;
@@ -436,6 +467,7 @@ fn range_request(
                     status,
                     total,
                     content_length,
+                    sha256: reply.header("x-sha256"),
                     reader,
                 });
             }
@@ -446,6 +478,7 @@ fn range_request(
                     status,
                     total: content_length,
                     content_length,
+                    sha256: reply.header("x-sha256"),
                     reader,
                 });
             }
@@ -736,6 +769,7 @@ mod tests {
                 form: None,
                 json: None,
                 agent: None,
+                bearer: None,
                 limit: 1,
             };
             assert_eq!(
@@ -756,6 +790,7 @@ mod tests {
             form: None,
             json: None,
             agent: None,
+            bearer: None,
             limit: 1,
         };
         assert!(unreachable(&send(&req("127.0.0.1:1")).err().unwrap()));
@@ -786,6 +821,7 @@ mod tests {
             form: Some("r=login2"),
             json: None,
             agent: None,
+            bearer: None,
             limit: 1 << 16,
         })
         .unwrap();
