@@ -46,6 +46,7 @@ pub(crate) struct Saved {
     pub(crate) bytes: u64,
     pub(crate) duration_ms: u64,
     pub(crate) position_ms: u64,
+    pub(crate) watched: bool,
 }
 
 #[derive(Clone)]
@@ -137,6 +138,10 @@ pub struct VideoMenu {
     armed: Option<usize>,
     shown_sec: u64,
     shown_pct: u64,
+    pace_at: Option<std::time::Instant>,
+    pace_got: u64,
+    pace_bps: u64,
+    failed_note: Option<String>,
     pub dirty: bool,
     pub face: Option<TexId>,
     pub frame_face: Option<TexId>,
@@ -174,6 +179,10 @@ impl VideoMenu {
             armed: None,
             shown_sec: u64::MAX,
             shown_pct: u64::MAX,
+            pace_at: None,
+            pace_got: 0,
+            pace_bps: 0,
+            failed_note: None,
             dirty: true,
             face: None,
             frame_face: None,
@@ -181,7 +190,58 @@ impl VideoMenu {
         menu.library = read_index(&menu.root);
         menu.subs = read_subs(&menu.root);
         menu.limit_mb = read_limit(&menu.root);
+        menu.view = menu.opening_tab();
+        menu.back = menu.view;
+        if menu.view == View::Library {
+            menu.load_saved_thumbs();
+        }
         menu
+    }
+
+    fn opening_tab(&self) -> View {
+        read_tab(&self.root).unwrap_or(if self.library.is_empty() {
+            View::Home
+        } else {
+            View::Library
+        })
+    }
+
+    fn on_tab(&self) -> bool {
+        matches!(self.view, View::Home | View::Library | View::Queue)
+    }
+
+    fn horizontal_row(&self) -> bool {
+        self.view == View::Queue && (self.row == self.limit_row() || self.row == self.pause_row())
+    }
+
+    fn switch_tab(&mut self, dir: i32) {
+        if !self.on_tab() {
+            self.view = View::Home;
+        }
+        let order = [View::Library, View::Queue, View::Home];
+        let at = order.iter().position(|v| *v == self.view).unwrap_or(2);
+        let next = (at as i32 + dir).rem_euclid(order.len() as i32) as usize;
+        self.view = order[next];
+        self.row = 0;
+        self.armed = None;
+        self.keys = None;
+        let _ = write_tab(&self.root, self.view);
+        if self.view == View::Library {
+            self.load_saved_thumbs();
+        }
+        self.status = match self.view {
+            View::Library => "Saved on the card. Plays with Wi-Fi off.".into(),
+            View::Queue => "The download queue".into(),
+            _ => "Add a channel, or open one you follow".into(),
+        };
+    }
+
+    fn load_saved_thumbs(&mut self) {
+        self.row_thumbs = self
+            .library
+            .iter()
+            .map(|saved| png_rgba(&thumb_path(&self.root, &saved.id), 64, 32))
+            .collect();
     }
 
     pub fn set_online(&mut self, online: bool) {
@@ -323,6 +383,22 @@ impl VideoMenu {
             return self.search_input(action);
         }
         match action {
+            Action::GbaDown(Btn::L1) if self.view != View::Player && self.view != View::Search => {
+                self.switch_tab(-1);
+            }
+            Action::GbaDown(Btn::R1) if self.view != View::Player && self.view != View::Search => {
+                self.switch_tab(1);
+            }
+            Action::GbaDown(Btn::Left) | Action::ShelfLeft
+                if self.on_tab() && !self.horizontal_row() =>
+            {
+                self.switch_tab(-1);
+            }
+            Action::GbaDown(Btn::Right) | Action::ShelfRight
+                if self.on_tab() && !self.horizontal_row() =>
+            {
+                self.switch_tab(1);
+            }
             Action::GbaDown(Btn::B) => return self.back(),
             Action::GbaDown(Btn::Up) => {
                 self.row =
@@ -330,12 +406,12 @@ impl VideoMenu {
             }
             Action::GbaDown(Btn::Down) => self.row = (self.row + 1) % self.rows().max(1),
             Action::GbaDown(Btn::Left) | Action::ShelfLeft
-                if self.view == View::Home && self.row == self.limit_row() =>
+                if self.view == View::Queue && self.row == self.limit_row() =>
             {
                 self.step_limit(false)
             }
             Action::GbaDown(Btn::Right) | Action::ShelfRight
-                if self.view == View::Home && self.row == self.limit_row() =>
+                if self.view == View::Queue && self.row == self.limit_row() =>
             {
                 self.step_limit(true)
             }
@@ -343,7 +419,7 @@ impl VideoMenu {
             | Action::ShelfLeft
             | Action::GbaDown(Btn::Right)
             | Action::ShelfRight
-                if self.view == View::Home && self.row == self.pause_row() =>
+                if self.view == View::Queue && self.row == self.pause_row() =>
             {
                 let on = !crate::video_queue::pause_in_games(&self.root);
                 let _ = crate::video_queue::set_pause_in_games(&self.root, on);
@@ -354,16 +430,10 @@ impl VideoMenu {
                 };
                 self.dirty = true;
             }
-            Action::GbaDown(Btn::A) if self.view == View::Queue => {
-                let paused = crate::video_queue::toggle_hold(&self.root);
-                self.status = if paused {
-                    "Download paused".into()
-                } else {
-                    "Download continuing".into()
-                };
-            }
+            Action::GbaDown(Btn::A) if self.view == View::Queue => self.activate_download(),
             Action::GbaDown(Btn::A) => self.activate(),
             Action::GbaDown(Btn::Y) if self.view == View::Library => self.delete_saved(),
+            Action::GbaDown(Btn::X) if self.view == View::Library => self.mark_watched(),
             Action::GbaDown(Btn::Y) if self.channel_row().is_some() => self.remove_channel(),
             Action::GbaDown(Btn::X) if self.view == View::Queue => self.cancel_download(),
             _ => {}
@@ -379,15 +449,18 @@ impl VideoMenu {
         let w = OUT_W.saturating_sub(48);
         if self.view != View::Player {
             sheet.text("VIDEOS", 16, 8, w, MENU_H, MENU_PX, false);
+            if self.on_tab() || matches!(self.view, View::Videos | View::Channels) {
+                self.render_tabs(&mut sheet);
+            }
         }
         if !self.status.is_empty() && self.view != View::Player {
-            sheet.text(&self.status, 16, 48, w, MENU_H, 24.0, true);
+            sheet.text(&self.status, 16, 84, w, 28, 20.0, true);
         }
         if self.view != View::Player
             && self.on_battery()
             && !crate::video_queue::jobs(&self.root).is_empty()
         {
-            sheet.text("Plug in to keep downloading", 16, 80, w, 18, 16.0, true);
+            sheet.text("Plug in to keep downloading", 16, 112, w, 18, 16.0, true);
         }
         match self.view {
             View::Search => self.render_keys(&mut sheet),
@@ -406,18 +479,60 @@ impl VideoMenu {
         sheet.finish()
     }
 
+    fn render_tabs(&self, sheet: &mut Sheet) {
+        let tabs = [View::Library, View::Queue, View::Home];
+        let labels = [
+            "SAVED".to_string(),
+            self.downloads_tab(),
+            "CHANNELS".to_string(),
+        ];
+        let w = OUT_W / 3;
+        let here = self.tab_view();
+        for (i, label) in labels.iter().enumerate() {
+            let x = i as u32 * w;
+            if tabs[i] == here {
+                sheet.rect(x, 44, w, 34, slot_ui::edge());
+            }
+            sheet.text(label, x + 6, 44, w.saturating_sub(12), 34, 22.0, tabs[i] != here);
+        }
+    }
+
+    fn tab_view(&self) -> View {
+        match self.view {
+            View::Library => View::Library,
+            View::Queue => View::Queue,
+            _ => View::Home,
+        }
+    }
+
+    fn downloads_tab(&self) -> String {
+        let n = self.waiting.len()
+            + usize::from(self.active.is_some())
+            + usize::from(self.failed_note.is_some());
+        if n == 0 {
+            "DOWNLOADS".into()
+        } else {
+            format!("DOWNLOADS {n}")
+        }
+    }
+
     fn render_rows(&self, sheet: &mut Sheet) {
         let rows = self.row_labels();
-        let visible = ((MENU_LEGEND - 96) / MENU_PITCH) as usize;
+        let top = if self.on_tab() || matches!(self.view, View::Videos | View::Channels) {
+            148
+        } else {
+            96
+        };
+        let visible = ((MENU_LEGEND - top) / MENU_PITCH) as usize;
         let first = self.row.saturating_sub(visible.saturating_sub(1));
         for (line, row) in (first..rows.len().min(first + visible)).enumerate() {
-            let y = 96 + line as u32 * MENU_PITCH;
+            let y = top + line as u32 * MENU_PITCH;
             if row == self.row {
                 sheet.rect(0, y, OUT_W, MENU_H, slot_ui::edge());
             }
             let mut x = 16;
             let mut text_w = OUT_W.saturating_sub(32);
-            if self.view == View::Videos {
+            if self.view == View::Videos || self.view == View::Library {
                 if let Some(px) = self.row_thumbs.get(row).and_then(|t| t.as_ref()) {
                     sheet.image(12, y + 4, 64, 32, px);
                     x = 84;
@@ -528,11 +643,14 @@ impl VideoMenu {
         match self.view {
             View::Search => "A TYPE    X DELETE    Y PAGE    START SEARCH    B BACK".into(),
             View::Player => "A PLAY/PAUSE    LEFT/RIGHT 10S    UP/DOWN VOLUME    B BACK".into(),
-            View::Library => "A PLAY    Y DELETE    B BACK".into(),
-            View::Queue => "X CANCEL    B BACK".into(),
-            View::Home if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    B BACK".into(),
-            View::Home if self.row == self.pause_row() => "LEFT/RIGHT    B BACK".into(),
-            View::Home if self.channel_row().is_some() => "A LATEST 5    Y REMOVE    B BACK".into(),
+            View::Library => "A PLAY    Y DELETE    X WATCHED    L1/R1 TABS    B BACK".into(),
+            View::Queue if self.row == self.limit_row() => "LEFT/RIGHT LIMIT    L1/R1 TABS    B BACK".into(),
+            View::Queue if self.row == self.pause_row() => "LEFT/RIGHT    L1/R1 TABS    B BACK".into(),
+            View::Queue => "A RETRY/PAUSE    X REMOVE    L1/R1 TABS    B BACK".into(),
+            View::Home if self.channel_row().is_some() => {
+                "A LATEST 5    Y REMOVE    L1/R1 TABS    B BACK".into()
+            }
+            View::Home | View::Videos | View::Channels => "A SELECT    L1/R1 TABS    B BACK".into(),
             _ => "A SELECT    B BACK".into(),
         }
     }
@@ -549,23 +667,6 @@ impl VideoMenu {
                     };
                     rows.push(format!("{ask}{}", sub.name));
                 }
-                rows.push(format!("Saved videos ({})", self.library.len()));
-                rows.push(format!(
-                    "Downloads ({})",
-                    self.waiting.len()
-                        + usize::from(self.active.is_some())
-                        + usize::from(self.retry.is_some())
-                ));
-                rows.push(self.space_label());
-                rows.push(self.limit_label());
-                rows.push(format!(
-                    "Pause downloads in games          {}",
-                    if crate::video_queue::pause_in_games(&self.root) {
-                        "ON"
-                    } else {
-                        "OFF"
-                    }
-                ));
                 rows
             }
             View::Channels => {
@@ -617,7 +718,12 @@ impl VideoMenu {
                             } else {
                                 ""
                             };
-                            format!("{ask}{}  {}", s.title, mb(s.bytes))
+                            format!(
+                                "{ask}{}{}  {}",
+                                if s.watched { "WATCHED  " } else { "" },
+                                s.title,
+                                mb(s.bytes)
+                            )
                         })
                         .collect()
                 }
@@ -628,17 +734,34 @@ impl VideoMenu {
                     let got = self.progress.load(Ordering::Relaxed);
                     let total = self.progress_total.load(Ordering::Relaxed);
                     let pct = match total {
-                        0 => format!("{} MB", got / 1_000_000),
-                        n => format!("{}%", (got.saturating_mul(100) / n).min(100)),
+                        0 => String::new(),
+                        n => format!("  {}%", (got.saturating_mul(100) / n).min(100)),
                     };
-                    rows.push(format!("DOWNLOADING  {pct}  {}", job.title));
-                }
-                if self.waiting.is_empty() && rows.is_empty() {
-                    rows.push("Nothing queued".into());
+                    let speed = match self.pace_bps {
+                        0 => String::new(),
+                        n => format!("  {}/s", mb(n)),
+                    };
+                    rows.push(format!("{}{pct}{speed}  {}", mb(got), job.title));
                 }
                 for job in &self.waiting {
                     rows.push(format!("QUEUED  {}", job.title));
                 }
+                if let Some(err) = &self.failed_note {
+                    rows.push(format!("FAILED  {err}"));
+                }
+                if rows.is_empty() {
+                    rows.push("Nothing queued".into());
+                }
+                rows.push(self.space_label());
+                rows.push(self.limit_label());
+                rows.push(format!(
+                    "Pause downloads in games          {}",
+                    if crate::video_queue::pause_in_games(&self.root) {
+                        "ON"
+                    } else {
+                        "OFF"
+                    }
+                ));
                 rows
             }
             View::Search | View::Player => Vec::new(),
@@ -655,32 +778,21 @@ impl VideoMenu {
         self.armed = None;
         match self.view {
             View::Home => true,
-            View::Search => {
+            View::Search | View::Channels => {
                 self.keys = None;
                 self.view = View::Home;
                 self.row = 0;
-                self.status = "Search a channel, or play a video already on the card".into();
+                self.status = "Add a channel, or open one you follow".into();
                 false
             }
-            // Search results sit under the keyboard the player opened on purpose.
-            View::Channels => {
-                self.view = View::Search;
-                if self.keys.is_none() {
-                    self.keys = Some(KeysState {
-                        query: String::new(),
-                        key: 0,
-                        page: 0,
-                    });
-                }
-                false
-            }
-            View::Videos | View::Library | View::Queue => {
+            View::Videos => {
                 self.keys = None;
                 self.view = View::Home;
                 self.row = 0;
-                self.status = "Search a channel, or play a video already on the card".into();
+                self.status = "Add a channel, or open one you follow".into();
                 false
             }
+            View::Library | View::Queue => true,
             View::Player => {
                 self.view = self.back;
                 self.keys = None;
@@ -721,12 +833,19 @@ impl VideoMenu {
         }
     }
 
+    fn queue_rows(&self) -> usize {
+        let n = usize::from(self.active.is_some())
+            + self.waiting.len()
+            + usize::from(self.failed_note.is_some());
+        n.max(1)
+    }
+
     fn limit_row(&self) -> usize {
-        self.subs.len() + 4
+        self.queue_rows() + 1
     }
 
     fn pause_row(&self) -> usize {
-        self.subs.len() + 5
+        self.queue_rows() + 2
     }
 
     fn channel_row(&self) -> Option<usize> {
@@ -751,24 +870,40 @@ impl VideoMenu {
         if let Some(at) = self.channel_row() {
             let sub = self.subs[at].clone();
             self.open_sub(sub);
+        }
+    }
+
+    fn activate_download(&mut self) {
+        if self.failed_note.is_some() && self.row + 1 == self.queue_rows() {
+            let _ = std::fs::remove_file(self.root.join("Videos/error.txt"));
+            self.failed_note = None;
+            self.status = "Trying that download again".into();
+            crate::video_queue::ensure(&self.root);
             return;
         }
-        if self.row == self.subs.len() + 1 {
-            self.view = View::Library;
-            self.row = 0;
-            self.library = read_index(&self.root);
-            self.status = "Saved on the card. Plays with Wi-Fi off.".into();
-        } else if self.row == self.subs.len() + 2 {
-            self.view = View::Queue;
-            self.row = 0;
-            if let Some(job) = self.retry.take() {
-                self.waiting.push(job);
-                self.status = "Trying that download again".into();
-                self.kick();
+        if self.active.is_some() && self.row == 0 {
+            let paused = crate::video_queue::toggle_hold(&self.root);
+            self.status = if paused {
+                "Download paused".into()
             } else {
-                self.status = "The download queue".into();
-            }
+                "Download continuing".into()
+            };
         }
+    }
+
+    fn mark_watched(&mut self) {
+        let Some(saved) = self.library.get_mut(self.row) else {
+            return;
+        };
+        saved.watched = !saved.watched;
+        let watched = saved.watched;
+        let title = saved.title.clone();
+        let _ = write_index(&self.root, &self.library);
+        self.status = if watched {
+            format!("Marked watched  {title}")
+        } else {
+            format!("Marked unwatched  {title}")
+        };
     }
 
     fn open_sub(&mut self, sub: Sub) {
@@ -901,16 +1036,37 @@ impl VideoMenu {
                 }
             }
         }
-        if let Some(row) = progress.as_ref() {
-            self.progress.store(row.got, Ordering::Relaxed);
-            self.progress_total.store(row.total, Ordering::Relaxed);
-        }
         self.active = jobs.first().map(|job| Job {
             id: job.id.clone(),
             title: job.title.clone(),
             channel: job.channel.clone(),
             duration_ms: job.duration_ms,
         });
+        let row = progress.filter(|row| self.active.as_ref().is_some_and(|job| job.id == row.id));
+        if let Some(row) = row {
+            let now = std::time::Instant::now();
+            if let Some(at) = self.pace_at {
+                let dt = now.duration_since(at).as_secs_f64();
+                if dt >= 0.5 {
+                    let delta = row.got.saturating_sub(self.pace_got);
+                    self.pace_bps = (delta as f64 / dt) as u64;
+                    self.pace_at = Some(now);
+                    self.pace_got = row.got;
+                    self.dirty = true;
+                }
+            } else {
+                self.pace_at = Some(now);
+                self.pace_got = row.got;
+            }
+            self.progress.store(row.got, Ordering::Relaxed);
+            self.progress_total.store(row.total, Ordering::Relaxed);
+        } else {
+            self.progress.store(0, Ordering::Relaxed);
+            self.progress_total.store(0, Ordering::Relaxed);
+            self.pace_bps = 0;
+            self.pace_at = None;
+            self.pace_got = 0;
+        }
         self.waiting = jobs
             .into_iter()
             .skip(1)
@@ -922,11 +1078,14 @@ impl VideoMenu {
             })
             .collect();
         if let Some(err) = crate::video_queue::last_error(&self.root) {
-            if self.status != err {
+            if self.failed_note.as_deref() != Some(err.as_str()) {
+                self.failed_note = Some(err.clone());
                 self.status = err.clone();
                 self.dirty = true;
                 notes.push(("Download".into(), err));
             }
+        } else {
+            self.failed_note = None;
         }
         crate::video_queue::ensure(&self.root);
         if self.active.is_some() {
@@ -1485,7 +1644,7 @@ pub fn frame_origin() -> (u32, u32) {
     ((OUT_W - FRAME_W) / 2, 52)
 }
 
-fn ffmpeg_path(root: &Path) -> Option<PathBuf> {
+pub(crate) fn ffmpeg_path(root: &Path) -> Option<PathBuf> {
     let own = root.join("System/ffmpeg");
     if own.is_file() {
         return Some(own);
@@ -1774,6 +1933,7 @@ fn parse_saved(line: &str) -> Option<Saved> {
     let bytes = fields.next()?.parse().ok()?;
     let duration_ms = fields.next()?.parse().ok()?;
     let position_ms = fields.next()?.parse().ok()?;
+    let watched = fields.next().is_some_and(|s| s == "1");
     Some(Saved {
         id,
         title,
@@ -1781,6 +1941,7 @@ fn parse_saved(line: &str) -> Option<Saved> {
         bytes,
         duration_ms,
         position_ms,
+        watched,
     })
 }
 
@@ -1801,6 +1962,8 @@ pub(crate) fn write_index(root: &Path, library: &[Saved]) -> std::io::Result<()>
         text.push_str(&saved.duration_ms.to_string());
         text.push('\t');
         text.push_str(&saved.position_ms.to_string());
+        text.push('\t');
+        text.push(if saved.watched { '1' } else { '0' });
         text.push('\n');
     }
     let _ = std::fs::create_dir_all(root.join("Videos"));
@@ -1826,11 +1989,68 @@ fn read_limit(root: &Path) -> u32 {
 }
 
 fn write_limit(root: &Path, limit_mb: u32) -> std::io::Result<()> {
+    write_config(root, limit_mb, read_tab(root))
+}
+
+fn read_tab(root: &Path) -> Option<View> {
+    let text = std::fs::read_to_string(root.join("Config/videos.txt")).ok()?;
+    text.lines().find_map(|line| match line.strip_prefix("tab=")?.trim() {
+        "saved" => Some(View::Library),
+        "downloads" => Some(View::Queue),
+        "channels" => Some(View::Home),
+        _ => None,
+    })
+}
+
+fn write_tab(root: &Path, view: View) -> std::io::Result<()> {
+    write_config(root, read_limit(root), Some(view))
+}
+
+fn write_config(root: &Path, limit_mb: u32, tab: Option<View>) -> std::io::Result<()> {
     let _ = std::fs::create_dir_all(root.join("Config"));
-    slot_store::atomic_write(
-        &root.join("Config/videos.txt"),
-        format!("limit_mb={limit_mb}\n").as_bytes(),
-    )
+    let mut text = format!("limit_mb={limit_mb}\n");
+    if let Some(view) = tab {
+        let name = match view {
+            View::Library => "saved",
+            View::Queue => "downloads",
+            _ => "channels",
+        };
+        text.push_str(&format!("tab={name}\n"));
+    }
+    slot_store::atomic_write(&root.join("Config/videos.txt"), text.as_bytes())
+}
+
+fn png_rgba(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    let dec = png::Decoder::new(bytes.as_slice());
+    let mut reader = dec.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.width == 0 || info.height == 0 {
+        return None;
+    }
+    let stride = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        _ => return None,
+    };
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let sx = x * info.width / w;
+            let sy = y * info.height / h;
+            let i = ((sy * info.width + sx) * stride) as usize;
+            let o = ((y * w + x) * 4) as usize;
+            if i + 2 >= info.buffer_size() || o + 3 >= out.len() {
+                continue;
+            }
+            out[o] = buf[i];
+            out[o + 1] = buf[i + 1];
+            out[o + 2] = buf[i + 2];
+            out[o + 3] = if stride == 4 { buf[i + 3] } else { 255 };
+        }
+    }
+    Some(out)
 }
 
 fn clock(ms: u64) -> String {
@@ -1895,6 +2115,7 @@ mod tests {
             bytes: 12,
             duration_ms: 90_000,
             position_ms: 1500,
+            watched: false,
         }];
         write_index(root.path(), &saved).unwrap();
         let again = read_index(root.path());
@@ -1941,6 +2162,7 @@ mod tests {
                 bytes: 8,
                 duration_ms: 1,
                 position_ms: 0,
+                watched: false,
             }],
         )
         .unwrap();
@@ -1967,6 +2189,7 @@ mod tests {
                 bytes: 3,
                 duration_ms: 1000,
                 position_ms: 400,
+                watched: false,
             }],
         )
         .unwrap();
@@ -2017,14 +2240,15 @@ mod tests {
     fn the_cache_limit_steps_and_is_remembered() {
         let root = tempfile::tempdir().unwrap();
         let mut menu = VideoMenu::open(root.path().to_path_buf(), false);
+        assert_eq!(menu.view, View::Home);
+        menu.switch_tab(-1);
+        assert_eq!(menu.view, View::Queue);
         assert_eq!(menu.limit_mb, 0);
         assert!(menu
             .row_labels()
             .iter()
             .any(|row| row.contains("used") && row.contains("free")));
-        for _ in 0..4 {
-            menu.input(Action::GbaDown(Btn::Down));
-        }
+        menu.row = menu.limit_row();
         menu.input(Action::ShelfRight);
         assert_eq!(menu.limit_mb, 1024);
         menu.input(Action::ShelfRight);
@@ -2049,13 +2273,12 @@ mod tests {
                 bytes: 3,
                 duration_ms: 1000,
                 position_ms: 0,
+                watched: false,
             }],
         )
         .unwrap();
         let mut menu = VideoMenu::open(root.path().to_path_buf(), false);
-        menu.input(Action::GbaDown(Btn::Down));
-        menu.input(Action::GbaDown(Btn::A));
-        assert_eq!(menu.library.len(), 1);
+        assert_eq!(menu.view, View::Library);
         menu.input(Action::GbaDown(Btn::Y));
         assert_eq!(menu.library.len(), 1);
         menu.input(Action::GbaDown(Btn::Y));
@@ -2122,6 +2345,7 @@ mod tests {
             bytes: 3,
             duration_ms: 90_000,
             position_ms: 12_000,
+            watched: false,
         });
         let mut player = menu.render();
         paint_frame(&mut player);
@@ -2129,7 +2353,33 @@ mod tests {
         if let Ok(dir) = std::env::var("SLOT_FEATURE_PREVIEW") {
             let dir = std::path::PathBuf::from(dir);
             let _ = std::fs::create_dir_all(&dir);
-            write_png(&dir.join("videos-home.png"), &home);
+            write_png(&dir.join("videos-channels.png"), &home);
+            menu.status = "Saved on the card".into();
+            menu.view = View::Library;
+            menu.library = vec![Saved {
+                id: "abcdefghijk".into(),
+                title: "A saved video".into(),
+                channel: "Show".into(),
+                bytes: 20_000_000,
+                duration_ms: 60_000,
+                position_ms: 0,
+                watched: false,
+            }];
+            write_png(&dir.join("videos-saved.png"), &menu.render());
+            menu.status = "The download queue".into();
+            menu.view = View::Queue;
+            menu.active = Some(Job {
+                id: "abcdefghijk".into(),
+                title: "Downloading now".into(),
+                channel: "Show".into(),
+                duration_ms: 1,
+            });
+            menu.pace_bps = 1_500_000;
+            menu.progress
+                .store(8_000_000, std::sync::atomic::Ordering::Relaxed);
+            menu.progress_total
+                .store(20_000_000, std::sync::atomic::Ordering::Relaxed);
+            write_png(&dir.join("videos-downloads.png"), &menu.render());
             write_png(&dir.join("videos-keyboard.png"), &keys);
             write_png(&dir.join("videos-player.png"), &player);
         }

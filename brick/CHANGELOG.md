@@ -1,6 +1,8 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos is three tabs: Saved, Downloads, and Channels. L1 and R1 move between them, and it opens on Saved when something is already on the card. Downloads shows progress and a count while something is queued. The same tabs are on HOME → Music.
+- A download shows its own progress, and cancelling it stops that download so the next one starts from zero. A video is saved only when the whole file has arrived, as H.264 with sound. A connection that sends nothing for 30 seconds is tried again from where it stopped.
 - HOME → Music: add a YouTube channel, @handle, or playlist and download the audio. Files are saved under Music with the picture from the video. Play, pause, skip, shuffle, repeat, and a seek bar. It keeps playing on the system menu and stops when a game starts. The volume is the system volume. The Music shelf uses the same space limit as Videos. B goes up one level, and the keyboard opens only from Add a channel or playlist.
 - The system menu shows the same battery, Wi-Fi and clock as the shelf. The battery stays the usual colour above 20%, turns yellow below that, and red at 10% or less. The charging mark shows only while a cable is plugged in.
 - A video or music download starts even when the card cannot lock a file. If it cannot start, Slot says so instead of filling the log and closing.

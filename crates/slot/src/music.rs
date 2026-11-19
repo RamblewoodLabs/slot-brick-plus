@@ -27,6 +27,13 @@ const MENU_LEGEND: u32 = 430;
 const AUDIO_HZ: u32 = 22_050;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tab {
+    Saved,
+    Downloads,
+    Channels,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum View {
     Home,
     Search,
@@ -47,6 +54,8 @@ pub struct MusicMenu {
     root: PathBuf,
     online: bool,
     view: View,
+    tab: Tab,
+    sources: Vec<String>,
     status: String,
     row: usize,
     query: String,
@@ -80,6 +89,8 @@ impl MusicMenu {
             root,
             online,
             view: View::Home,
+            tab: Tab::Channels,
+            sources: Vec::new(),
             status: "Add a channel or playlist, or play something already saved".into(),
             row: 0,
             query: String::new(),
@@ -105,7 +116,30 @@ impl MusicMenu {
             face: None,
         };
         menu.tracks = library(&menu.root);
+        menu.sources = read_sources(&menu.root);
+        menu.tab = read_music_tab(&menu.root).unwrap_or(if menu.tracks.is_empty() {
+            Tab::Channels
+        } else {
+            Tab::Saved
+        });
         menu
+    }
+
+    fn switch_tab(&mut self, dir: i32) {
+        let order = [Tab::Saved, Tab::Downloads, Tab::Channels];
+        let at = order.iter().position(|t| *t == self.tab).unwrap_or(0);
+        let next = (at as i32 + dir).rem_euclid(order.len() as i32) as usize;
+        self.tab = order[next];
+        self.view = View::Home;
+        self.keys = false;
+        self.row = 0;
+        let _ = write_music_tab(&self.root, self.tab);
+        self.tracks = library(&self.root);
+        self.status = match self.tab {
+            Tab::Saved => "Saved on the card".into(),
+            Tab::Downloads => "The download queue".into(),
+            Tab::Channels => "Add a channel or playlist, or open one you follow".into(),
+        };
     }
 
     pub fn set_online(&mut self, online: bool) {
@@ -135,6 +169,10 @@ impl MusicMenu {
             return self.search_input(action);
         }
         match action {
+            Action::GbaDown(Btn::L1) if self.view != View::Player => self.switch_tab(-1),
+            Action::GbaDown(Btn::R1) if self.view != View::Player => self.switch_tab(1),
+            Action::GbaDown(Btn::Left) if self.view == View::Home => self.switch_tab(-1),
+            Action::GbaDown(Btn::Right) if self.view == View::Home => self.switch_tab(1),
             Action::GbaDown(Btn::B) => return self.back(),
             Action::GbaDown(Btn::Up) if self.view == View::Player => self.step(-1),
             Action::GbaDown(Btn::Down) if self.view == View::Player => self.step(1),
@@ -143,6 +181,15 @@ impl MusicMenu {
                     self.row.saturating_add(self.rows().saturating_sub(1)) % self.rows().max(1)
             }
             Action::GbaDown(Btn::Down) => self.row = (self.row + 1) % self.rows().max(1),
+            Action::GbaDown(Btn::X)
+                if self.view == View::Home && self.tab == Tab::Downloads =>
+            {
+                music_remove(&self.root, self.row);
+                self.status = "Removed from the queue".into();
+            }
+            Action::GbaDown(Btn::Y) if self.view == View::Home && self.tab == Tab::Saved => {
+                self.delete_track();
+            }
             Action::GbaDown(Btn::A) => self.activate(),
             Action::GbaDown(Btn::Left) if self.view == View::Player => self.seek(-10_000),
             Action::GbaDown(Btn::Right) if self.view == View::Player => self.seek(10_000),
@@ -157,17 +204,20 @@ impl MusicMenu {
         let mut sheet = Sheet::new();
         let w = OUT_W.saturating_sub(48);
         sheet.text("MUSIC", 16, 8, w, MENU_H, MENU_PX, false);
+        if self.view != View::Player {
+            self.render_tabs(&mut sheet);
+        }
         if !self.status.is_empty() {
-            sheet.text(&self.status, 16, 48, w, MENU_H, 22.0, true);
+            sheet.text(&self.status, 16, 84, w, 28, 20.0, true);
         }
         if self.view == View::Player {
             self.render_player(&mut sheet);
         } else if !self.keys {
             let rows = self.labels();
-            let visible = ((MENU_LEGEND - 96) / MENU_PITCH) as usize;
+            let visible = ((MENU_LEGEND - 148) / MENU_PITCH) as usize;
             let first = self.row.saturating_sub(visible.saturating_sub(1));
             for (line, row) in (first..rows.len().min(first + visible)).enumerate() {
-                let y = 96 + line as u32 * MENU_PITCH;
+                let y = 148 + line as u32 * MENU_PITCH;
                 if row == self.row {
                     sheet.rect(0, y, OUT_W, MENU_H, slot_ui::edge());
                 }
@@ -261,24 +311,68 @@ impl MusicMenu {
         match self.view {
             View::Player => "A PLAY/PAUSE    UP/DOWN TRACK    LEFT/RIGHT SEEK    Y SHUFFLE    X REPEAT    B BACK".into(),
             View::Search => "A TYPE    START SEARCH    B BACK".into(),
-            _ => "A SELECT    B BACK".into(),
+            _ => "A SELECT    L1/R1 TABS    B BACK".into(),
+        }
+    }
+
+    fn render_tabs(&self, sheet: &mut Sheet) {
+        let tabs = [Tab::Saved, Tab::Downloads, Tab::Channels];
+        let queued = music_jobs(&self.root).len();
+        let labels = [
+            "SAVED".to_string(),
+            if queued == 0 {
+                "DOWNLOADS".into()
+            } else {
+                format!("DOWNLOADS {queued}")
+            },
+            "CHANNELS".to_string(),
+        ];
+        let w = OUT_W / 3;
+        for (i, label) in labels.iter().enumerate() {
+            let x = i as u32 * w;
+            if tabs[i] == self.tab {
+                sheet.rect(x, 44, w, 34, slot_ui::edge());
+            }
+            sheet.text(label, x + 6, 44, w.saturating_sub(12), 34, 22.0, tabs[i] != self.tab);
         }
     }
 
     fn labels(&self) -> Vec<String> {
         match self.view {
-            View::Home => {
-                let mut rows = vec!["Add a channel or playlist".into()];
-                rows.extend(
-                    self.tracks
-                        .iter()
-                        .map(|t| format!("{}  ·  {}", t.title, t.channel)),
-                );
-                if self.tracks.is_empty() {
-                    rows.push("Nothing saved yet".into());
+            View::Home => match self.tab {
+                Tab::Saved => {
+                    if self.tracks.is_empty() {
+                        vec!["Nothing saved yet".into()]
+                    } else {
+                        self.tracks
+                            .iter()
+                            .map(|t| format!("{}  ·  {}", t.title, t.channel))
+                            .collect()
+                    }
                 }
-                rows
-            }
+                Tab::Downloads => {
+                    let jobs = music_jobs(&self.root);
+                    if jobs.is_empty() {
+                        vec!["Nothing queued".into()]
+                    } else {
+                        jobs.into_iter()
+                            .enumerate()
+                            .map(|(i, job)| {
+                                if i == 0 {
+                                    format!("DOWNLOADING  {}", job)
+                                } else {
+                                    format!("QUEUED  {job}")
+                                }
+                            })
+                            .collect()
+                    }
+                }
+                Tab::Channels => {
+                    let mut rows = vec!["Add a channel or playlist".into()];
+                    rows.extend(self.sources.iter().cloned());
+                    rows
+                }
+            },
             View::List => {
                 if self.list.is_empty() {
                     vec!["Nothing in this list".into()]
@@ -305,8 +399,9 @@ impl MusicMenu {
             }
             View::List => {
                 self.view = View::Home;
+                self.tab = Tab::Channels;
                 self.row = 0;
-                self.status = "Add a channel or playlist, or play something already saved".into();
+                self.status = "Add a channel or playlist, or open one you follow".into();
                 false
             }
             View::Player => {
@@ -318,17 +413,22 @@ impl MusicMenu {
 
     fn activate(&mut self) {
         match self.view {
-            View::Home if self.row == 0 => {
+            View::Home if self.tab == Tab::Channels && self.row == 0 => {
                 self.view = View::Search;
                 self.keys = true;
                 self.query.clear();
                 self.status = "Name, @handle, or a playlist link, then START".into();
             }
-            View::Home => {
-                let index = self.row - 1;
-                if index < self.tracks.len() {
+            View::Home if self.tab == Tab::Saved => {
+                if self.row < self.tracks.len() {
                     self.from = View::Home;
-                    self.start_order(index);
+                    self.start_order(self.row);
+                }
+            }
+            View::Home => {
+                if let Some(query) = self.sources.get(self.row - 1).cloned() {
+                    self.query = query;
+                    self.lookup();
                 }
             }
             View::List => {
@@ -411,6 +511,7 @@ impl MusicMenu {
                 Ok(videos) => {
                     self.list = videos.into_iter().take(30).collect();
                     self.list_name = "Playlist".into();
+                    self.remember_source(&query);
                     self.view = View::List;
                     self.row = 0;
                     self.status = format!("{} from {}", self.list.len(), self.list_name);
@@ -426,6 +527,7 @@ impl MusicMenu {
                     Ok(videos) => {
                         self.list = youtube::latest_five(videos);
                         self.list_name = channel.name.clone();
+                        self.remember_source(&channel.name);
                         self.view = View::List;
                         self.row = 0;
                         self.status = format!("{} from {}", self.list.len(), self.list_name);
@@ -736,6 +838,93 @@ fn audio_loop(
             dest.extend(samples);
         }
     }
+}
+
+fn remember_source_at(root: &Path, name: &str) {
+    let mut rows = read_sources(root);
+    if rows.iter().any(|row| row == name) || name.is_empty() {
+        return;
+    }
+    rows.push(name.to_string());
+    let _ = fs::create_dir_all(root.join("Music"));
+    let _ = fs::write(root.join("Music/channels.txt"), rows.join("\n") + "\n");
+}
+
+impl MusicMenu {
+    fn delete_track(&mut self) {
+        let Some(track) = self.tracks.get(self.row) else {
+            return;
+        };
+        let _ = fs::remove_file(&track.path);
+        if let Some(cover) = &track.cover {
+            let _ = fs::remove_file(cover);
+        }
+        self.tracks = library(&self.root);
+        self.row = self.row.min(self.tracks.len().saturating_sub(1));
+        self.status = "Deleted".into();
+    }
+
+    fn remember_source(&mut self, name: &str) {
+        remember_source_at(&self.root, name);
+        self.sources = read_sources(&self.root);
+    }
+}
+
+fn read_sources(root: &Path) -> Vec<String> {
+    fs::read_to_string(root.join("Music/channels.txt"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn read_music_tab(root: &Path) -> Option<Tab> {
+    match fs::read_to_string(root.join("Music/tab.txt"))
+        .unwrap_or_default()
+        .trim()
+    {
+        "saved" => Some(Tab::Saved),
+        "downloads" => Some(Tab::Downloads),
+        "channels" => Some(Tab::Channels),
+        _ => None,
+    }
+}
+
+fn write_music_tab(root: &Path, tab: Tab) -> std::io::Result<()> {
+    let name = match tab {
+        Tab::Saved => "saved",
+        Tab::Downloads => "downloads",
+        Tab::Channels => "channels",
+    };
+    let _ = fs::create_dir_all(root.join("Music"));
+    fs::write(root.join("Music/tab.txt"), name)
+}
+
+fn music_jobs(root: &Path) -> Vec<String> {
+    fs::read_to_string(root.join("Music/queue.txt"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.split('\t').nth(1).map(|s| s.to_string()))
+        .collect()
+}
+
+fn music_remove(root: &Path, row: usize) {
+    let Ok(text) = fs::read_to_string(root.join("Music/queue.txt")) else {
+        return;
+    };
+    let rows: Vec<&str> = text.lines().filter(|line| !line.is_empty()).collect();
+    let kept = rows
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| *i != row)
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let _ = fs::write(
+        root.join("Music/queue.txt"),
+        if kept.is_empty() { String::new() } else { kept + "\n" },
+    );
 }
 
 pub fn tracks_for_shelf(root: &Path) -> Vec<crate::videos::Tape> {
