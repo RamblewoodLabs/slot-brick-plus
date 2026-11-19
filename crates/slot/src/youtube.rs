@@ -639,9 +639,7 @@ pub fn parse_innertube_player(body: &str) -> Option<Media> {
                     bitrate: item.get("bitrate").and_then(J::as_u32).unwrap_or(u32::MAX),
                 });
             } else if mime.starts_with("video/") || height > 0 {
-                let h264 = mime.contains("avc1")
-                    || mime.contains("h264")
-                    || (!mime.contains("vp9") && !mime.contains("av01") && mime.contains("mp4"));
+                let h264 = is_h264(mime);
                 let muxed =
                     mime.contains("mp4a") || item.get("audioQuality").is_some() || key == "formats";
                 videos.push(StreamOffer {
@@ -687,10 +685,7 @@ fn streams_of(value: Option<&J>) -> Vec<StreamOffer> {
                 .get("height")
                 .and_then(J::as_u32)
                 .unwrap_or_else(|| height_of(quality));
-            let h264 = codec.contains("avc1")
-                || codec.contains("h264")
-                || mime.contains("avc1")
-                || (!codec.contains("vp9") && !codec.contains("av01") && mime.contains("mp4"));
+            let h264 = is_h264(&format!("{codec} {mime}"));
             let muxed = !item.get("videoOnly").and_then(J::as_bool).unwrap_or(true)
                 || mime.contains("mp4a");
             Some(StreamOffer {
@@ -744,17 +739,28 @@ fn pick_media(videos: &[StreamOffer], audios: &[AudioOffer]) -> Option<Media> {
         .iter()
         .filter(|s| !s.muxed && fits(s))
         .max_by_key(|s| s.height)?;
-    let audio = audios
-        .iter()
-        .filter(|a| a.aac)
-        .min_by_key(|a| a.bitrate)
-        .or_else(|| audios.iter().min_by_key(|a| a.bitrate));
+    let audio = audios.iter().filter(|a| a.aac).min_by_key(|a| a.bitrate);
     Some(Media {
         video_url: video.url.clone(),
         audio_url: audio.map(|a| a.url.clone()),
         height: video.height,
         muxed: false,
     })
+}
+
+/// H.264 only. An MP4 container is not enough: itag 396 is AV1 in an MP4 box and will not play.
+fn itag_num(item: &J) -> u32 {
+    item.get("itag")
+        .and_then(|v| v.as_u32().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0)
+}
+
+fn is_h264(text: &str) -> bool {
+    let text = text.to_lowercase();
+    if text.contains("av01") || text.contains("vp9") || text.contains("vp09") {
+        return false;
+    }
+    text.contains("avc1") || text.contains("h264")
 }
 
 fn height_of(quality: &str) -> u32 {
@@ -1181,11 +1187,11 @@ pub fn parse_invidious_video(body: &str) -> Option<Media> {
             }
             let quality = item.get("qualityLabel").and_then(J::as_str).unwrap_or("");
             let encoding = item.get("encoding").and_then(J::as_str).unwrap_or("");
-            let container = item.get("container").and_then(J::as_str).unwrap_or("");
+            let itag = itag_num(item);
             videos.push(StreamOffer {
                 url,
                 height: height_of(quality),
-                h264: encoding.contains("avc1") || container == "mp4",
+                h264: is_h264(encoding) || matches!(itag, 18 | 22),
                 muxed: true,
             });
         }
@@ -1198,10 +1204,11 @@ pub fn parse_invidious_video(body: &str) -> Option<Media> {
             }
             let kind = item.get("type").and_then(J::as_str).unwrap_or("");
             let encoding = item.get("encoding").and_then(J::as_str).unwrap_or("");
+            let itag = itag_num(item);
             if kind.starts_with("audio/") {
                 audios.push(AudioOffer {
                     url,
-                    aac: encoding.contains("mp4a") || kind.contains("mp4"),
+                    aac: encoding.contains("mp4a") || itag == 140,
                     bitrate: item.get("bitrate").and_then(J::as_u32).unwrap_or(u32::MAX),
                 });
             } else {
@@ -1209,7 +1216,7 @@ pub fn parse_invidious_video(body: &str) -> Option<Media> {
                 videos.push(StreamOffer {
                     url,
                     height: height_of(quality),
-                    h264: encoding.contains("avc1") || kind.contains("mp4"),
+                    h264: is_h264(&format!("{encoding} {kind}")) || matches!(itag, 134 | 135 | 136),
                     muxed: false,
                 });
             }
@@ -1542,6 +1549,34 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_av1_mp4_is_not_used_when_a_muxed_h264_exists() {
+        let body = r#"{"formatStreams":[
+            {"url":"https://ex/videoplayback?itag=396","qualityLabel":"360p","encoding":"av01","container":"mp4","itag":"396"},
+            {"url":"https://ex/videoplayback?itag=18","qualityLabel":"360p","encoding":"avc1.4d401e","container":"mp4","itag":"18"}
+        ]}"#;
+        let media = parse_invidious_video(body).unwrap();
+        assert!(media.video_url.contains("itag=18"));
+        assert!(media.muxed);
+        assert!(media.audio_url.is_none());
+    }
+
+    #[test]
+    fn video_only_av1_is_refused_and_h264_is_muxed_with_aac() {
+        let only = r#"{"adaptiveFormats":[
+            {"url":"https://ex/videoplayback?itag=396","type":"video/mp4","encoding":"av01","qualityLabel":"360p","itag":"396"}
+        ]}"#;
+        assert!(parse_invidious_video(only).is_none());
+        let pair = r#"{"adaptiveFormats":[
+            {"url":"https://ex/videoplayback?itag=134","type":"video/mp4","encoding":"avc1.4d401e","qualityLabel":"360p","itag":"134"},
+            {"url":"https://ex/audio?itag=140","type":"audio/mp4","encoding":"mp4a.40.2","itag":"140","bitrate":128000}
+        ]}"#;
+        let media = parse_invidious_video(pair).unwrap();
+        assert!(media.video_url.contains("itag=134"));
+        assert!(!media.muxed);
+        assert!(media.audio_url.unwrap().contains("itag=140"));
+    }
 
     #[test]
     fn audio_prefers_aac_then_opus() {

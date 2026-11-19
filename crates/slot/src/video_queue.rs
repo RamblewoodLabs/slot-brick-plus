@@ -92,6 +92,13 @@ pub fn remove(root: &Path, id: &str) {
     rows.retain(|job| job.id != id);
     let _ = write_jobs(root, &rows);
     let _ = fs::remove_file(videos::video_path(root, id).with_extension("mp4.part"));
+    let _ = fs::remove_file(videos::video_path(root, id).with_extension("audio.part"));
+    if progress(root).is_some_and(|row| row.id == id) {
+        let _ = fs::remove_file(root.join(PROGRESS));
+    }
+    // The child may be stuck in a read. Stopping it releases the pid file so the
+    // next queued video can start, instead of showing this one's percent forever.
+    stop_downloader("video-queue");
     videos::log_line(root, &format!("removed {id}"));
 }
 
@@ -195,6 +202,7 @@ struct Stream {
     name: String,
     url: String,
     itag: String,
+    audio_url: Option<String>,
 }
 
 fn fetch(root: &Path, job: &Job) -> Result<(), String> {
@@ -206,6 +214,9 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
     let mut source = 0usize;
     let mut media = next_media(&job.id, &mut source)?;
     let mut tries = 0u32;
+    let mut expected: Option<u64> = None;
+    // A new id must not inherit the previous video's percent.
+    write_progress(root, &job.id, fs::metadata(&part).map(|m| m.len()).unwrap_or(0), 0);
     loop {
         if !still_queued(root, &job.id) {
             let _ = fs::remove_file(&part);
@@ -219,8 +230,13 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
         match pull_chunk(&media.url, &part, have, end) {
             Ok(chunk) if chunk.advanced || chunk.finished => {
                 tries = 0;
+                if let Some(total) = chunk.total {
+                    if expected.is_none_or(|have| total > have) {
+                        expected = Some(total);
+                    }
+                }
                 let _ = fs::remove_file(root.join(ERROR_FILE));
-                write_progress(root, &job.id, chunk.end, chunk.total.unwrap_or(0));
+                write_progress(root, &job.id, chunk.end, expected.unwrap_or(0));
                 videos::log_line(
                     root,
                     &format!(
@@ -236,8 +252,8 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         chunk.end
                     ),
                 );
-                if chunk.finished || chunk.total.is_some_and(|total| chunk.end >= total) {
-                    return finish(root, job, &part);
+                if file_is_complete(chunk.end, expected) {
+                    return save_download(root, job, &part, &media, expected);
                 }
             }
             other => {
@@ -245,8 +261,9 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                     Ok(_) => ("stall", "chunk made no progress".to_string()),
                     Err(e) => (kind_of(&e), e),
                 };
-                if detail.contains("already complete") && have > 0 {
-                    return finish(root, job, &part);
+                // 416 means this range is past EOF only when we already have the announced size.
+                if detail.contains("already complete") && file_is_complete(have, expected) {
+                    return save_download(root, job, &part, &media, expected);
                 }
                 tries += 1;
                 videos::log_line(
@@ -256,7 +273,13 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         job.id, media.name, media.itag
                     ),
                 );
-                if kind == "denied" || kind == "closed" || tries % 3 == 0 {
+                if media.name.contains("chocolatemoo") && kind == "closed" {
+                    videos::log_line(
+                        root,
+                        "invidious instance dropped the TLS connection; resuming",
+                    );
+                }
+                if kind == "denied" || kind == "closed" || kind == "stall" || tries % 3 == 0 {
                     source += 1;
                     match next_media(&job.id, &mut source) {
                         Ok(fresh) => {
@@ -292,6 +315,7 @@ fn next_media(id: &str, source: &mut usize) -> Result<Stream, String> {
                 return Ok(Stream {
                     itag: itag_of(&media.video_url),
                     url: media.video_url,
+                    audio_url: media.audio_url,
                     name,
                 });
             }
@@ -310,6 +334,7 @@ fn next_media(id: &str, source: &mut usize) -> Result<Stream, String> {
                     Ok(media) => Ok(Stream {
                         itag: itag_of(&media.video_url),
                         url: media.video_url,
+                        audio_url: media.audio_url,
                         name: "fallback".into(),
                     }),
                     Err(e) => Err(e),
@@ -327,6 +352,13 @@ fn itag_of(url: &str) -> String {
         .unwrap_or("-")
         .to_string()
 }
+
+/// A 416 is the end of the file only when the bytes already saved cover the announced size.
+pub(crate) fn file_is_complete(have: u64, total: Option<u64>) -> bool {
+    total.is_some_and(|total| total > 0 && have >= total)
+}
+
+const STALL: Duration = Duration::from_secs(30);
 
 fn pull_chunk(url: &str, part: &Path, have: u64, end: u64) -> Result<Chunk, String> {
     let ranged = crate::net::get_range(url, have, Some(end)).map_err(|e| e.to_string())?;
@@ -348,13 +380,28 @@ fn pull_chunk(url: &str, part: &Path, have: u64, end: u64) -> Result<Chunk, Stri
     let mut reader = ranged.reader;
     let mut buf = vec![0u8; READ];
     let mut got = 0u64;
+    let mut last_byte = std::time::Instant::now();
     while got < want {
+        if last_byte.elapsed() >= STALL {
+            return Err("stall: no bytes for 30s".into());
+        }
         let n = match crate::net::read_soft(&mut *reader, &mut buf) {
             Ok(0) => break,
             Ok(n) => n,
-            Err(e) if crate::net::is_again(&e) => continue,
-            Err(e) => return Err(format!("{}: {e}", crate::net::error_kind(&e))),
+            Err(e) if crate::net::is_again(&e) => {
+                if last_byte.elapsed() >= STALL {
+                    return Err("stall: no bytes for 30s".into());
+                }
+                continue;
+            }
+            Err(e) => {
+                if last_byte.elapsed() >= STALL {
+                    return Err("stall: no bytes for 30s".into());
+                }
+                return Err(format!("{}: {e}", crate::net::error_kind(&e)));
+            }
         };
+        last_byte = std::time::Instant::now();
         let n = n.min((want - got) as usize);
         file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
         got += n as u64;
@@ -388,6 +435,85 @@ fn pull_chunk(url: &str, part: &Path, have: u64, end: u64) -> Result<Chunk, Stri
     })
 }
 
+fn save_download(
+    root: &Path,
+    job: &Job,
+    part: &Path,
+    media: &Stream,
+    expected: Option<u64>,
+) -> Result<(), String> {
+    let len = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+    if !file_is_complete(len, expected) {
+        return Err(format!(
+            "short of the file: {len} of {}",
+            expected.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into())
+        ));
+    }
+    if let Some(audio) = &media.audio_url {
+        let audio_part = part.with_extension("audio.part");
+        download_audio(root, &job.id, audio, &audio_part)?;
+        let dest = videos::video_path(root, &job.id);
+        mux(root, part, &audio_part, &dest)?;
+        let _ = fs::remove_file(part);
+        let _ = fs::remove_file(&audio_part);
+        return index_saved(root, job, &dest);
+    }
+    finish(root, job, part)
+}
+
+fn download_audio(root: &Path, id: &str, url: &str, part: &Path) -> Result<(), String> {
+    let mut expected = None;
+    loop {
+        let have = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+        if file_is_complete(have, expected) {
+            return Ok(());
+        }
+        let end = have.saturating_add(RANGE_CHUNK).saturating_sub(1);
+        match pull_chunk(url, part, have, end) {
+            Ok(chunk) => {
+                if let Some(total) = chunk.total {
+                    if expected.is_none_or(|have| total > have) {
+                        expected = Some(total);
+                    }
+                }
+                if file_is_complete(chunk.end, expected) {
+                    return Ok(());
+                }
+            }
+            Err(e) if e.contains("already complete") && file_is_complete(have, expected) => {
+                return Ok(());
+            }
+            Err(e) => {
+                videos::log_line(root, &format!("audio {id}: {e}"));
+                return Err(e);
+            }
+        }
+    }
+}
+
+fn mux(root: &Path, video: &Path, audio: &Path, dest: &Path) -> Result<(), String> {
+    let Some(bin) = videos::ffmpeg_path(root) else {
+        return Err("Playback needs ffmpeg in Slot/System".into());
+    };
+    let status = Command::new(bin)
+        .args(["-y", "-i"])
+        .arg(video)
+        .args(["-i"])
+        .arg(audio)
+        .args(["-c", "copy", "-movflags", "+faststart"])
+        .arg(dest)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Cannot start ffmpeg: {e}"))?;
+    if status.success() && dest.is_file() {
+        Ok(())
+    } else {
+        Err("Could not join the picture and the sound".into())
+    }
+}
+
 fn finish(root: &Path, job: &Job, part: &Path) -> Result<(), String> {
     let dest = videos::video_path(root, &job.id);
     fs::rename(part, &dest).map_err(|e| e.to_string())?;
@@ -401,8 +527,34 @@ fn finish(root: &Path, job: &Job, part: &Path) -> Result<(), String> {
         bytes,
         duration_ms: job.duration_ms,
         position_ms: 0,
+        watched: false,
     });
     videos::write_index(root, &library).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(root.join(PROGRESS));
+    let _ = videos::fetch_thumbnail(root, &job.id);
+    let mut rows = jobs(root);
+    rows.retain(|row| row.id != job.id);
+    write_jobs(root, &rows).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(root.join(ERROR_FILE));
+    videos::log_line(root, &format!("saved {} {bytes} bytes", job.id));
+    Ok(())
+}
+
+fn index_saved(root: &Path, job: &Job, dest: &Path) -> Result<(), String> {
+    let bytes = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    let mut library = videos::read_index(root);
+    library.retain(|row| row.id != job.id);
+    library.push(Saved {
+        id: job.id.clone(),
+        title: job.title.clone(),
+        channel: job.channel.clone(),
+        bytes,
+        duration_ms: job.duration_ms,
+        position_ms: 0,
+        watched: false,
+    });
+    videos::write_index(root, &library).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(root.join(PROGRESS));
     let _ = videos::fetch_thumbnail(root, &job.id);
     let mut rows = jobs(root);
     rows.retain(|row| row.id != job.id);
@@ -433,6 +585,8 @@ fn kind_of(error: &str) -> &'static str {
         || text.contains("would block")
     {
         "again"
+    } else if text.contains("stall") || text.contains("no bytes") {
+        "stall"
     } else if text.contains("closed") || text.contains("reset") || text.contains("broken pipe") {
         "closed"
     } else {
@@ -651,6 +805,24 @@ impl Gate {
     }
 }
 
+pub(crate) fn stop_downloader(name: &str) {
+    if let Ok(mut gate) = gate(name).lock() {
+        if let Some(mut child) = gate.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        gate.budget = SpawnBudget::new();
+        gate.told = false;
+    }
+    let path = pid_path(name);
+    if let Some(pid) = read_pid(&path) {
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+        }
+    }
+    let _ = fs::remove_file(path);
+}
+
 pub(crate) fn consider_spawn(root: &Path, name: &str, flag: &str, wanted: bool) {
     let Ok(mut gate) = gate(name).lock() else {
         return;
@@ -734,6 +906,14 @@ fn be_quiet() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_file_is_not_complete_and_a_range_past_the_end_is() {
+        assert!(!file_is_complete(20_423_874, Some(24_900_000)));
+        assert!(!file_is_complete(20_423_874, None));
+        assert!(file_is_complete(24_900_000, Some(24_900_000)));
+        assert!(file_is_complete(25_000_000, Some(24_900_000)));
+    }
 
     #[test]
     fn a_downloader_that_cannot_start_is_tried_a_few_times_and_then_stops() {
