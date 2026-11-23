@@ -343,7 +343,7 @@ class Relay:
         if kind == "audio":
             cmd = [
                 self.ffmpeg, "-y", "-i", str(src),
-                "-vn", "-c:a", "aac", "-ac", "2", "-b:a", "128k",
+                "-vn", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
                 str(dest),
             ]
         else:
@@ -351,7 +351,7 @@ class Relay:
                 self.ffmpeg, "-y", "-i", str(src),
                 "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0",
                 "-pix_fmt", "yuv420p", "-vf", "scale=-2:'min(360,ih)'",
-                "-c:a", "aac", "-ac", "2", "-b:a", "128k",
+                "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
                 "-movflags", "+faststart", str(dest),
             ]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

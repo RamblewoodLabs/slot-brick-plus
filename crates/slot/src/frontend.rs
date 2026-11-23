@@ -83,6 +83,7 @@ pub struct Frontend {
     video_frame_wh: Option<(u32, u32)>,
     video_frame_seq: u64,
     video_resampler: Option<crate::resample::Resampler>,
+    video_rate: u32,
     #[cfg(feature = "brick")]
     auto_sleep: bool,
     #[cfg(feature = "brick")]
@@ -413,6 +414,7 @@ impl Frontend {
             video_frame_wh: None,
             video_frame_seq: 0,
             video_resampler: None,
+            video_rate: 0,
             #[cfg(feature = "brick")]
             auto_sleep: !platform_root_has(&session_root, "DISABLE_AUTO_SLEEP"),
             #[cfg(feature = "brick")]
@@ -779,28 +781,46 @@ impl Frontend {
     }
 
     fn pump_video_audio(&mut self) {
-        let samples = self.session.app().take_video_pcm();
         let music = self.session.app().take_music_pcm();
         if !music.is_empty() {
             self.push_pcm(&music, false);
-        }
-        if samples.is_empty() {
-            return;
         }
         let rate = self.session.audio_ring().sample_rate();
         if rate == 0 {
             return;
         }
-        if self.video_resampler.is_none() {
-            self.video_resampler = Some(crate::resample::Resampler::new(22_050.0, rate as f64));
+        // Only move as many source frames as the device can play. Taking the whole
+        // decode buffer overflowed the ring and the rest was thrown away, so the
+        // soundtrack skipped ahead and stuttered.
+        let room = self
+            .session
+            .audio_ring()
+            .capacity_frames()
+            .saturating_sub(self.session.audio_ring().queued_frames());
+        if room < 32 {
+            return;
+        }
+        const SRC_HZ: u32 = 22_050;
+        let src_frames = ((room as u64 * u64::from(SRC_HZ)) / u64::from(rate)).max(1);
+        let samples = self
+            .session
+            .app()
+            .take_video_pcm((src_frames as usize) * 2);
+        if samples.is_empty() {
+            return;
+        }
+        if self.video_rate != rate {
+            self.video_resampler = Some(crate::resample::Resampler::new(SRC_HZ as f64, rate as f64));
+            self.video_rate = rate;
         }
         let mut out = Vec::new();
         if let Some(resampler) = &mut self.video_resampler {
             resampler.process(&samples, &mut out);
         }
-        let gain = crate::audio::volume::gain(self.session.app().output_volume()) * self.session.app().video_volume_gain();
+        let gain = crate::audio::volume::gain(self.session.app().output_volume())
+            * self.session.app().video_volume_gain();
         for sample in &mut out {
-            *sample = (*sample as f32 * gain) as i16;
+            *sample = crate::audio::volume::amplify(*sample, gain);
         }
         self.session.audio_ring().push(&out);
     }

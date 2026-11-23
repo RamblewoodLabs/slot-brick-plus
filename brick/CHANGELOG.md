@@ -1,6 +1,10 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Videos: a downloaded video's sound plays at the right speed, instead of racing ahead and stuttering. Volume goes up to 11, and 10 and 11 are louder without harsh clipping.
+- HOME → Videos: while a video plays, the time and volume sit on a bar at the top and the buttons on a bar at the bottom. They no longer cover each other, including after X fills the screen, and they hide after a few seconds until you press a button.
+- HOME → Videos: a download that stalls near the end keeps the part it already has and continues it, instead of starting a different copy that never finishes. A video already on the card is not queued again.
+- The saved-video picture on the shelf is a film strip, with sprocket holes down both sides.
 - HOME → Videos: changing the space limit, switching a tab, or turning fill on or off no longer forgets the home download computer. relay_host, relay_port, and relay_token in Config/videos.txt stay put.
 - HOME → Videos and HOME → Music can fetch through a computer on your home network first. While that computer is getting the file, Downloads says "Relay downloading…", then "Transferring…" as it copies onto the card. Slot checks the file before keeping it. If that computer is off, the download uses YouTube as before. The computer's name, port, and token go in Config/videos.txt as relay_host, relay_port, and relay_token.
 - HOME no longer lists Companion, and Pip does not suggest a game or show a mission. The companion itself is still in Slot, switched off.

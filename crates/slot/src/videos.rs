@@ -24,6 +24,9 @@ pub const FRAME_W: u32 = 480;
 pub const FRAME_H: u32 = 270;
 const FPS: u32 = 12;
 const AUDIO_HZ: u32 = 22_050;
+/// The player volume stops at 11. 10 was as loud as the file itself, which was too quiet.
+pub const VOLUME_MAX: u8 = 11;
+const CHROME_FOR: Duration = Duration::from_secs(4);
 /// 0 is no cap. The rest are the Video space limit row, up to 16 GB.
 const LIMITS_MB: [u32; 6] = [0, 1024, 2048, 4096, 8192, 16384];
 /// HOME menu type, on the 640×480 screen the Brick scales to 1024×768.
@@ -145,6 +148,8 @@ pub struct VideoMenu {
     retry_note: Option<String>,
     /// Fill the screen, cropping to keep the picture's shape. Off is a letterboxed fit.
     fill: bool,
+    /// When the playback bars were last brought up. They hide again after a few seconds.
+    chrome_at: Instant,
     silent: std::collections::HashSet<String>,
     pub dirty: bool,
     pub face: Option<TexId>,
@@ -189,6 +194,7 @@ impl VideoMenu {
             failed_note: None,
             retry_note: None,
             fill: true,
+            chrome_at: Instant::now(),
             silent: std::collections::HashSet::new(),
             dirty: true,
             face: None,
@@ -354,8 +360,9 @@ impl VideoMenu {
         (frame.seq != seen && !frame.rgba.is_empty()).then(|| (frame.seq, frame.rgba.clone()))
     }
 
-    /// Stereo samples at 22,050 Hz, for the shelf to mix in.
-    pub fn take_pcm(&self) -> Vec<i16> {
+    /// Up to `max_samples` interleaved stereo samples at [`AUDIO_HZ`]. The rest stays
+    /// buffered so the output can play them at the device rate instead of skipping ahead.
+    pub fn take_pcm(&self, max_samples: usize) -> Vec<i16> {
         let Some(player) = &self.player else {
             return Vec::new();
         };
@@ -363,14 +370,15 @@ impl VideoMenu {
             return Vec::new();
         }
         let mut pcm = player.pcm.lock().unwrap_or_else(|e| e.into_inner());
-        std::mem::take(&mut *pcm)
+        drain_samples(&mut pcm, max_samples)
     }
 
+    /// 0 is silent, 10 is loud, 11 is the extra step with the limiter keeping it from clipping.
     pub fn volume_gain(&self) -> f32 {
         if self.player.is_none() {
             return 0.0;
         }
-        self.volume as f32 / 10.0
+        playback_gain(self.volume)
     }
 
     pub fn playing(&self) -> bool {
@@ -486,15 +494,17 @@ impl VideoMenu {
             View::Player => self.render_player(&mut sheet),
             _ => self.render_rows(&mut sheet),
         }
-        sheet.text(
-            &self.legend(),
-            16,
-            MENU_LEGEND,
-            OUT_W.saturating_sub(32),
-            MENU_H,
-            MENU_PX,
-            false,
-        );
+        if self.view != View::Player {
+            sheet.text(
+                &self.legend(),
+                16,
+                MENU_LEGEND,
+                OUT_W.saturating_sub(32),
+                MENU_H,
+                MENU_PX,
+                false,
+            );
+        }
         sheet.finish()
     }
 
@@ -652,7 +662,6 @@ impl VideoMenu {
             .as_ref()
             .map(|s| s.title.as_str())
             .unwrap_or("VIDEO");
-        sheet.text(title, 200, 8, 240, MENU_H, MENU_PX, false);
         if self.player.is_none() {
             let note = if self.status.is_empty() {
                 "NO PICTURE"
@@ -676,24 +685,46 @@ impl VideoMenu {
             .or_else(|| self.playing.as_ref().map(|s| s.position_ms))
             .unwrap_or(0);
         let dur = self.playing.as_ref().map(|s| s.duration_ms).unwrap_or(0);
+        if !self.chrome_on() {
+            return;
+        }
         let clock = match dur {
-            0 => format!("{}    VOL {}", clock(pos), self.volume),
-            _ => format!("{} / {}    VOL {}", clock(pos), clock(dur), self.volume),
+            0 => clock(pos),
+            _ => format!("{} / {}", clock(pos), clock(dur)),
         };
         let paused = self
             .player
             .as_ref()
             .is_none_or(|p| p.paused.load(Ordering::Relaxed));
         let state = if paused { "PAUSED" } else { "PLAYING" };
+        sheet.rect(0, 0, OUT_W, 36, [0.0, 0.0, 0.0, 0.72]);
         sheet.text(
-            &format!("{state}    {clock}"),
-            16,
-            y + h + 8,
-            OUT_W.saturating_sub(32),
-            MENU_H,
-            MENU_PX,
+            &format!("{state}  {clock}  VOL {}  {title}", self.volume),
+            12,
+            2,
+            OUT_W.saturating_sub(24),
+            32,
+            22.0,
             false,
         );
+        sheet.rect(0, OUT_H - 40, OUT_W, 40, [0.0, 0.0, 0.0, 0.82]);
+        sheet.text(
+            "A PAUSE  X FILL  L/R 10s  U/D VOL  B BACK",
+            12,
+            OUT_H - 36,
+            OUT_W.saturating_sub(24),
+            32,
+            20.0,
+            false,
+        );
+    }
+
+    fn chrome_on(&self) -> bool {
+        let paused = self
+            .player
+            .as_ref()
+            .is_none_or(|p| p.paused.load(Ordering::Relaxed));
+        paused || self.chrome_at.elapsed() < CHROME_FOR
     }
 
     fn legend(&self) -> String {
@@ -1108,6 +1139,7 @@ impl VideoMenu {
     /// Launching a game does not stop that process.
     fn sync_queue(&mut self) -> Vec<(String, String)> {
         let mut notes = Vec::new();
+        crate::video_queue::forget_finished(&self.root);
         let jobs = crate::video_queue::jobs(&self.root);
         let progress = crate::video_queue::progress(&self.root);
         let before: Vec<String> = self
@@ -1277,6 +1309,7 @@ impl VideoMenu {
     }
 
     fn player_input(&mut self, action: Action) -> bool {
+        self.chrome_at = Instant::now();
         match action {
             Action::GbaDown(Btn::B) => {
                 self.stop_player(true);
@@ -1339,7 +1372,7 @@ impl VideoMenu {
                 false
             }
             Action::GbaDown(Btn::Up) => {
-                self.volume = (self.volume + 1).min(10);
+                self.volume = (self.volume + 1).min(VOLUME_MAX);
                 false
             }
             Action::GbaDown(Btn::Down) => {
@@ -2188,6 +2221,26 @@ pub(crate) fn write_index(root: &Path, library: &[Saved]) -> std::io::Result<()>
     slot_store::atomic_write(&index_path(root), text.as_bytes())
 }
 
+/// How much louder than the file a player volume step is. 11 is the extra loud step.
+pub fn playback_gain(volume: u8) -> f32 {
+    match volume {
+        0 => 0.0,
+        1..=10 => {
+            let t = volume as f32 / 10.0;
+            0.35 + t * t * 1.45
+        }
+        _ => 2.6,
+    }
+}
+
+/// Takes at most `max` samples, always an even count so a stereo pair is not split.
+fn drain_samples(pcm: &mut Vec<i16>, max: usize) -> Vec<i16> {
+    let n = pcm.len().min(max) & !1;
+    let out = pcm[..n].to_vec();
+    pcm.drain(..n);
+    out
+}
+
 fn flat(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_control() || c == '\t' { ' ' } else { c })
@@ -2624,6 +2677,21 @@ mod tests {
         assert_eq!(cfg.port, 8787);
         assert_eq!(cfg.token, "abc123");
         assert!(crate::video_queue::pause_in_games(root.path()));
+    }
+
+    #[test]
+    fn volume_eleven_is_louder_than_ten_and_pcm_is_taken_in_pairs() {
+        assert!(playback_gain(11) > playback_gain(10));
+        assert!(playback_gain(10) > playback_gain(1));
+        assert_eq!(playback_gain(0), 0.0);
+        let mut pcm = vec![1, 2, 3, 4, 5];
+        let got = drain_samples(&mut pcm, 3);
+        assert_eq!(got, vec![1, 2]);
+        assert_eq!(pcm, vec![3, 4, 5]);
+        let loud = crate::audio::volume::amplify(20_000, playback_gain(11));
+        let quiet = crate::audio::volume::amplify(20_000, playback_gain(10));
+        assert!(loud > quiet);
+        assert!(crate::audio::volume::amplify(32_000, 4.0).unsigned_abs() < 32_768);
     }
 
     #[test]
