@@ -1,9 +1,0 @@
-{
-  "token": "REPLACE_ME",
-  "bind": "0.0.0.0",
-  "port": 8787,
-  "dir": "~/Library/Application Support/SlotRelay",
-  "keep_seconds": 86400,
-  "ytdlp": "/opt/homebrew/bin/yt-dlp",
-  "ffmpeg": "/opt/homebrew/bin/ffmpeg"
-}

@@ -32,20 +32,6 @@ fn x_on_the_shelf_does_not_open_pip() {
 }
 
 #[test]
-fn the_home_menu_opens_videos() {
-    let (_d, mut app) = on_carousel();
-    app.apply(Action::QuickMenu);
-    for _ in 0..3 {
-        press(&mut app, Btn::Down);
-    }
-    press(&mut app, Btn::A);
-    assert!(app.videos_open());
-    assert!(!app.pip_open());
-    press(&mut app, Btn::B);
-    assert!(!app.videos_open());
-}
-
-#[test]
 fn saved_companion_xp_is_read_at_startup() {
     let root = tmp_root_with_carts(&["Emerald"]);
     let mut pip = Companion::default();

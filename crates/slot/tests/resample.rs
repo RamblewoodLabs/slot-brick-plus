@@ -75,24 +75,6 @@ fn a_core_rate_that_is_not_a_rate_passes_the_samples_through() {
     }
 }
 
-#[test]
-fn video_audio_is_stretched_from_22050_to_the_device() {
-    for device in [32_768u32, 48_000] {
-        let mut r = Resampler::new(22_050.0, device as f64);
-        let mut out = Vec::new();
-        let mut frames = 0;
-        for _ in 0..20 {
-            r.process(&ramp(220), &mut out);
-            frames += out.len() / 2;
-        }
-        let want = 220 * 20 * device as usize / 22_050;
-        assert!(
-            (frames as i64 - want as i64).abs() <= 3,
-            "{device} Hz produced {frames}, expected about {want}"
-        );
-    }
-}
-
 fn the_output_rate_follows_the_device_not_the_core() {
     let mut r = Resampler::new(32768.0, 48000.0);
     let mut out = Vec::new();

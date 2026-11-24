@@ -41,9 +41,6 @@ jobs:
           key: sim-unit-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'brick/sim/Dockerfile', 'brick/sim/build-cores.sh', 'vendor/*-src.tar.gz', 'cores/*/*.patch') }}
           restore-keys: sim-unit-
 
-      - name: Relay tests
-        run: python3 -m unittest discover -s tools/mac-relay -v
-
       - name: Unit tests
         run: sh brick/sim.sh unit
 

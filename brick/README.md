@@ -39,13 +39,13 @@ doesn't flash anything to the device.
 | ---------------- | --------------------------------------- |
 | `Left` / `Right` | Browse games                            |
 | `Up` / `Down`    | Previous / next letter                  |
-| `L1` / `R1`      | Switch shelves (GBA, GB, GBC, NES, SNES, PlayStation, Videos) |
+| `L1` / `R1`      | Switch shelves (GBA, GB, GBC, NES, SNES, PlayStation) |
 | Tap `A`          | Resume from the last save state (a game of several discs: fan them out, pick one, `A` again) |
 | Hold `A`         | Start the game fresh                    |
 | `START`          | Cart colour, finish, shape and label (GBA: and core) |
 | `Y`              | Favorite: a star on the cart, or off again |
 | `SELECT`         | Sort: A–Z, last played, most played     |
-| `HOME`           | Menu (Emulation, Gameplay, Library, Videos, Online: Wi-Fi, Cart Art, RetroAchievements, Update, and System: LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
+| `HOME`           | Menu (Emulation, Gameplay, Library, Online: Wi-Fi, Cart Art, RetroAchievements, Update, and System: LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
 
 ### In game
 

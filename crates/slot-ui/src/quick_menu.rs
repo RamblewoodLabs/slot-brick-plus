@@ -94,16 +94,13 @@ pub enum QuickRow {
     SoundVolume,
     UpdateCheck,
     Companion,
-    Videos,
-    ShowVideos,
-    Music,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 82] = [
+    pub const ALL: [QuickRow; 79] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -183,28 +180,21 @@ impl QuickRow {
         QuickRow::SoundVolume,
         QuickRow::UpdateCheck,
         QuickRow::Companion,
-        QuickRow::Videos,
-        QuickRow::ShowVideos,
-        QuickRow::Music,
     ];
 
     #[cfg(not(feature = "brick"))]
-    pub const MAIN: [QuickRow; 6] = [
+    pub const MAIN: [QuickRow; 4] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
-        QuickRow::Videos,
-        QuickRow::Music,
         QuickRow::System,
     ];
     #[cfg(not(feature = "brick"))]
-    const MAIN_PIP: [QuickRow; 7] = [
+    const MAIN_PIP: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
         QuickRow::Companion,
-        QuickRow::Videos,
-        QuickRow::Music,
         QuickRow::System,
     ];
     #[cfg(not(feature = "brick"))]
@@ -219,23 +209,19 @@ impl QuickRow {
     ];
 
     #[cfg(feature = "brick")]
-    pub const MAIN: [QuickRow; 7] = [
+    pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
-        QuickRow::Videos,
-        QuickRow::Music,
         QuickRow::Online,
         QuickRow::System,
     ];
     #[cfg(feature = "brick")]
-    const MAIN_PIP: [QuickRow; 8] = [
+    const MAIN_PIP: [QuickRow; 6] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Library,
         QuickRow::Companion,
-        QuickRow::Videos,
-        QuickRow::Music,
         QuickRow::Online,
         QuickRow::System,
     ];
@@ -326,16 +312,14 @@ impl QuickRow {
         QuickRow::LibraryTitleCard,
         QuickRow::LibraryPlayTime,
     ];
-    /// Library → Systems: each system's shelf shown or hidden, in the shelves' order,
-    /// then the Videos shelf.
-    pub const SYSTEMS: [QuickRow; 7] = [
+    /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
+    pub const SYSTEMS: [QuickRow; 6] = [
         QuickRow::ShowGba,
         QuickRow::ShowGb,
         QuickRow::ShowGbc,
         QuickRow::ShowNes,
         QuickRow::ShowSnes,
         QuickRow::ShowPs1,
-        QuickRow::ShowVideos,
     ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
@@ -500,8 +484,7 @@ impl QuickRow {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1
-            | QuickRow::ShowVideos => &QuickRow::SYSTEMS,
+            | QuickRow::ShowPs1 => &QuickRow::SYSTEMS,
             QuickRow::SoundVolume
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
@@ -588,8 +571,6 @@ impl QuickRow {
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
             QuickRow::Companion => "Companion",
-            QuickRow::Videos => "Videos",
-            QuickRow::Music => "Music",
             QuickRow::Font => "Font",
             QuickRow::Lights => "LEDs",
             QuickRow::LedMode => "All LEDs",
@@ -611,7 +592,6 @@ impl QuickRow {
             QuickRow::ShowNes => "NES",
             QuickRow::ShowSnes => "SNES",
             QuickRow::ShowPs1 => "PlayStation",
-            QuickRow::ShowVideos => "Videos",
             QuickRow::ResetSettings => "Reset Settings",
             QuickRow::AboutVersion => "Version",
             QuickRow::AboutBuild => "Build",
@@ -676,8 +656,6 @@ impl QuickRow {
                 | QuickRow::System
                 | QuickRow::Library
                 | QuickRow::Companion
-                | QuickRow::Videos
-                | QuickRow::Music
                 | QuickRow::LibrarySystems
                 | QuickRow::ResetSettings
                 | QuickRow::AboutLabel

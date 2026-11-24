@@ -14,22 +14,6 @@ fn main() {
             slot::root::ensure(std::path::Path::new(&dir));
             return;
         }
-        Some("--music-queue") => {
-            let Some(dir) = args.next() else {
-                eprintln!("slot: --music-queue needs the Slot directory");
-                std::process::exit(2);
-            };
-            slot::music_queue::run(std::path::Path::new(&dir));
-            return;
-        }
-        Some("--video-queue") => {
-            let Some(dir) = args.next() else {
-                eprintln!("slot: --video-queue needs the Slot directory");
-                std::process::exit(2);
-            };
-            slot::video_queue::run(std::path::Path::new(&dir));
-            return;
-        }
         _ => {}
     }
     // 1.6.0: on a crash, log the signal, thread and code location to stderr (slot.log).

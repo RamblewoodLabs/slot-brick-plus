@@ -242,12 +242,6 @@ pub const LINKED_HOLD_MS: Millis = 1000;
 
 pub const UNPLUG_HOLD_MS: Millis = 420;
 
-enum ShelfStop {
-    Game(usize),
-    Videos,
-    Music,
-}
-
 #[derive(Debug)]
 pub enum Phase {
     SetClock {
@@ -472,20 +466,6 @@ pub struct App {
     library_saved_at: Millis,
     companion: slot_store::Companion,
     pip: Option<crate::pip::PipMenu>,
-    videos: Option<crate::videos::VideoMenu>,
-    videos_visible: bool,
-    music: Option<crate::music::MusicMenu>,
-    music_visible: bool,
-    music_focus: bool,
-    tracks: Vec<crate::videos::Tape>,
-    /// Saved videos on the shelf beside the game systems. Empty, or hidden in
-    /// Library → Systems, and the shelf is not there.
-    tapes: Vec<crate::videos::Tape>,
-    tape_at: usize,
-    video_focus: bool,
-    /// Y was pressed once on this video: the next Y deletes it.
-    video_delete: Option<String>,
-    tape_tex: Vec<(TexId, u32, u32)>,
     /// Play time being counted: the last tick seen while playing, and what is not a second yet.
     play_tick: Option<Millis>,
     play_ms: Millis,
@@ -674,17 +654,6 @@ impl App {
             library_saved_at: 0,
             companion: slot_store::Companion::default(),
             pip: None,
-            videos: None,
-            videos_visible: false,
-            music: None,
-            music_visible: false,
-            music_focus: false,
-            tracks: Vec::new(),
-            tapes: Vec::new(),
-            tape_at: 0,
-            video_focus: false,
-            video_delete: None,
-            tape_tex: Vec::new(),
             play_tick: None,
             play_ms: 0,
             played: slot_ui::Printed::default(),
@@ -806,11 +775,6 @@ impl App {
         app.companion = slot_store::Companion::read(root);
         crate::boot_times::mark("  state and library read");
         app.arrange();
-        app.reload_tapes();
-        if app.shelves.iter().all(|(_, shelf)| shelf.carts.is_empty()) && app.videos_on_shelf() {
-            app.video_focus = true;
-            app.name_pending = true;
-        }
         // At startup, each shelf starts at the top of its order.
         for (_, shelf) in &mut app.shelves {
             shelf.select(0);
@@ -1157,8 +1121,6 @@ impl App {
         if !matches!(self.phase, Phase::Shelf)
             || self.cart_menu.is_some()
             || self.core_picker.is_some()
-            || self.video_focus
-            || self.music_focus
         {
             return None;
         }
@@ -1178,12 +1140,6 @@ impl App {
             || self.core_picker.is_some()
         {
             return None;
-        }
-        if self.music_focus {
-            return self.tracks.get(self.tape_at).map(|tape| tape.title.clone());
-        }
-        if self.video_focus {
-            return self.tapes.get(self.tape_at).map(|tape| tape.title.clone());
         }
         let cart = self.shelf().carts.get(self.shelf().index)?;
         Some(slot_ui::label_text(cart))
@@ -1230,37 +1186,22 @@ impl App {
         if stops.len() < 2 {
             return;
         }
-        let here = if self.music_focus {
-            stops
-                .iter()
-                .position(|stop| matches!(stop, ShelfStop::Music))
-        } else if self.video_focus {
-            stops
-                .iter()
-                .position(|stop| matches!(stop, ShelfStop::Videos))
-        } else {
-            stops
-                .iter()
-                .position(|stop| matches!(stop, ShelfStop::Game(at) if *at == self.shelf_at))
-        };
-        let Some(here) = here else {
-            return;
-        };
+        let here = stops
+            .iter()
+            .position(|at| *at == self.shelf_at)
+            .unwrap_or(0);
         let next = (here as i32 + by).rem_euclid(stops.len() as i32) as usize;
         self.play_held = None;
-        self.video_delete = None;
-        match stops[next] {
-            ShelfStop::Videos => {
-                self.music_focus = false;
-                self.enter_videos();
-            }
-            ShelfStop::Music => self.enter_music_shelf(),
-            ShelfStop::Game(at) => {
-                self.video_focus = false;
-                self.music_focus = false;
-                self.land_shelf(at);
-            }
-        }
+        self.land_shelf(stops[next]);
+    }
+
+    fn shelf_stops(&self) -> Vec<usize> {
+        self.shelves
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, shelf))| !shelf.carts.is_empty())
+            .map(|(at, _)| at)
+            .collect()
     }
 
     fn land_shelf(&mut self, to: usize) {
@@ -1271,187 +1212,6 @@ impl App {
         self.slot_word = None;
         self.shelf_named = None;
         self.name_pending = true;
-    }
-
-    fn enter_videos(&mut self) {
-        self.music_focus = false;
-        self.video_focus = true;
-        self.shelf_platform = slot_ui::Printed::default();
-        self.slot_letter = None;
-        self.slot_word = None;
-        self.shelf_named = None;
-        self.name_pending = true;
-        self.play_held = None;
-        self.video_delete = None;
-        self.reload_tapes();
-    }
-
-    fn videos_on_shelf(&self) -> bool {
-        self.state.show_videos && !self.tapes.is_empty()
-    }
-
-    fn shelf_stops(&self) -> Vec<ShelfStop> {
-        let mut stops = Vec::new();
-        for (at, (_, shelf)) in self.shelves.iter().enumerate() {
-            if !shelf.carts.is_empty() {
-                stops.push(ShelfStop::Game(at));
-            }
-        }
-        if self.videos_on_shelf() {
-            stops.push(ShelfStop::Videos);
-        }
-        if self.music_on_shelf() {
-            stops.push(ShelfStop::Music);
-        }
-        stops
-    }
-
-    fn music_on_shelf(&self) -> bool {
-        !self.tracks.is_empty()
-    }
-
-    fn enter_music_shelf(&mut self) {
-        self.video_focus = false;
-        self.music_focus = true;
-        self.shelf_platform = slot_ui::Printed::default();
-        self.name_pending = true;
-        if let Some(root) = &self.root {
-            self.tracks = crate::music::tracks_for_shelf(root);
-        }
-    }
-
-    fn reload_tapes(&mut self) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.tapes = crate::videos::tapes(&root);
-        self.tracks = crate::music::tracks_for_shelf(&root);
-        if self.tape_at >= self.tapes.len() {
-            self.tape_at = self.tapes.len().saturating_sub(1);
-        }
-        if self.video_focus && !self.videos_on_shelf() {
-            self.video_focus = false;
-            self.name_pending = true;
-        }
-    }
-
-    fn nudge_tape(&mut self, dir: i32) {
-        let n = self.tapes.len() as i32;
-        if n == 0 {
-            return;
-        }
-        let next = (self.tape_at as i32 + dir).rem_euclid(n) as usize;
-        if next == self.tape_at {
-            return;
-        }
-        self.tape_at = next;
-        self.video_delete = None;
-    }
-
-    fn play_tape(&mut self) {
-        let Some(id) = self.tapes.get(self.tape_at).map(|tape| tape.id.clone()) else {
-            return;
-        };
-        if self.videos.is_none() {
-            let Some(root) = self.root.clone() else {
-                return;
-            };
-            self.videos = Some(crate::videos::VideoMenu::open(root, self.videos_online()));
-        }
-        let started = self.videos.as_mut().is_some_and(|menu| menu.play_id(&id));
-        if started {
-            self.videos_visible = true;
-            self.video_delete = None;
-        }
-    }
-
-    fn delete_tape(&mut self) {
-        let Some(tape) = self.tapes.get(self.tape_at).cloned() else {
-            return;
-        };
-        if self.video_delete.as_deref() != Some(tape.id.as_str()) {
-            self.video_delete = Some(tape.id);
-            self.announce("Delete this video?", "Press Y again");
-            return;
-        }
-        if let Some(root) = &self.root {
-            let _ = crate::videos::forget(root, &tape.id);
-        }
-        if let Some(menu) = &mut self.videos {
-            menu.reload_saved();
-        }
-        self.video_delete = None;
-        self.reload_tapes();
-        self.announce("Deleted", &tape.title);
-    }
-
-    fn video_shelf_input(&mut self, action: Action) {
-        match action {
-            Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.nudge_tape(-1),
-            Action::ShelfRight | Action::GbaDown(Btn::Right) => self.nudge_tape(1),
-            Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
-            Action::GbaDown(Btn::R1) => self.switch_shelf(1),
-            Action::GbaDown(Btn::A) | Action::Insert => self.play_tape(),
-            Action::GbaUp(Btn::A) => self.play_held = None,
-            Action::GbaDown(Btn::Y) => self.delete_tape(),
-            Action::QuickMenu => {
-                self.open_quick_menu();
-                self.menu_sound(MenuSound::Open);
-            }
-            Action::GbaDown(Btn::X) => {
-                if self.open_pip() && self.companion.sounds {
-                    self.menu_sound(MenuSound::Open);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn shown(&self) -> &[crate::videos::Tape] {
-        if self.music_focus {
-            &self.tracks
-        } else {
-            &self.tapes
-        }
-    }
-
-    pub fn tape_list(&self) -> Vec<(String, String, Option<PathBuf>)> {
-        if !self.videos_on_shelf() {
-            return Vec::new();
-        }
-        self.shown()
-            .iter()
-            .map(|tape| (tape.id.clone(), tape.title.clone(), tape.thumb.clone()))
-            .collect()
-    }
-
-    pub fn set_tape_tex(&mut self, tex: Vec<(TexId, u32, u32)>) {
-        self.tape_tex = tex;
-    }
-
-    fn draw_tapes(&self, out: &mut Vec<Draw>) {
-        let n = self.shown().len();
-        if n == 0 || self.tape_tex.len() != n {
-            return;
-        }
-        let at = self.tape_at.min(n - 1);
-        for (i, (tex, w, h)) in self.tape_tex.iter().copied().enumerate() {
-            let delta = i as i32 - at as i32;
-            if delta.abs() > 1 {
-                continue;
-            }
-            let scale = if delta == 0 { 1.0 } else { 0.72 };
-            let dw = w as f32 * scale;
-            let dh = h as f32 * scale;
-            out.push(Draw::Tex {
-                x: (OUT_W as f32 - dw) / 2.0 + delta as f32 * 220.0,
-                y: slot_ui::TAPE_Y + if delta == 0 { 0.0 } else { 18.0 },
-                w: dw,
-                h: dh,
-                tex,
-                alpha: if delta == 0 { 1.0 } else { 0.8 },
-            });
-        }
     }
 
     fn jump_letter(&mut self, dir: i32) {
@@ -1729,10 +1489,8 @@ impl App {
             | QuickRow::ShowPs1 => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
-            QuickRow::ShowVideos => Some(QuickValue::flag(self.state.show_videos)),
             QuickRow::ResetSettings => self.reset_asked,
             QuickRow::Companion
-            | QuickRow::Videos
             | QuickRow::GbOverlay
             | QuickRow::GbcOverlay
             | QuickRow::GbaOverlay
@@ -1774,8 +1532,7 @@ impl App {
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
-            | QuickRow::SoundVolume
-            | QuickRow::Music => None,
+            | QuickRow::SoundVolume => None,
         }
     }
 
@@ -1888,12 +1645,6 @@ impl App {
     }
 
     pub fn shelf_platform_name(&self) -> Option<&'static str> {
-        if self.music_focus {
-            return Some("Music");
-        }
-        if self.video_focus {
-            return Some("Videos");
-        }
         if self.shelf_stops().len() < 2 {
             return None;
         }
@@ -2705,7 +2456,7 @@ impl App {
             }
             return;
         }
-        if self.pip.is_some() || self.videos_visible || self.music_visible {
+        if self.pip.is_some() {
             return self.sheet_input(action);
         }
         if let Phase::SetClock {
@@ -2744,8 +2495,6 @@ impl App {
         }
         let now = self.now();
         match self.phase {
-            Phase::Shelf if self.music_focus => self.music_shelf_input(action),
-            Phase::Shelf if self.video_focus => self.video_shelf_input(action),
             Phase::Shelf => match action {
                 // Like the core picker's lid closing: the sticker is never cut short.
                 _ if self.peel.is_some() => {}
@@ -2876,10 +2625,9 @@ impl App {
     /// Where the HOME menu is: the screen, the row, and whether an overlay (Wi-Fi) is open.
     fn menu_place(&self) -> (std::mem::Discriminant<Phase>, Option<QuickRow>, bool) {
         #[cfg(feature = "brick")]
-        let overlay =
-            self.wifi.is_some() || self.pip.is_some() || self.videos_visible || self.music_visible;
+        let overlay = self.wifi.is_some() || self.pip.is_some();
         #[cfg(not(feature = "brick"))]
-        let overlay = self.pip.is_some() || self.videos_visible || self.music_visible;
+        let overlay = self.pip.is_some();
         (
             std::mem::discriminant(&self.phase),
             self.quick_menu(),
@@ -2958,29 +2706,12 @@ impl App {
             }
             return;
         }
-        if self.videos_visible && self.videos.as_mut().is_some_and(|menu| menu.input(action)) {
-            self.videos_visible = false;
-            self.reload_tapes();
-            if matches!(self.phase, Phase::QuickMenu { .. }) {
-                self.menu_sound(MenuSound::Back);
-            }
-        }
-        if self.music_visible && self.music.as_mut().is_some_and(|menu| menu.input(action)) {
-            self.music_visible = false;
-            if let Some(root) = &self.root {
-                self.tracks = crate::music::tracks_for_shelf(root);
-            }
-            if matches!(self.phase, Phase::QuickMenu { .. }) {
-                self.menu_sound(MenuSound::Back);
-            }
-        }
     }
 
     fn open_pip(&mut self) -> bool {
         if !slot_ui::PIP {
             return false;
         }
-        self.videos_visible = false;
         let games = self.games_seen();
         self.companion.ensure_missions(&games, self.local_day());
         self.companion.refresh_suggestion(&games, self.local_day());
@@ -3009,52 +2740,6 @@ impl App {
         true
     }
 
-    fn open_videos(&mut self) {
-        self.pip = None;
-        let online = self.videos_online();
-        match &mut self.videos {
-            Some(menu) => menu.set_online(online),
-            None => {
-                if let Some(root) = &self.root {
-                    self.videos = Some(crate::videos::VideoMenu::open(root.clone(), online));
-                }
-            }
-        }
-        if let Some(menu) = &mut self.videos {
-            menu.dirty = true;
-        }
-        self.videos_visible = self.videos.is_some();
-    }
-
-    fn open_music(&mut self) {
-        self.pip = None;
-        self.videos_visible = false;
-        let online = self.videos_online();
-        match &mut self.music {
-            Some(menu) => menu.set_online(online),
-            None => {
-                if let Some(root) = &self.root {
-                    self.music = Some(crate::music::MusicMenu::open(root.clone(), online));
-                }
-            }
-        }
-        if let Some(menu) = &mut self.music {
-            menu.dirty = true;
-        }
-        self.music_visible = self.music.is_some();
-    }
-
-    fn videos_online(&self) -> bool {
-        #[cfg(feature = "brick")]
-        {
-            self.net_up
-        }
-        #[cfg(not(feature = "brick"))]
-        {
-            true
-        }
-    }
-
     pub fn pip_open(&self) -> bool {
         self.pip.is_some()
     }
@@ -3063,17 +2748,12 @@ impl App {
             .as_ref()
             .and_then(|menu| menu.game(&self.companion))
     }
-    pub fn videos_open(&self) -> bool {
-        self.videos_visible
-    }
     pub fn companion_xp(&self) -> u32 {
         self.companion.xp
     }
 
     pub fn sheet_dirty(&self) -> bool {
         self.pip.as_ref().is_some_and(|menu| menu.dirty)
-            || (self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.dirty))
-            || (self.music_visible && self.music.as_ref().is_some_and(|menu| menu.dirty))
     }
 
     pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
@@ -3102,140 +2782,11 @@ impl App {
         }
     }
 
-    fn music_shelf_input(&mut self, action: Action) {
-        let count = self.tracks.len();
-        if count == 0 {
-            self.music_focus = false;
-            return;
-        }
-        match action {
-            Action::GbaDown(Btn::Left) => self.tape_at = (self.tape_at + count - 1) % count,
-            Action::GbaDown(Btn::Right) => self.tape_at = (self.tape_at + 1) % count,
-            Action::GbaDown(Btn::A) => {
-                let index = self.tape_at;
-                self.open_music();
-                if let Some(menu) = &mut self.music {
-                    menu.play_library(index);
-                }
-            }
-            Action::GbaDown(Btn::B) => {
-                self.music_focus = false;
-                if let Some(ShelfStop::Game(at)) = self.shelf_stops().into_iter().next() {
-                    self.land_shelf(at);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn music_render(&mut self) -> Option<slot_ui::UndoFace> {
-        if !self.music_visible {
-            return None;
-        }
-        let menu = self.music.as_mut()?;
-        if !menu.dirty && menu.face.is_some() {
-            return None;
-        }
-        let face = menu.render();
-        menu.dirty = false;
-        Some(face)
-    }
-
-    pub fn set_music_face(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.music {
-            menu.face = Some(tex);
-        }
-    }
-
-    pub fn music_playing(&self) -> bool {
-        self.music.as_ref().is_some_and(|menu| menu.playing())
-    }
-
-    pub fn take_music_pcm(&self) -> Vec<i16> {
-        self.music
-            .as_ref()
-            .map(|menu| menu.take_pcm())
-            .unwrap_or_default()
-    }
-
-    pub fn videos_render(&mut self) -> Option<slot_ui::UndoFace> {
-        if !self.videos_visible {
-            return None;
-        }
-        let menu = self.videos.as_mut()?;
-        if !menu.dirty {
-            return None;
-        }
-        let face = menu.render();
-        menu.dirty = false;
-        Some(face)
-    }
-
-    pub fn set_videos_face(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.videos {
-            menu.face = Some(tex);
-        }
-    }
-
-    pub fn copy_video_frame(&self, seen: u64) -> Option<(u64, Vec<u8>)> {
-        if !self.videos_visible {
-            return None;
-        }
-        self.videos
-            .as_ref()
-            .and_then(|menu| menu.frame_if_new(seen))
-    }
-
-    pub fn set_video_frame(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.videos {
-            if menu.shows_frame() {
-                menu.frame_face = Some(tex);
-            }
-        }
-    }
-
-    pub fn video_frame_pixels(&self) -> (u32, u32) {
-        self.videos
-            .as_ref()
-            .map(|menu| {
-                let (_, _, w, h) = menu.frame_box();
-                (w, h)
-            })
-            .unwrap_or((crate::videos::FRAME_W, crate::videos::FRAME_H))
-    }
-
-    pub fn take_video_pcm(&self, max_samples: usize) -> Vec<i16> {
-        self.videos
-            .as_ref()
-            .map(|menu| menu.take_pcm(max_samples))
-            .unwrap_or_default()
-    }
-
-    pub fn video_volume_gain(&self) -> f32 {
-        self.videos
-            .as_ref()
-            .map(|menu| menu.volume_gain())
-            .unwrap_or(0.0)
-    }
-
-    pub fn video_playing(&self) -> bool {
-        self.videos_visible && self.videos.as_ref().is_some_and(|menu| menu.playing())
-    }
-
-    /// A video is still downloading, so auto sleep and screen-off wait.
-    pub fn download_busy(&self) -> bool {
-        self.root.as_deref().is_some_and(|root| {
-            !crate::video_queue::jobs(root).is_empty() || crate::music_queue::downloading(root)
-        })
-    }
-
     fn open_quick_row(&mut self, row: QuickRow) {
         match row {
             QuickRow::Companion => {
                 self.open_pip();
             }
-            QuickRow::Videos => self.open_videos(),
-            QuickRow::Music => self.open_music(),
             QuickRow::Wifi => {
                 #[cfg(feature = "brick")]
                 {
@@ -3343,7 +2894,6 @@ impl App {
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
             | QuickRow::ShowPs1
-            | QuickRow::ShowVideos
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -3494,15 +3044,6 @@ impl App {
                 };
                 return self.toggle_system(platform);
             }
-            QuickRow::ShowVideos => {
-                self.state.show_videos = !self.state.show_videos;
-                self.persist();
-                if self.video_focus && !self.videos_on_shelf() {
-                    self.video_focus = false;
-                    self.name_pending = true;
-                }
-                return;
-            }
             QuickRow::LibraryPlayTime => s.play_time_hours = !s.play_time_hours,
             QuickRow::LibraryTitleCard => s.title_card = !s.title_card,
             QuickRow::UpdateCheck => s.update_check = !s.update_check,
@@ -3515,7 +3056,6 @@ impl App {
                 }
             }
             QuickRow::Companion
-            | QuickRow::Videos
             | QuickRow::GbOverlay
             | QuickRow::GbcOverlay
             | QuickRow::GbaOverlay
@@ -3557,8 +3097,7 @@ impl App {
             | QuickRow::AboutFirmware
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
-            | QuickRow::SystemSounds
-            | QuickRow::Music => return,
+            | QuickRow::SystemSounds => return,
         }
         self.persist();
     }
@@ -4004,32 +3543,6 @@ impl App {
         let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
-        if let Some(root) = self.root.clone() {
-            let playing = matches!(self.phase, Phase::Playing { .. }) && !self.menu_over_game();
-            crate::video_queue::note_game(&root, playing);
-        }
-        let notes = self
-            .videos
-            .as_mut()
-            .map(|videos| videos.poll())
-            .unwrap_or_default();
-        let saved = notes.iter().any(|(title, _)| title == "Saved");
-        for (title, detail) in notes {
-            self.announce(&title, &detail);
-        }
-        if matches!(self.phase, Phase::Playing { .. }) {
-            if let Some(music) = &mut self.music {
-                if music.playing() {
-                    music.stop_for_game();
-                }
-            }
-        }
-        if let Some(music) = &mut self.music {
-            music.poll();
-        }
-        if saved {
-            self.reload_tapes();
-        }
         if self.banner.is_none() && self.banners.front().is_some_and(ready) {
             if let Some((title, detail, badge, _)) = self.banners.pop_front() {
                 self.banner_seq += 1;
@@ -4474,41 +3987,17 @@ impl App {
     }
 
     fn draw_sheet(&self, out: &mut Vec<Draw>) {
-        let face = if self.pip.is_some() {
-            self.pip.as_ref().and_then(|menu| menu.face)
-        } else if self.music_visible {
-            self.music.as_ref().and_then(|menu| menu.face)
-        } else {
-            self.videos
-                .as_ref()
-                .filter(|_| self.videos_visible)
-                .and_then(|menu| menu.face)
+        let Some(tex) = self.pip.as_ref().and_then(|menu| menu.face) else {
+            return;
         };
-        if let Some(tex) = face {
-            out.push(Draw::Tex {
-                x: 0.0,
-                y: 0.0,
-                w: OUT_W as f32,
-                h: OUT_H as f32,
-                tex,
-                alpha: 1.0,
-            });
-        }
-        if self.videos_visible {
-            if let Some(menu) = self.videos.as_ref().filter(|menu| menu.shows_frame()) {
-                if let Some(tex) = menu.frame_face {
-                    let (x, y, w, h) = menu.frame_box();
-                    out.push(Draw::Tex {
-                        x: x as f32,
-                        y: y as f32,
-                        w: w as f32,
-                        h: h as f32,
-                        tex,
-                        alpha: 1.0,
-                    });
-                }
-            }
-        }
+        out.push(Draw::Tex {
+            x: 0.0,
+            y: 0.0,
+            w: OUT_W as f32,
+            h: OUT_H as f32,
+            tex,
+            alpha: 1.0,
+        });
     }
 
     fn draw_scene(&self, out: &mut Vec<Draw>) {
@@ -4555,18 +4044,8 @@ impl App {
                 return;
             }
         }
-        if self.pip.is_some() || self.videos_visible || self.music_visible {
+        if self.pip.is_some() {
             self.draw_sheet(out);
-            if self.videos_visible || self.music_visible {
-                slot_ui::draw_menu_header(
-                    self.battery,
-                    self.battery_percent,
-                    self.bolt,
-                    self.wifi_face(),
-                    self.shelf_clock,
-                    out,
-                );
-            }
             return;
         }
         match &self.phase {
@@ -4632,17 +4111,6 @@ impl App {
                         self.shelf()
                             .draw_row(Some(stem), 0.0, CORE_PICKER_RECEDE * open, dim, out);
                         draw_empty_slot(out);
-                    }
-                    _ if self.video_focus || self.music_focus => {
-                        slot_ui::draw_title_card(
-                            self.title_card,
-                            slot_ui::tape_foot(),
-                            self.title_card_alpha(),
-                            out,
-                        );
-                        self.draw_tapes(out);
-                        draw_empty_slot(out);
-                        draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                     _ => {
                         if let Some(foot) = self.shelf().selected_foot() {
@@ -5292,9 +4760,6 @@ impl App {
     }
 
     fn insert(&mut self, clean: bool) {
-        if let Some(music) = &mut self.music {
-            music.stop_for_game();
-        }
         if !self.on_shelf() {
             return;
         }
@@ -5397,10 +4862,6 @@ impl App {
         self.pip = None;
         self.companion.settle();
         self.save_companion();
-        if let Some(videos) = &mut self.videos {
-            videos.stop_for_sleep();
-        }
-        self.videos_visible = false;
         if self.link_active() {
             self.end_link();
         }
