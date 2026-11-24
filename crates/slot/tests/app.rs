@@ -1812,39 +1812,23 @@ fn session_playing(root: &Path) -> Session {
     s
 }
 
-const GB_WINDOW: [f32; 4] = [40.0 / 240.0, 8.0 / 160.0, 160.0 / 240.0, 144.0 / 160.0];
-
 fn pad(s: &Session) -> u16 {
     s.emu().expect("no core in the slot").input().0
 }
 
 #[test]
 #[cfg_attr(feature = "brick", ignore = "the Brick pads actual size out to 4:3")]
-fn l_and_r_change_the_mode_on_a_game_boy_cart_and_not_on_a_gba_one() {
+fn l_and_r_do_not_change_the_picture_on_a_game_boy_or_reach_the_game() {
     let d = common::tmp_root_with_gb_carts(&["Tetris", "Zzz"]);
     let mut s = session_playing(d.path());
-    assert_eq!(
-        s.app().source_rect(),
-        WHOLE_TEXTURE,
-        "it did not open actual size"
-    );
-
+    let start = s.app().source_rect();
     s.feed([RawEvent::Down(Btn::L1)], 100);
-    assert_eq!(
-        s.app().source_rect(),
-        GB_WINDOW,
-        "L did not stretch the picture"
-    );
-    assert_eq!(pad(&s) & ButtonMask::L, 0, "L reached the game as well");
+    assert_eq!(s.app().source_rect(), start, "L changed the picture");
+    assert_eq!(pad(&s) & ButtonMask::L, 0, "L reached the game");
     s.feed([RawEvent::Up(Btn::L1)], 120);
-
     s.feed([RawEvent::Down(Btn::R1)], 200);
-    assert_eq!(
-        s.app().source_rect(),
-        WHOLE_TEXTURE,
-        "R did not give it back"
-    );
-    assert_eq!(pad(&s) & ButtonMask::R, 0, "R reached the game as well");
+    assert_eq!(s.app().source_rect(), start, "R changed the picture");
+    assert_eq!(pad(&s) & ButtonMask::R, 0, "R reached the game");
     s.feed([RawEvent::Up(Btn::R1)], 220);
 
     let d = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
@@ -1927,26 +1911,18 @@ fn a_shoulder_still_held_when_the_cart_seats_never_reaches_a_game_boy_core() {
 #[cfg_attr(feature = "brick", ignore = "the Brick pads actual size out to 4:3")]
 fn the_picture_mode_is_remembered_per_cart() {
     let d = common::tmp_root_with_gb_carts(&["Tetris", "Zzz"]);
-    let mut s = session_playing(d.path());
-    s.feed([RawEvent::Down(Btn::L1)], 100);
-    s.feed([RawEvent::Up(Btn::L1)], 120);
-    assert_eq!(video_mode_for(d.path(), "Tetris"), VideoMode::Stretch);
+    slot::video_mode::write_video_mode(d.path(), "Tetris", VideoMode::Stretch).unwrap();
     assert_eq!(
         video_mode_for(d.path(), "Zzz"),
         VideoMode::Actual,
-        "the press was recorded against another cart as well"
+        "the choice was recorded against another cart as well"
     );
-    drop(s);
-
-    let mut s = session_playing(d.path());
+    let s = session_playing(d.path());
     assert_eq!(
         s.app().source_rect(),
-        GB_WINDOW,
+        slot::video_mode::source_rect(Platform::Gb, VideoMode::Stretch),
         "the cart did not come back stretched"
     );
-    s.feed([RawEvent::Down(Btn::R1)], 100);
-    assert_eq!(video_mode_for(d.path(), "Tetris"), VideoMode::Actual);
-    assert_eq!(s.app().source_rect(), WHOLE_TEXTURE);
 }
 
 #[test]
@@ -2299,6 +2275,22 @@ fn home_x_toggles_a_gba_cart_between_3_2_and_full_screen_and_remembers_it() {
     assert_eq!(video_mode_for(d.path(), "Emerald"), VideoMode::Actual);
     assert_eq!(s.app().toast(), Some(slot_ui::Toast::PictureOriginal));
     assert_eq!(s.app().source_rect(), start);
+}
+
+#[test]
+fn nes_shoulders_do_not_change_the_picture() {
+    let d = common::tmp_root_with_carts(&[]);
+    std::fs::write(d.path().join("Games/NES/Duck Hunt.nes"), [0u8; 0x10]).unwrap();
+    let mut s = session_playing(d.path());
+    if s.app().canvas() != Platform::Nes.canvas() {
+        return;
+    }
+    let start = s.app().source_rect();
+    s.feed([RawEvent::Down(Btn::L1)], 100);
+    s.feed([RawEvent::Down(Btn::R1)], 120);
+    assert_eq!(s.app().source_rect(), start);
+    assert!(s.app().taken_buttons().contains(&Btn::L1));
+    assert_eq!(pad(&s) & (ButtonMask::L | ButtonMask::R), 0);
 }
 
 #[test]

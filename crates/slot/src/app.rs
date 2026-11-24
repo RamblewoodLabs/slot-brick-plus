@@ -31,6 +31,15 @@ use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep
 use crate::persist::{self, Snapshot};
 use crate::video_mode::{self, VideoMode};
 
+fn aspect_value(mode: VideoMode) -> QuickValue {
+    match mode {
+        VideoMode::Actual => QuickValue::AspectNative,
+        VideoMode::FourThree => QuickValue::Aspect43,
+        VideoMode::Stretch => QuickValue::AspectFull,
+        VideoMode::Integer => QuickValue::AspectInteger,
+    }
+}
+
 pub const INSERT_S: f32 = 0.73;
 const INSERT_HOLD_S: f32 = 0.28;
 
@@ -318,6 +327,8 @@ pub struct App {
     pause_buttons: bool,
     /// Swap A/B's own row: off's face, then on's.
     pause_buttons_faces: Vec<(TexId, u32, u32)>,
+    /// Pause menu Aspect row, one face per VideoMode::CHOICES.
+    aspect_faces: Vec<(TexId, u32, u32)>,
     /// Slot OS: no stock OS to exit to, so holding Power shuts down without asking.
     power_off_only: bool,
     core_picker: Option<CorePicker>,
@@ -605,6 +616,7 @@ impl App {
             pause_menu_faces: Vec::new(),
             pause_buttons: false,
             pause_buttons_faces: Vec::new(),
+            aspect_faces: Vec::new(),
             power_off_only: slot_power::slot_os(),
             core_picker: None,
             disc_picker: None,
@@ -1542,6 +1554,12 @@ impl App {
             | QuickRow::SystemSounds
             | QuickRow::SoundVolume
             | QuickRow::Continue => None,
+            QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
+            QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
+            QuickRow::AspectGba => Some(self.aspect_system_value(Platform::Gba)),
+            QuickRow::AspectNes => Some(self.aspect_system_value(Platform::Nes)),
+            QuickRow::AspectSnes => Some(self.aspect_system_value(Platform::Snes)),
+            QuickRow::AspectPs1 => Some(self.aspect_system_value(Platform::Ps1)),
         }
     }
 
@@ -1937,8 +1955,8 @@ impl App {
         true
     }
 
-    /// L1/R1 switch the picture on consoles without shoulder buttons; on a GBA or SNES
-    /// they are the game's own L and R.
+    /// GB, GBC and NES have no shoulder buttons. L1 and R1 are not the game's, and they
+    /// do not change the picture either: that lives in Emulation → Aspect and the pause menu.
     fn slot_owns_the_shoulders(&self) -> bool {
         matches!(self.phase, Phase::Playing { .. })
             && matches!(self.platform, Platform::Gb | Platform::Gbc | Platform::Nes)
@@ -2007,8 +2025,8 @@ impl App {
             return;
         }
         let (to, said) = match self.video_mode {
-            VideoMode::Actual => (VideoMode::Stretch, Toast::PictureFull),
-            VideoMode::Stretch => (VideoMode::Actual, Toast::PictureOriginal),
+            VideoMode::Stretch | VideoMode::FourThree => (VideoMode::Actual, Toast::PictureOriginal),
+            VideoMode::Actual | VideoMode::Integer => (VideoMode::Stretch, Toast::PictureFull),
         };
         if self.set_picture(to) {
             self.hud.toast(said, self.now());
@@ -2559,12 +2577,6 @@ impl App {
             },
             Phase::Inserting { .. } if action == Action::Eject => self.eject(),
             Phase::Playing { .. } => match action {
-                Action::GbaDown(Btn::L1) if self.slot_owns_the_shoulders() => {
-                    self.set_picture(VideoMode::Stretch);
-                }
-                Action::GbaDown(Btn::R1) if self.slot_owns_the_shoulders() => {
-                    self.set_picture(VideoMode::Actual);
-                }
                 Action::Eject => self.eject(),
                 Action::GameMenu => self.game_menu_shortcut(),
                 Action::QuickMenu => self.open_pause_menu(),
@@ -2918,11 +2930,91 @@ impl App {
             | QuickRow::LedSticks
             | QuickRow::LedColor
             | QuickRow::LedEffect
-            | QuickRow::Continue => {}
+            | QuickRow::Continue
+            | QuickRow::Aspect
+            | QuickRow::AspectGb
+            | QuickRow::AspectGba
+            | QuickRow::AspectNes
+            | QuickRow::AspectSnes
+            | QuickRow::AspectPs1 => {}
+        }
+    }
+
+    fn aspect_global(&self) -> VideoMode {
+        self.root.as_deref().map(video_mode::global_mode).unwrap_or_default()
+    }
+
+    fn aspect_system_value(&self, platform: Platform) -> QuickValue {
+        let Some(root) = self.root.as_deref() else {
+            return QuickValue::AspectDefault;
+        };
+        match video_mode::system_mode(root, platform) {
+            Some(mode) => aspect_value(mode),
+            None => QuickValue::AspectDefault,
+        }
+    }
+
+    fn cycle_aspect_setting(&mut self, row: QuickRow, right: bool) {
+        let Some(root) = self.root.clone() else { return };
+        match row {
+            QuickRow::Aspect => {
+                let next = self.aspect_global().step(right);
+                let _ = video_mode::write_global(&root, next);
+                self.announce("Aspect", next.label());
+            }
+            QuickRow::AspectGb | QuickRow::AspectGba | QuickRow::AspectNes | QuickRow::AspectSnes | QuickRow::AspectPs1 => {
+                let platforms: &[Platform] = match row {
+                    QuickRow::AspectGb => &[Platform::Gb, Platform::Gbc],
+                    QuickRow::AspectGba => &[Platform::Gba],
+                    QuickRow::AspectNes => &[Platform::Nes],
+                    QuickRow::AspectSnes => &[Platform::Snes],
+                    _ => &[Platform::Ps1],
+                };
+                let current = video_mode::system_mode(&root, platforms[0]);
+                let choices = [None, Some(VideoMode::Actual), Some(VideoMode::FourThree), Some(VideoMode::Stretch), Some(VideoMode::Integer)];
+                let at = choices.iter().position(|mode| *mode == current).unwrap_or(0);
+                let n = choices.len();
+                let next = choices[if right { (at + 1) % n } else { (at + n - 1) % n }];
+                for platform in platforms {
+                    let _ = video_mode::write_system(&root, *platform, next);
+                }
+                let said = next.map(VideoMode::label).unwrap_or("Default");
+                self.announce("Aspect", said);
+                if platforms.contains(&self.platform) {
+                    if let Some(stem) = self.seated() {
+                        let _ = video_mode::clear_game(&root, stem);
+                        self.video_mode = next.unwrap_or_else(|| video_mode::global_mode(&root));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The picture for the game that is open, from the pause menu.
+    fn cycle_game_aspect(&mut self, right: bool) {
+        let Some(root) = self.root.clone() else { return };
+        let Some(stem) = self.seated().map(str::to_string) else { return };
+        let next = self.video_mode.step(right);
+        if video_mode::write_video_mode(&root, &stem, next).is_ok() {
+            self.video_mode = next;
+            self.announce("Aspect", next.label());
         }
     }
 
     fn change_setting(&mut self, row: QuickRow, right: bool) {
+        if matches!(
+            row,
+            QuickRow::Aspect
+                | QuickRow::AspectGb
+                | QuickRow::AspectGba
+                | QuickRow::AspectNes
+                | QuickRow::AspectSnes
+                | QuickRow::AspectPs1
+        ) {
+            self.cycle_aspect_setting(row, right);
+            return;
+        }
         #[cfg(feature = "brick")]
         if row.led_setting() {
             if let Some(leds) = self.brick_leds.as_mut() {
@@ -3109,7 +3201,13 @@ impl App {
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
-            | QuickRow::Continue => return,
+            | QuickRow::Continue
+            | QuickRow::Aspect
+            | QuickRow::AspectGb
+            | QuickRow::AspectGba
+            | QuickRow::AspectNes
+            | QuickRow::AspectSnes
+            | QuickRow::AspectPs1 => return,
         }
         self.persist();
     }
@@ -4231,7 +4329,15 @@ impl App {
                     draw_menu_screen(std::slice::from_ref(face), 0, out);
                 }
             } else {
-                draw_menu_screen(&self.pause_menu_faces, index, out);
+                let mut faces = self.pause_menu_faces.clone();
+                if let Some(at) = PauseChoice::ALL.iter().position(|c| *c == PauseChoice::Picture) {
+                    if let Some(face) = self.aspect_faces.get(self.video_mode.index()) {
+                        if let Some(slot) = faces.get_mut(at) {
+                            *slot = *face;
+                        }
+                    }
+                }
+                draw_menu_screen(&faces, index, out);
             }
         }
         self.hud.draw(self.now(), out);
@@ -4334,7 +4440,10 @@ impl App {
         self.pause_menu_faces = faces;
     }
 
-    /// Off's face, then on's.
+    pub fn set_aspect_faces(&mut self, faces: Vec<(TexId, u32, u32)>) {
+        self.aspect_faces = faces;
+    }
+
     pub fn set_pause_buttons_faces(&mut self, faces: Vec<(TexId, u32, u32)>) {
         self.pause_buttons_faces = faces;
     }
@@ -5056,6 +5165,12 @@ impl App {
             Action::GbaDown(Btn::Down) => {
                 self.pause_menu = Some(if index >= last { 0 } else { index + 1 })
             }
+            Action::GbaDown(Btn::Left) if PauseChoice::ALL[index] == PauseChoice::Picture => {
+                self.cycle_game_aspect(false);
+            }
+            Action::GbaDown(Btn::Right) if PauseChoice::ALL[index] == PauseChoice::Picture => {
+                self.cycle_game_aspect(true);
+            }
             Action::GbaDown(Btn::B) | Action::QuickMenu => self.pause_menu = None,
             // The second tap of a double-tap: the switcher, as from the game.
             Action::Polaroids => {
@@ -5070,6 +5185,7 @@ impl App {
                     self.save_state();
                 }
                 PauseChoice::LoadState => self.leave_paused(Self::open_polaroids),
+                PauseChoice::Picture => self.cycle_game_aspect(true),
                 PauseChoice::Reset => {
                     self.pause_menu = None;
                     if let Some(snapshot) = &self.snapshot {

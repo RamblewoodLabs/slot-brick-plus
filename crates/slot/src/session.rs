@@ -493,7 +493,7 @@ impl Session {
         self.app.set_core(core);
         self.app.set_platform(platform);
         self.app
-            .set_video_mode(crate::video_mode::video_mode_for_platform(
+            .set_video_mode(crate::video_mode::effective(
                 &self.root, stem, platform,
             ));
         self.app.set_link_loaded(serial);

@@ -105,15 +105,15 @@ fn the_rows_run_in_the_order_the_user_chose() {
     assert_eq!(QuickRow::ONLINE.map(QuickRow::label), ["Wi-Fi", "Cart Art", "RetroAchievements", "Update"]);
     #[cfg(feature = "brick")]
     assert_eq!(QuickRow::CLOCK.map(QuickRow::label), ["Date & Time", "Auto Clock"]);
-    assert_eq!(QuickRow::SCREEN.map(QuickRow::label), ["Game Boy / GBC", "Game Boy Advance", "NES", "SNES", "PlayStation"]);
+    assert_eq!(QuickRow::SCREEN.map(QuickRow::label), ["Game Boy / GBC", "Game Boy Advance", "NES", "SNES", "PlayStation", "Aspect"]);
     assert_eq!(
         QuickRow::SCREEN_GB.map(QuickRow::label),
-        ["Shader", "Color Correction", "GB Palettes", "GB Overlay", "GBC Overlay"]
+        ["Shader", "Color Correction", "GB Palettes", "GB Overlay", "GBC Overlay", "Aspect"]
     );
-    assert_eq!(QuickRow::SCREEN_GBA.map(QuickRow::label), ["Shader", "Color Correction", "Overlay"]);
-    assert_eq!(QuickRow::SCREEN_NES.map(QuickRow::label), ["Shader", "Overlay"]);
-    assert_eq!(QuickRow::SCREEN_SNES.map(QuickRow::label), ["Shader", "Overlay"]);
-    assert_eq!(QuickRow::SCREEN_PS1.map(QuickRow::label), ["Shader", "Dithering", "Overlay"]);
+    assert_eq!(QuickRow::SCREEN_GBA.map(QuickRow::label), ["Shader", "Color Correction", "Overlay", "Aspect"]);
+    assert_eq!(QuickRow::SCREEN_NES.map(QuickRow::label), ["Shader", "Overlay", "Aspect"]);
+    assert_eq!(QuickRow::SCREEN_SNES.map(QuickRow::label), ["Shader", "Overlay", "Aspect"]);
+    assert_eq!(QuickRow::SCREEN_PS1.map(QuickRow::label), ["Shader", "Dithering", "Overlay", "Aspect"]);
     // Each Overlay row picks the overlay for its own system.
     use slot_store::Platform;
     let systems: Vec<_> = QuickRow::ALL.into_iter().filter_map(QuickRow::overlay_of).collect();
@@ -169,7 +169,8 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex", "Stock", "Low", "Medium", "High", "White", "Blue", "Green", "Amber", "Red", "Purple", "Steady", "Breathe", "Unavailable",
-            "1 min", "5 min", "10 min", "3%", "5%", "10%", "A–Z", "Last Played", "Most Played", "All Games", "Favorites", "Minutes", "Hours", "Sure?", "Done"
+            "1 min", "5 min", "10 min", "3%", "5%", "10%", "A–Z", "Last Played", "Most Played", "All Games", "Favorites", "Minutes", "Hours", "Sure?", "Done",
+            "Native", "4:3", "Full", "Integer", "Default"
         ]
     );
     assert_eq!(
