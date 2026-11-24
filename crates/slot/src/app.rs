@@ -3204,10 +3204,10 @@ impl App {
             .unwrap_or((crate::videos::FRAME_W, crate::videos::FRAME_H))
     }
 
-    pub fn take_video_pcm(&self) -> Vec<i16> {
+    pub fn take_video_pcm(&self, max_samples: usize) -> Vec<i16> {
         self.videos
             .as_ref()
-            .map(|menu| menu.take_pcm())
+            .map(|menu| menu.take_pcm(max_samples))
             .unwrap_or_default()
     }
 

@@ -80,9 +80,14 @@ pub fn enqueue(
     if !youtube::valid_id(id) {
         return Err("That video cannot be saved".into());
     }
+    forget_finished(root);
     let mut rows = jobs(root);
     if rows.iter().any(|job| job.id == id) {
         return Err("Already in the queue".into());
+    }
+    if saved_file(root, id) {
+        videos::log_line(root, &format!("already on the card {id}, not queued"));
+        return Err("Already saved".into());
     }
     rows.push(Job {
         id: id.to_string(),
@@ -174,6 +179,7 @@ fn daemon(root: &Path) -> Result<(), String> {
     let _lock = claim_downloader("video-queue", "--video-queue")?;
     be_quiet();
     videos::log_line(root, "downloader running");
+    forget_finished(root);
     loop {
         let Some(job) = jobs(root).into_iter().next() else {
             let _ = fs::remove_file(root.join(PROGRESS));
@@ -382,12 +388,18 @@ fn fetch(root: &Path, job: &Job) -> Result<(), String> {
                         "invidious instance dropped the TLS connection; resuming",
                     );
                 }
-                if kind == "denied"
-                    || kind == "closed"
-                    || kind == "stall"
-                    || kind == "slow"
-                    || tries % 2 == 0
-                {
+                if restart_partial(have, kind, tries) {
+                    if have > 0 {
+                        videos::log_line(
+                            root,
+                            &format!(
+                                "partial {} {have} bytes will not resume on a new source; starting over",
+                                job.id
+                            ),
+                        );
+                        let _ = fs::remove_file(&part);
+                        expected = None;
+                    }
                     source += 1;
                     match next_audible(&job.id, &mut source) {
                         Ok(fresh) => {
@@ -474,6 +486,60 @@ fn itag_of(url: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or("-")
         .to_string()
+}
+
+/// A stalled transfer keeps its Range on the same file. A new source is a different
+/// file, so a partial is only abandoned when we actually change source.
+pub(crate) fn restart_partial(have: u64, kind: &str, tries: u32) -> bool {
+    if kind == "denied" {
+        return true;
+    }
+    if !matches!(kind, "closed" | "stall" | "slow") {
+        return tries % 2 == 0;
+    }
+    have == 0 || tries.is_multiple_of(3)
+}
+
+fn saved_file(root: &Path, id: &str) -> bool {
+    fs::metadata(videos::video_path(root, id))
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
+/// A finished file must not sit in the queue. A crash between saving and clearing the
+/// queue used to bring the same video back days later.
+pub fn forget_finished(root: &Path) {
+    let rows = jobs(root);
+    if rows.is_empty() {
+        return;
+    }
+    let saved = videos::read_index(root);
+    let mut keep = Vec::new();
+    let mut changed = false;
+    for job in rows {
+        let path = videos::video_path(root, &job.id);
+        let len = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if len == 0 {
+            keep.push(job);
+            continue;
+        }
+        if !saved.iter().any(|row| row.id == job.id) && record_saved(root, &job, len).is_err() {
+            keep.push(job);
+            continue;
+        }
+        changed = true;
+        let _ = fs::remove_file(part_path(root, &job.id));
+        videos::log_line(
+            root,
+            &format!(
+                "already on the card {} {len} bytes, not downloading again",
+                job.id
+            ),
+        );
+    }
+    if changed {
+        let _ = write_jobs(root, &keep);
+    }
 }
 
 /// A 416 is the end of the file only when the bytes already saved cover the announced size.
@@ -673,8 +739,27 @@ fn mux(root: &Path, video: &Path, audio: &Path, dest: &Path) -> Result<(), Strin
 
 fn finish(root: &Path, job: &Job, part: &Path) -> Result<(), String> {
     let dest = videos::video_path(root, &job.id);
+    if let Ok(file) = OpenOptions::new().write(true).open(part) {
+        let _ = file.sync_all();
+    }
     fs::rename(part, &dest).map_err(|e| e.to_string())?;
     let bytes = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+    if bytes == 0 {
+        return Err("saved file was empty".into());
+    }
+    record_saved(root, job, bytes)?;
+    let _ = fs::remove_file(root.join(PROGRESS));
+    #[cfg(not(test))]
+    let _ = videos::fetch_thumbnail(root, &job.id);
+    let mut rows = jobs(root);
+    rows.retain(|row| row.id != job.id);
+    write_jobs(root, &rows).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(root.join(ERROR_FILE));
+    videos::log_line(root, &format!("saved {} {bytes} bytes, checked", job.id));
+    Ok(())
+}
+
+fn record_saved(root: &Path, job: &Job, bytes: u64) -> Result<(), String> {
     let mut library = videos::read_index(root);
     library.retain(|row| row.id != job.id);
     library.push(Saved {
@@ -686,16 +771,7 @@ fn finish(root: &Path, job: &Job, part: &Path) -> Result<(), String> {
         position_ms: 0,
         watched: false,
     });
-    videos::write_index(root, &library).map_err(|e| e.to_string())?;
-    let _ = fs::remove_file(root.join(PROGRESS));
-    #[cfg(not(test))]
-    let _ = videos::fetch_thumbnail(root, &job.id);
-    let mut rows = jobs(root);
-    rows.retain(|row| row.id != job.id);
-    write_jobs(root, &rows).map_err(|e| e.to_string())?;
-    let _ = fs::remove_file(root.join(ERROR_FILE));
-    videos::log_line(root, &format!("saved {} {bytes} bytes", job.id));
-    Ok(())
+    videos::write_index(root, &library).map_err(|e| e.to_string())
 }
 
 fn index_saved(root: &Path, job: &Job, dest: &Path) -> Result<(), String> {
@@ -1321,5 +1397,33 @@ mod tests {
         assert_eq!(take_relay(root.path(), &job).unwrap(), false);
         let log = fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
         assert!(log.contains("source direct video ccccccccccc"), "{log}");
+    }
+
+    #[test]
+    fn a_file_already_on_the_card_is_not_queued_again() {
+        let root = tempfile::tempdir().unwrap();
+        let path = videos::video_path(root.path(), "abcdefghijk");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"finished-video").unwrap();
+        let err = enqueue(root.path(), "abcdefghijk", "One", "Chan", 1000).unwrap_err();
+        assert_eq!(err, "Already saved");
+        assert!(jobs(root.path()).is_empty());
+        enqueue(root.path(), "bbbbbbbbbbb", "Two", "Chan", 2000).unwrap();
+        fs::write(videos::video_path(root.path(), "bbbbbbbbbbb"), b"also").unwrap();
+        forget_finished(root.path());
+        assert!(jobs(root.path()).is_empty());
+        let saved = videos::read_index(root.path());
+        assert!(saved.iter().any(|row| row.id == "bbbbbbbbbbb"));
+        let log = fs::read_to_string(root.path().join("Logs/videos.log")).unwrap();
+        assert!(log.contains("already on the card"), "{log}");
+    }
+
+    #[test]
+    fn a_stall_keeps_the_partial_until_the_source_actually_changes() {
+        assert!(!restart_partial(50_000, "stall", 1));
+        assert!(!restart_partial(50_000, "closed", 2));
+        assert!(restart_partial(50_000, "stall", 3));
+        assert!(restart_partial(50_000, "denied", 1));
+        assert!(restart_partial(0, "stall", 1));
     }
 }

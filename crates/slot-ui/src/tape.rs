@@ -1,4 +1,4 @@
-//! A saved video on the Videos shelf: a tape, with the picture as its label.
+//! A saved video on the Videos shelf: a short strip of film, picture in the gate.
 use std::path::Path;
 
 use crate::art;
@@ -9,50 +9,56 @@ pub const TAPE_H: u32 = 176;
 /// Where the selected tape sits on the shelf, so the title card can clear its foot.
 pub const TAPE_Y: f32 = 148.0;
 
-const BODY: [u8; 3] = [0x2c, 0x26, 0x22];
-const EDGE: [u8; 3] = [0x14, 0x11, 0x10];
-const WINDOW: [u8; 3] = [0x18, 0x1c, 0x24];
-const REEL: [u8; 3] = [0x1a, 0x17, 0x16];
-const HUB: [u8; 3] = [0xc4, 0xb8, 0xa4];
-const SPINE: [u8; 3] = [0x8c, 0x2e, 0x2a];
+const BASE: [u8; 3] = [0x16, 0x16, 0x18];
+const SHEEN: [u8; 3] = [0x2a, 0x2a, 0x30];
+const HOLE: [u8; 3] = [0x08, 0x08, 0x0a];
+const FRAME: [u8; 3] = [0x3a, 0x38, 0x36];
+const GATE: [u8; 3] = [0x0c, 0x0c, 0x0e];
 
-const WIN_X: u32 = 22;
-const WIN_Y: u32 = 16;
-const WIN_W: u32 = 256;
-const WIN_H: u32 = 104;
+const BAND: u32 = 22;
+const HOLE_W: u32 = 10;
+const HOLE_H: u32 = 8;
+const HOLE_PITCH: u32 = 16;
+const GATE_X: u32 = 28;
+const GATE_Y: u32 = 18;
+const GATE_W: u32 = 244;
+const GATE_H: u32 = 140;
 
 pub fn tape_foot() -> f32 {
     TAPE_Y + TAPE_H as f32
 }
 
-/// The tape drawn for one saved video. `thumb` is a PNG; the picture fills the label window.
+/// The film strip for one saved video. `thumb` is a PNG drawn inside the gate.
 pub fn tape_face(thumb: Option<&Path>) -> UndoFace {
     let mut rgba = vec![0u8; (TAPE_W * TAPE_H * 4) as usize];
     for y in 0..TAPE_H {
         for x in 0..TAPE_W {
-            if !inside(x, y) {
-                continue;
-            }
-            put(&mut rgba, x, y, BODY);
+            let sheen = x > TAPE_W / 2 - 8 && x < TAPE_W / 2 + 8;
+            put(&mut rgba, x, y, if sheen { SHEEN } else { BASE });
         }
     }
-    for y in 8..TAPE_H - 8 {
-        put(&mut rgba, 8, y, SPINE);
-        put(&mut rgba, 9, y, SPINE);
-    }
-    for y in WIN_Y..WIN_Y + WIN_H {
-        for x in WIN_X..WIN_X + WIN_W {
-            put(&mut rgba, x, y, WINDOW);
+    sprockets(&mut rgba, 6);
+    sprockets(&mut rgba, TAPE_W - BAND + 6);
+    for y in GATE_Y..GATE_Y + GATE_H {
+        for x in GATE_X..GATE_X + GATE_W {
+            if rounded(x, y) {
+                put(&mut rgba, x, y, GATE);
+            }
         }
     }
     if let Some(path) = thumb {
-        if let Some(pic) = art::cover(path, WIN_W - 4, WIN_H - 4) {
-            blit(&mut rgba, WIN_X + 2, WIN_Y + 2, WIN_W - 4, WIN_H - 4, &pic);
+        if let Some(pic) = art::cover(path, GATE_W - 8, GATE_H - 8) {
+            blit_rounded(
+                &mut rgba,
+                GATE_X + 4,
+                GATE_Y + 4,
+                GATE_W - 8,
+                GATE_H - 8,
+                &pic,
+            );
         }
     }
-    frame(&mut rgba, WIN_X - 2, WIN_Y - 2, WIN_W + 4, WIN_H + 4);
-    reel(&mut rgba, 78, 148, 16);
-    reel(&mut rgba, 222, 148, 16);
+    border(&mut rgba);
     UndoFace {
         rgba,
         w: TAPE_W,
@@ -60,10 +66,22 @@ pub fn tape_face(thumb: Option<&Path>) -> UndoFace {
     }
 }
 
-fn inside(x: u32, y: u32) -> bool {
-    let r = 12i32;
-    let (x, y) = (x as i32, y as i32);
-    let (w, h) = (TAPE_W as i32, TAPE_H as i32);
+fn sprockets(rgba: &mut [u8], x0: u32) {
+    let mut y = 8u32;
+    while y + HOLE_H < TAPE_H - 4 {
+        for yy in y..y + HOLE_H {
+            for xx in x0..x0 + HOLE_W {
+                put(rgba, xx, yy, HOLE);
+            }
+        }
+        y += HOLE_PITCH;
+    }
+}
+
+fn rounded(x: u32, y: u32) -> bool {
+    let r = 6i32;
+    let (x, y) = (x as i32 - GATE_X as i32, y as i32 - GATE_Y as i32);
+    let (w, h) = (GATE_W as i32, GATE_H as i32);
     let cx = if x < r {
         r
     } else if x >= w - r {
@@ -82,7 +100,29 @@ fn inside(x: u32, y: u32) -> bool {
     dx * dx + dy * dy <= r * r
 }
 
+fn border(rgba: &mut [u8]) {
+    for x in GATE_X..GATE_X + GATE_W {
+        if rounded(x, GATE_Y) {
+            put(rgba, x, GATE_Y, FRAME);
+        }
+        if rounded(x, GATE_Y + GATE_H - 1) {
+            put(rgba, x, GATE_Y + GATE_H - 1, FRAME);
+        }
+    }
+    for y in GATE_Y..GATE_Y + GATE_H {
+        if rounded(GATE_X, y) {
+            put(rgba, GATE_X, y, FRAME);
+        }
+        if rounded(GATE_X + GATE_W - 1, y) {
+            put(rgba, GATE_X + GATE_W - 1, y, FRAME);
+        }
+    }
+}
+
 fn put(rgba: &mut [u8], x: u32, y: u32, rgb: [u8; 3]) {
+    if x >= TAPE_W || y >= TAPE_H {
+        return;
+    }
     let i = ((y * TAPE_W + x) * 4) as usize;
     rgba[i] = rgb[0];
     rgba[i + 1] = rgb[1];
@@ -90,14 +130,11 @@ fn put(rgba: &mut [u8], x: u32, y: u32, rgb: [u8; 3]) {
     rgba[i + 3] = 255;
 }
 
-fn blit(dst: &mut [u8], x: u32, y: u32, w: u32, h: u32, src: &[u8]) {
+fn blit_rounded(dst: &mut [u8], x: u32, y: u32, w: u32, h: u32, src: &[u8]) {
     for yy in 0..h {
-        if y + yy >= TAPE_H {
-            break;
-        }
         for xx in 0..w {
-            if x + xx >= TAPE_W {
-                break;
+            if !rounded(x + xx, y + yy) {
+                continue;
             }
             let s = ((yy * w + xx) * 4) as usize;
             if s + 3 >= src.len() || src[s + 3] == 0 {
@@ -108,31 +145,6 @@ fn blit(dst: &mut [u8], x: u32, y: u32, w: u32, h: u32, src: &[u8]) {
                 continue;
             }
             dst[i..i + 4].copy_from_slice(&src[s..s + 4]);
-        }
-    }
-}
-
-fn frame(rgba: &mut [u8], x: u32, y: u32, w: u32, h: u32) {
-    for xx in x..x + w {
-        put(rgba, xx, y, EDGE);
-        put(rgba, xx, y + h - 1, EDGE);
-    }
-    for yy in y..y + h {
-        put(rgba, x, yy, EDGE);
-        put(rgba, x + w - 1, yy, EDGE);
-    }
-}
-
-fn reel(rgba: &mut [u8], cx: i32, cy: i32, r: i32) {
-    for y in cy - r..=cy + r {
-        for x in cx - r..=cx + r {
-            let (dx, dy) = (x - cx, y - cy);
-            let d = dx * dx + dy * dy;
-            if d > r * r || x < 0 || y < 0 {
-                continue;
-            }
-            let rgb = if d <= 5 * 5 { HUB } else { REEL };
-            put(rgba, x as u32, y as u32, rgb);
         }
     }
 }
