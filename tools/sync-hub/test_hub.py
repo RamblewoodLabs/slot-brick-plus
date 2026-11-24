@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
+import json
 import os
 import shutil
 import tempfile
@@ -39,6 +40,23 @@ class DecideTests(unittest.TestCase):
         self.assertFalse(hub.path_ok("Config/Achievements/login.json"))
         self.assertFalse(hub.path_ok("Saves/GBA/Emerald.sav.bak"))
         self.assertFalse(hub.path_ok("States/GBA/mgba/Emerald/notes.txt"))
+
+
+class StatusTests(unittest.TestCase):
+    def test_the_newest_save_names_the_game_and_config_does_not(self):
+        rows = hub.last_syncs(
+            {
+                "Saves/GBA/Emerald.sav": {"device": "slot-a", "mtime": 10},
+                "States/GBA/mgba/Emerald/resume.state": {"device": "slot-a", "mtime": 20},
+                "Config/continue.txt": {"device": "slot-a", "mtime": 99},
+                "Saves/GB/Zelda.sav": {"device": "slot-b", "mtime": 5},
+            }
+        )
+        by_device = {row["device"]: row for row in rows}
+        self.assertEqual(by_device["slot-a"]["game"], "Emerald")
+        self.assertEqual(by_device["slot-a"]["mtime"], 20)
+        self.assertEqual(by_device["slot-b"]["game"], "Zelda")
+        self.assertIsNone(hub.game_of("Config/continue.txt"))
 
 
 class ServerTests(unittest.TestCase):
@@ -108,6 +126,37 @@ class ServerTests(unittest.TestCase):
         stored = os.path.join(self.tmp, "index.json")
         with open(stored, "rb") as f:
             self.assertIn(b'"version": 1', f.read())
+
+    def test_status_needs_no_token_and_names_the_newest_game(self):
+        self.httpd.store.put(
+            "Saves/GBA/Emerald.sav",
+            b"one",
+            1000,
+            "slot-brick",
+        )
+        self.httpd.store.put(
+            "States/GBA/mgba/Emerald/resume.state",
+            b"state",
+            5000,
+            "slot-brick",
+        )
+        self.httpd.store.put(
+            "Saves/GB/Zelda.sav",
+            b"two",
+            3000,
+            "slot-sp",
+        )
+        status, body, _ = self.request("GET", "/status", token="")
+        self.assertEqual(status, 200)
+        text = body.decode()
+        self.assertNotIn("secret-token", text)
+        self.assertNotIn("sha256", text)
+        payload = json.loads(text)
+        self.assertEqual(payload["port"], self.port)
+        by_device = {row["device"]: row for row in payload["devices"]}
+        self.assertEqual(by_device["slot-brick"]["game"], "Emerald")
+        self.assertEqual(by_device["slot-brick"]["mtime"], 5000)
+        self.assertEqual(by_device["slot-sp"]["game"], "Zelda")
 
     def test_bad_token_and_bad_path_are_refused(self):
         status, body, _ = self.request("GET", "/v1/index", token="nope")

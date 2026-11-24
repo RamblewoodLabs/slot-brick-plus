@@ -33,10 +33,22 @@ sed -e "s|__PYTHON__|$python|g" \
     -e "s|__HUB__|$here/hub.py|g" \
     -e "s|__ROOT__|$root|g" \
     "$here/com.slot.sync.plist" > "$plist"
+app="$HOME/Applications/Slot Sync.app"
+bin="$app/Contents/MacOS/SlotSyncMenu"
+mkdir -p "$app/Contents/MacOS"
+swiftc -O -framework AppKit -framework Foundation \
+    "$here/menubar/main.swift" -o "$bin"
+cp "$here/menubar/Info.plist" "$app/Contents/Info.plist"
+menu_plist="$agents/com.slot.sync.menubar.plist"
+sed -e "s|__BIN__|$bin|g" "$here/menubar/com.slot.sync.menubar.plist" > "$menu_plist"
 launchctl bootout "gui/$uid/com.slot.sync" 2>/dev/null || true
 launchctl bootstrap "gui/$uid" "$plist"
 launchctl enable "gui/$uid/com.slot.sync"
 launchctl kickstart -k "gui/$uid/com.slot.sync"
+launchctl bootout "gui/$uid/com.slot.sync.menubar" 2>/dev/null || true
+launchctl bootstrap "gui/$uid" "$menu_plist"
+launchctl enable "gui/$uid/com.slot.sync.menubar"
+launchctl kickstart -k "gui/$uid/com.slot.sync.menubar"
 echo "Hub files: $root"
 echo "On each handheld, Slot/Config/sync.txt (leave device blank):"
 echo "host=${name}.local"

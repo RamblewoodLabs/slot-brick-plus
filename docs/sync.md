@@ -129,3 +129,19 @@ HTTP API is only how a handheld reaches the same bytes.
 
 `config.json` in that folder holds the token, port, and bind address. It is not inside
 `files/`, and it is not copied to a card.
+
+## Menu bar
+
+`install.sh` also builds a small menu-bar app with `swiftc` and puts it at
+`~/Applications/Slot Sync.app`. LaunchAgent `com.slot.sync.menubar` opens it at
+login. The icon is a monochrome sync arrow: filled while the hub is running, dimmed
+and slashed when it is off. It does not show in the Dock (`LSUIElement`).
+
+The menu says whether the hub is on, the port (8791), and the Mac's `.local` name.
+Under that, each handheld's device id, the game it last synced, and the time. Turn On
+and Turn Off use `launchctl` on `com.slot.sync` only. Open Sync Folder opens the store.
+Quit closes the menu bar app and leaves the hub running.
+
+The app never opens `config.json` and never sends or logs the token. While the hub is
+up it reads `http://127.0.0.1:8791/status`, which needs no token and does not return
+one. If the hub is off, it reads `index.json` in the store, which also has no token.

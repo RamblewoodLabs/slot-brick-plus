@@ -131,6 +131,11 @@ class Store:
                 for path, meta in sorted(self.entries.items())
             ]
 
+    def last_syncs(self):
+        """Newest file per device. No checksums and no token."""
+        with self.lock:
+            return last_syncs(self.entries)
+
     def tsv(self):
         lines = []
         for row in self.index_rows():
@@ -206,9 +211,22 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("slotsync: %s %s\n" % (self.command, path))
 
     def do_GET(self):
+        parsed = urlparse(self.path)
+        # The menu bar reads this with no token. The body must not carry the token.
+        if parsed.path == "/status":
+            host = socket.gethostname().split(".")[0] + ".local"
+            body = json.dumps(
+                {
+                    "port": self.server.server_address[1],
+                    "host": host,
+                    "devices": self.server.store.last_syncs(),
+                },
+                sort_keys=True,
+            ).encode()
+            self._send(200, body, "application/json")
+            return
         if not self._auth():
             return
-        parsed = urlparse(self.path)
         if parsed.path == "/v1/index":
             body = self.server.store.tsv()
             self._send(200, body, "text/plain")
@@ -287,6 +305,31 @@ class Handler(BaseHTTPRequestHandler):
 
 def _device(text):
     return 0 < len(text) <= 32 and all(ch.isalnum() or ch == "-" for ch in text)
+
+
+def game_of(rel):
+    """System and game stem from a synced path. Config files are not a game."""
+    parts = rel.split("/")
+    if len(parts) == 3 and parts[0] == "Saves":
+        return parts[1], parts[2].rsplit(".", 1)[0]
+    if len(parts) == 5 and parts[0] == "States":
+        return parts[1], parts[3]
+    return None
+
+
+def last_syncs(entries):
+    best = {}
+    for path, meta in entries.items():
+        named = game_of(path)
+        if named is None:
+            continue
+        system, game = named
+        device = str(meta.get("device") or "")
+        mtime = int(meta.get("mtime") or 0)
+        prev = best.get(device)
+        if prev is None or mtime >= prev["mtime"]:
+            best[device] = {"device": device, "system": system, "game": game, "mtime": mtime}
+    return [best[key] for key in sorted(best)]
 
 
 def serve(root, token, port, bind):

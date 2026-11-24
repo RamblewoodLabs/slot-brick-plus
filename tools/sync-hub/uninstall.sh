@@ -6,8 +6,10 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 uid=$(id -u)
-plist="$HOME/Library/LaunchAgents/com.slot.sync.plist"
+launchctl bootout "gui/$uid/com.slot.sync.menubar" 2>/dev/null || true
 launchctl bootout "gui/$uid/com.slot.sync" 2>/dev/null || true
-rm -f "$plist"
-echo "Stopped com.slot.sync."
+rm -f "$HOME/Library/LaunchAgents/com.slot.sync.menubar.plist"
+rm -f "$HOME/Library/LaunchAgents/com.slot.sync.plist"
+rm -rf "$HOME/Applications/Slot Sync.app"
+echo "Stopped com.slot.sync and removed the menu bar app."
 echo "Saves are still in ~/Library/Application Support/SlotSync"
