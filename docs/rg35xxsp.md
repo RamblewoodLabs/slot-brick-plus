@@ -128,7 +128,7 @@ bash rg35xxsp/copy-from-brick.sh /Volumes/BRICK /Volumes/SLOT
 
 The first path is the Brick card (the volume that contains `Slot/`, or the `Slot` folder itself). The second is the TF2 volume. Files land in `TF2/Slot/`.
 
-It copies `Games`, `BIOS`, `Saves`, `States`, `Labels`, `Fonts`, `Wallpapers` and `Config`. A file that is already on TF2 is skipped. Nothing is deleted. File times are kept, so the copy does not look newer than the file it came from. `Config/sync.txt` and `Config/continue.txt` are left behind.
+It copies `Games`, `BIOS`, `Saves`, `States`, `Labels`, `Fonts`, `Wallpapers` and `Config`. A file that is already on TF2 is skipped. Nothing is deleted. File times are kept, so the copy does not look newer than the file it came from.
 
 It does not copy:
 
@@ -150,7 +150,7 @@ sh rg35xxsp/docker-build.sh
 
 The result is `dist-rg35xxsp/`. Copy its contents to the TF2 root, as above.
 
-The script refuses to start when `docker` is missing or Docker is not running, and it says which of those it is. It does not install Docker and it does not need Rust on the Mac. The container is `brick/Dockerfile`: Linaro gcc 7.5, glibc 2.25, Rust 1.96, target `aarch64-unknown-linux-gnu`, profile `device`, feature `rg35xxsp`.
+The script refuses to start when `docker` is missing or Docker is not running, and it says which of those it is. It does not install Docker and it does not need Rust on the Mac. The container is `rg35xxsp/Dockerfile`: `amd64/debian:bookworm-slim`, forced to `linux/amd64`, because the TrimUI toolchain is an x86-64 binary. On an Apple-silicon Mac that runs under emulation. Linaro gcc 7.5, glibc 2.25, Rust 1.96, target `aarch64-unknown-linux-gnu`, profile `device`, feature `rg35xxsp`.
 
 ```sh
 sh rg35xxsp/docker-build.sh --cores

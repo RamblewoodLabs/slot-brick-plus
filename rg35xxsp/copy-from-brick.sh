@@ -15,7 +15,6 @@
 #   Logs/
 #   Apps/, trimui/, .slot-boot/   Brick firmware files, if the source is a card root
 #   Config/brick_leds.ini, Config/brick_video_mode*.ini, and any file named brick_*
-#   Config/sync.txt and Config/continue.txt (save sync is not in this Slot)
 #
 # sh rg35xxsp/copy-from-brick.sh --self-test
 #   checks the skip and no-delete rules in a temporary directory.
@@ -34,8 +33,6 @@ self_test() {
     echo sav > "$brick/Slot/Saves/GB/Zelda.sav"
     echo state > "$brick/Slot/States/GB/Zelda.state"
     echo wifi=home > "$brick/Slot/Config/wifi.txt"
-    echo host=home > "$brick/Slot/Config/sync.txt"
-    echo go > "$brick/Slot/Config/continue.txt"
     echo leds > "$brick/Slot/Config/brick_leds.ini"
     echo mode > "$brick/Slot/Config/brick_video_mode_v3.ini"
     echo bin > "$brick/Slot/System/slot"
@@ -53,8 +50,6 @@ self_test() {
     [ "$(cat "$tf2/Slot/Saves/GB/Zelda.sav")" = sav ]
     [ "$(cat "$tf2/Slot/States/GB/Zelda.state")" = state ]
     [ "$(cat "$tf2/Slot/Config/wifi.txt")" = "wifi=home" ]
-    [ ! -e "$tf2/Slot/Config/sync.txt" ]
-    [ ! -e "$tf2/Slot/Config/continue.txt" ]
     [ ! -e "$tf2/Slot/Config/brick_leds.ini" ]
     [ ! -e "$tf2/Slot/Config/brick_video_mode_v3.ini" ]
     [ "$(cat "$tf2/Slot/System/slot")" = sp-binary ]
@@ -103,7 +98,7 @@ for top in Games BIOS Saves States Labels Fonts Wallpapers Config; do
         rel=${src#"$SRC/"}
         base=$(basename "$rel")
         case "$base" in
-            brick_*|brick_leds.ini|sync.txt|continue.txt) continue ;;
+            brick_*|brick_leds.ini) continue ;;
         esac
         case "$rel" in
             Config/brick_video_mode*) continue ;;

@@ -6,6 +6,10 @@
 # one the Brick build uses (Linaro gcc 7.5, glibc 2.25), so the binary and the
 # cores match the Brick card and save states load on both.
 #
+# The TrimUI toolchain is an x86-64 binary. On an Apple-silicon Mac the build
+# is forced to linux/amd64 (the same platform Brick builds use via
+# DOCKER_DEFAULT_PLATFORM=linux/amd64) and the base image is amd64/debian.
+#
 # Docker is not available in the cloud agent that wrote this script. The script
 # only talks to a local Docker. If `docker info` fails, it stops and says why.
 #
@@ -32,17 +36,19 @@ if [ "${1:-}" = --cores ]; then
     shift
 fi
 OUT="${1:-dist-rg35xxsp}"
-IMAGE=slot-brick-build
+IMAGE=slot-sp-build
+# Apple silicon otherwise builds an arm64 image, and the x86-64 toolchain will not run.
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
 
-# Context is brick/ so the Dockerfile can see nothing but itself. The toolchain
-# URL and checksum live in that file, shared with the Brick card build.
-docker build -t "$IMAGE" -f brick/Dockerfile brick
+# Context is rg35xxsp/ so the Dockerfile can see nothing but itself. The
+# toolchain URL and checksum match brick/Dockerfile.
+docker build --platform linux/amd64 -t "$IMAGE" -f rg35xxsp/Dockerfile rg35xxsp
 mkdir -p .docker-cache/cargo
 rm -rf "$OUT"
 # Host user, so the card is not owned by root. Cargo's download cache stays
 # in .docker-cache between runs. HOME is inside the container: the Mac's
-# home directory is not mounted.
-docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src \
+# home directory is not mounted. --platform keeps the run on amd64 too.
+docker run --platform linux/amd64 --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src \
     -e HOME=/tmp -e CARGO_HOME=/src/.docker-cache/cargo -e CORES="$CORES" -e OUT="$OUT" \
     "$IMAGE" sh -euc '
         [ "$CORES" = 0 ] || sh brick/build-cores.sh
