@@ -1,7 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
-- System → Continue: with Config/sync.txt on the card, saves, the resume point, and last-played copy to a computer at home and onto your other handheld. The row says whether that computer was reached. It stays off until the file is there.
+- System → Continue is gone. Saves, the resume point, and last-played stay on this handheld.
 - L1 and R1 no longer change the picture while a game is running. On NES, Game Boy and Game Boy Color they do nothing. Emulation → Aspect, and the same row on each system's page, chooses Native, 4:3, Full or Integer. A system can follow that, or use its own. The pause menu has Aspect too, and the choice is remembered.
 - Videos and Music are gone. HOME no longer lists them, and Slot no longer downloads or plays them.
 - HOME no longer lists Companion, and Pip does not suggest a game or show a mission. The companion itself is still in Slot, switched off.

@@ -477,8 +477,6 @@ pub struct App {
     library_saved_at: Millis,
     companion: slot_store::Companion,
     pip: Option<crate::pip::PipMenu>,
-    /// System → Continue. "Off" until Config/sync.txt is on the card.
-    sync_status: String,
     /// Play time being counted: the last tick seen while playing, and what is not a second yet.
     play_tick: Option<Millis>,
     play_ms: Millis,
@@ -668,7 +666,6 @@ impl App {
             library_saved_at: 0,
             companion: slot_store::Companion::default(),
             pip: None,
-            sync_status: "Off".into(),
             play_tick: None,
             play_ms: 0,
             played: slot_ui::Printed::default(),
@@ -790,11 +787,6 @@ impl App {
         app.companion = slot_store::Companion::read(root);
         crate::boot_times::mark("  state and library read");
         app.arrange();
-        slot_ui::QuickRow::set_continue_sync(crate::sync::configured(root));
-        app.sync_status = crate::sync::status_line();
-        if slot_ui::QuickRow::continue_sync() {
-            crate::sync::kick(root.to_path_buf());
-        }
         // At startup, each shelf starts at the top of its order.
         for (_, shelf) in &mut app.shelves {
             shelf.select(0);
@@ -1552,8 +1544,7 @@ impl App {
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
-            | QuickRow::SoundVolume
-            | QuickRow::Continue => None,
+            | QuickRow::SoundVolume => None,
             QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
             QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
             QuickRow::AspectGba => Some(self.aspect_system_value(Platform::Gba)),
@@ -1920,11 +1911,10 @@ impl App {
         match Platform::ALL.get(at) {
             Some(platform) => self.overlay_text(*platform),
             None if at == Platform::ALL.len() => &self.font,
-            None if at == QuickRow::NAMED - 2 => {
+            None if at == QuickRow::NAMED - 1 => {
                 PERCENTS[((self.state.sound_volume / slot_store::SOUND_VOLUME_STEP) as usize)
                     .min(PERCENTS.len() - 1)]
             }
-            None if at == QuickRow::NAMED - 1 => self.sync_status.as_str(),
             None => self
                 .about
                 .get(at - Platform::ALL.len() - 1)
@@ -2930,7 +2920,6 @@ impl App {
             | QuickRow::LedSticks
             | QuickRow::LedColor
             | QuickRow::LedEffect
-            | QuickRow::Continue
             | QuickRow::Aspect
             | QuickRow::AspectGb
             | QuickRow::AspectGba
@@ -3201,7 +3190,6 @@ impl App {
             | QuickRow::AboutCard
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
-            | QuickRow::Continue
             | QuickRow::Aspect
             | QuickRow::AspectGb
             | QuickRow::AspectGba
@@ -3642,14 +3630,6 @@ impl App {
 
     fn timers(&mut self) {
         let now = self.now();
-        self.sync_status = crate::sync::status_line();
-        if matches!(self.phase, Phase::Shelf) && self.cart_menu.is_none() && self.core_picker.is_none() {
-            if let Some(game) = crate::sync::take_continue() {
-                if self.focus_game(game.platform, &game.stem) {
-                    self.name_pending = true;
-                }
-            }
-        }
         if self
             .banner
             .as_ref()
@@ -3720,9 +3700,6 @@ impl App {
             // Just connected: a good moment to set the clock.
             if self.net_up && !was_up {
                 self.clock_sync_at = 0;
-                if let Some(root) = &self.root {
-                    crate::sync::kick(root.clone());
-                }
             }
             if self.net_up {
                 if let Some(root) = &self.root {
@@ -4978,8 +4955,6 @@ impl App {
                 self.state.cart = None;
                 self.state.cart_platform = None;
                 self.card_failing.store(false, Ordering::Relaxed);
-                crate::sync::write_continue(root, self.platform, self.core, stem);
-                crate::sync::kick(root.clone());
             }
             Err(e) => {
                 eprintln!("slot: eject: {e}");
@@ -4989,10 +4964,6 @@ impl App {
     }
 
     fn doze(&mut self) {
-        let stem = self.seated().map(str::to_string);
-        if let (Some(root), Some(stem)) = (self.root.clone(), stem) {
-            crate::sync::write_continue(&root, self.platform, self.core, &stem);
-        }
         #[cfg(feature = "brick")]
         {
             self.wifi = None;
@@ -6528,12 +6499,6 @@ impl App {
             return false;
         };
         self.now().saturating_sub(self.dozed_at) >= power.timeout().as_millis() as Millis
-    }
-
-    pub fn sync_after_settle(&self) {
-        if let Some(root) = self.root.clone() {
-            crate::sync::kick(root);
-        }
     }
 
     pub fn settle_saves(&mut self) {
