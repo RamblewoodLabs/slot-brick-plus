@@ -198,6 +198,12 @@ impl Trace {
 }
 
 impl DeviceInput {
+    /// Forget the last lid reading so the next poll reports the lid as it is now.
+    pub fn resync_lid(&mut self) {
+        self.lid_shut = None;
+        self.next_lid_poll = 0;
+    }
+
     fn read_lid(&self) -> Option<bool> {
         let raw = std::fs::read_to_string(self.hall.as_ref()?).ok()?;
         match raw.trim() {

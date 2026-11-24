@@ -15,11 +15,12 @@ mkdir -p "$OUT/System" "$OUT/Slot/System"
 cp rg35xxsp/card/System/launch_frontend.sh "$OUT/System/"
 cp rg35xxsp/card/Slot/System/launch.sh "$OUT/Slot/System/"
 cp rg35xxsp/card/README.txt "$OUT/README.txt"
-# Wi-Fi and suspend are the Brick helpers. They talk to wpa_supplicant, udhcpc
-# and /sys/power/state, which BaseOS has. They do not call TrimUI binaries
-# when those binaries are absent.
+# Wi-Fi is the Brick helper: it talks to wpa_supplicant and udhcpc, which
+# BaseOS has, and it does not call TrimUI binaries when those are absent.
+# Sleep is the SP script. The Brick one uses Super Standby, which will not
+# wake when the lid opens.
 cp brick/card/Slot/System/brick_wifi.sh "$OUT/Slot/System/"
-cp brick/card/Slot/System/sleep.sh "$OUT/Slot/System/"
+cp rg35xxsp/card/Slot/System/sleep.sh "$OUT/Slot/System/"
 cp brick/card/Slot/System/cart-art-games.txt "$OUT/Slot/System/"
 for f in brick/card/Slot/System/*-labels.txt brick/card/Slot/System/*-cart-labels.txt; do
     if [ -f "$f" ]; then

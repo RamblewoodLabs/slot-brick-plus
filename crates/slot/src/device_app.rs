@@ -108,6 +108,9 @@ fn run_sleep_script(
 ) -> (std::io::Result<std::process::ExitStatus>, bool) {
     use slot_input::{Btn, RawEvent};
     const SUSPENDING: &str = "/tmp/slot-suspending";
+    /// The SP sleep script waits on this during screen-off standby.
+    #[cfg(feature = "rg35xxsp")]
+    const WAKE_FILE: &str = "/tmp/slot-wake";
     let _ = std::fs::remove_file(SUSPENDING);
     let mut child = match std::process::Command::new("/bin/sh")
         .arg(root.join("System/sleep.sh"))
@@ -127,12 +130,16 @@ fn run_sleep_script(
             Err(e) => return (Err(e), pressed),
         }
         if !pressed
-            && input
-                .poll(frontend.now())
-                .into_iter()
-                .any(|e| matches!(e, RawEvent::Down(Btn::Power)))
+            && input.poll(frontend.now()).into_iter().any(|e| {
+                matches!(e, RawEvent::Down(Btn::Power))
+                    || (cfg!(feature = "rg35xxsp") && slot::rg35xxsp::wakes_sleep(e))
+            })
         {
             pressed = true;
+            #[cfg(feature = "rg35xxsp")]
+            {
+                let _ = std::fs::write(WAKE_FILE, "wake\n");
+            }
             if !std::path::Path::new(SUSPENDING).exists() {
                 eprintln!("slot: sleep: Power pressed while preparing; cancelling the suspend");
                 unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
@@ -324,6 +331,11 @@ pub fn run() {
                     sleep_attempted = true;
                     if frontend.prepare_sleep() {
                         slot::brick_link::quiesce();
+                        #[cfg(feature = "rg35xxsp")]
+                        {
+                            let _ = std::fs::remove_file("/tmp/slot-wake");
+                            frontend.release_speaker();
+                        }
                         let suspended_before = slot::brick_power::suspended_seconds();
                         #[cfg(not(feature = "sim"))]
                         let (result, cancelled) = run_sleep_script(&root, &mut input, &frontend);
@@ -335,6 +347,32 @@ pub fn run() {
                             .map(|(a, b)| (a - b).max(0.0));
                         let confirmed = suspended.is_some_and(|v| v > 0.05);
                         cpu.mode(slot::brick_power::Mode::Boost, frontend.audio_underruns());
+                        #[cfg(feature = "rg35xxsp")]
+                        {
+                            slot::panel::unblank();
+                            if let Err(e) = surface.make_current() {
+                                eprintln!("slot: Mali context did not resume ({e}); opening it again");
+                                match FbdevSurface::new() {
+                                    Ok(next) => {
+                                        surface = next;
+                                        match Compositor::new(&surface) {
+                                            Ok(next) => {
+                                                compositor = next;
+                                                frontend.upload_shelf_faces(&mut compositor);
+                                                frontend.upload_bezel(
+                                                    &mut compositor,
+                                                    surface.window_size(),
+                                                );
+                                                frontend.upload_menu_faces(&mut compositor);
+                                            }
+                                            Err(err) => eprintln!("slot: display: {err}"),
+                                        }
+                                    }
+                                    Err(err) => eprintln!("slot: display: {err}"),
+                                }
+                            }
+                            input.resync_lid();
+                        }
                         let woke = match &result {
                             Ok(status) if status.success() || confirmed || cancelled => {
                                 frontend.resume_sleep(&mut input);

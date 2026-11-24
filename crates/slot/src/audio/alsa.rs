@@ -214,6 +214,9 @@ impl Playback {
         let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
         let mut silence = Silence::new(RELEASE_AFTER);
         while !stop.load(Ordering::Relaxed) {
+            if ring.take_release() {
+                self.release();
+            }
             ring.fill(&mut buf);
             let hold = silence.hear(&buf, span);
             match (self.pcm, hold) {

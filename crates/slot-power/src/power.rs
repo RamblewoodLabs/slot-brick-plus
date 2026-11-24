@@ -69,6 +69,15 @@ impl Power {
     pub fn set_clock(&mut self, secs: i64) {
         self.platform.set_clock(secs);
     }
+
+    /// A panel that was never given a level stays dark after the lid opens.
+    pub fn ensure_lit(&mut self) {
+        if self.level == 0 {
+            self.level = 6;
+        }
+        self.closed = false;
+        self.platform.set_backlight(self.level);
+    }
 }
 
 impl LidPolicy for Power {

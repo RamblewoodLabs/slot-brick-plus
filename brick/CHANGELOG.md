@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- Closing the lid on the RG35XX SP sleeps, in a game or on the shelf. Opening the lid, or pressing Power, comes back to the same place. If the deep sleep cannot be woken by the lid, the screen goes dark and the game stays paused until the lid opens or Power is pressed.
 - The Anbernic RG35XX SP can run this same Slot. TF1 is BaseOS, TF2 holds a `Slot` folder with the same Games, BIOS, Saves, States and Config as the Brick, and the screen is the Brick's layout at the SP's own 640×480. How to flash the cards is in `docs/rg35xxsp.md`.
 - System → Continue is gone. Saves, the resume point, and last-played stay on this handheld.
 - L1 and R1 no longer change the picture while a game is running. On NES, Game Boy and Game Boy Color they do nothing. Emulation → Aspect, and the same row on each system's page, chooses Native, 4:3, Full or Integer. A system can follow that, or use its own. The pause menu has Aspect too, and the choice is remembered.

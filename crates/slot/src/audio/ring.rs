@@ -38,6 +38,8 @@ pub struct Ring {
     underruns: AtomicU64,
     consuming: AtomicBool,
     priming: AtomicBool,
+    /// Ask the playback thread to close the device so the next sound opens it again.
+    release_pcm: AtomicBool,
 }
 
 impl Ring {
@@ -66,7 +68,17 @@ impl Ring {
             underruns: AtomicU64::new(0),
             consuming: AtomicBool::new(true),
             priming: AtomicBool::new(false),
+            release_pcm: AtomicBool::new(false),
         }
+    }
+
+    /// Close the speaker device. The playback thread opens it again on the next sound.
+    pub fn request_release(&self) {
+        self.release_pcm.store(true, Ordering::Relaxed);
+    }
+
+    pub fn take_release(&self) -> bool {
+        self.release_pcm.swap(false, Ordering::Relaxed)
     }
 
     pub fn reopen(&self, sample_rate: u32) {

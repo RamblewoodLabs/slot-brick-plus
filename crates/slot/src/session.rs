@@ -177,6 +177,12 @@ impl Session {
         self.sync_pad();
     }
 
+    /// Drop the ALSA device before suspend so a dead handle cannot kill the thread.
+    #[cfg(feature = "rg35xxsp")]
+    pub fn release_speaker(&self) {
+        self.sink.ring().request_release();
+    }
+
     #[cfg(feature = "brick")]
     pub fn reset_sleep_input(&mut self) {
         self.gestures = Gestures::brick();

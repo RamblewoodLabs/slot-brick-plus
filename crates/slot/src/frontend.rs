@@ -965,6 +965,11 @@ impl Frontend {
         self.session.observed_speed().is_none_or(|s| s == crate::emu::Speed::Paused)
     }
 
+    #[cfg(feature = "rg35xxsp")]
+    pub fn release_speaker(&self) {
+        self.session.release_speaker();
+    }
+
     #[cfg(feature = "brick")]
     pub fn resume_sleep(&mut self, input: &mut dyn InputSource) {
         let _ = input.poll(self.now()); // discard the kernel's queued wake key

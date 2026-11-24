@@ -17,6 +17,12 @@ pub const CARD_ROOT: &str = "/mnt/sdcard/Slot";
 /// BaseOS also symlinks this name at the same mount, for older frontends.
 pub const CARD_ALIAS: &str = "/mnt/SDCARD/Slot";
 
+/// A press that should end an SP sleep: Power, or the lid coming open.
+pub fn wakes_sleep(ev: slot_input::RawEvent) -> bool {
+    use slot_input::{Btn, RawEvent};
+    matches!(ev, RawEvent::Down(Btn::Power) | RawEvent::Up(Btn::Lid))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -27,6 +33,15 @@ mod tests {
         assert_eq!(PANEL_H * 8 / 5, 768);
         assert_eq!((PANEL_W * 8) % 5, 0);
         assert_eq!((PANEL_H * 8) % 5, 0);
+    }
+
+    #[test]
+    fn power_and_an_opening_lid_end_sleep() {
+        use slot_input::{Btn, RawEvent};
+        assert!(super::wakes_sleep(RawEvent::Down(Btn::Power)));
+        assert!(super::wakes_sleep(RawEvent::Up(Btn::Lid)));
+        assert!(!super::wakes_sleep(RawEvent::Down(Btn::Lid)));
+        assert!(!super::wakes_sleep(RawEvent::Up(Btn::A)));
     }
 
     #[test]

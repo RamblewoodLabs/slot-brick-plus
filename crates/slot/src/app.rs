@@ -5040,6 +5040,8 @@ impl App {
         }
         if let Some(power) = &mut self.power {
             power.on_open();
+            #[cfg(feature = "rg35xxsp")]
+            power.ensure_lit();
         }
     }
 

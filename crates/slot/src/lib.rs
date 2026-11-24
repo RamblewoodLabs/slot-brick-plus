@@ -32,6 +32,7 @@ pub mod menu_status;
 pub mod net;
 pub mod offline_ra;
 pub mod overlay;
+pub mod panel;
 pub mod persist;
 pub mod pip;
 mod pip_art;

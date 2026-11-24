@@ -114,7 +114,7 @@ Eject TF2, insert it, and turn the SP on. Slot should open. If BaseOS still says
 
 Wi-Fi is HOME → Online → Wi-Fi, the same menu as the Brick. The helper is `Slot/System/brick_wifi.sh`. On BaseOS it uses `wpa_supplicant` and `udhcpc`. Saved networks go to `Slot/Config/wpa_supplicant.conf`.
 
-Closing the lid asks the kernel for suspend-to-RAM, the same `Slot/System/sleep.sh` the Brick uses. Opening the lid wakes it. Holding Power opens the menu: shut down, or restart. There is no stock launcher to exit to, and there is no Brick light-bar menu.
+Closing the lid sleeps, on the shelf and in a game. `Slot/System/sleep.sh` is the SP script, not the Brick one. BaseOS 1.4.0 writes `16` to `axp2202-battery/os_sleep` at boot (Super Standby). That mode wakes on Power and leaves the hall sensor out, so opening the lid used to come back to a black screen. The script clears that for the sleep, arms the hall, lid, and Power wakeup files, and asks for `mem` only when one of those was armed. Each cycle is written to `Slot/Logs/sleep.log` (`mode=mem` or `mode=standby`). If deep sleep cannot be woken by the lid, the screen stays dark, the game stays paused, and opening the lid or pressing Power continues. Holding Power opens the menu: shut down, or restart. There is no stock launcher to exit to, and there is no Brick light-bar menu.
 
 HOME → Online has Wi-Fi, cart art and RetroAchievements. It does not have Update. That row on the Brick downloads the Brick binary, which will not run this hardware. To replace Slot, copy a new `Slot/System/slot` (and the `.so` cores, if those changed) onto TF2 with the SP off.
 
