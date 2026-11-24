@@ -195,7 +195,10 @@ fn no_trace_file_is_written_unless_one_was_asked_for() {
 }
 
 #[test]
-#[cfg_attr(feature = "brick", ignore = "the Brick reads its pad through SDL and leaves evdev polling alone")]
+#[cfg_attr(
+    feature = "brick",
+    ignore = "the Brick reads its pad through SDL and leaves evdev polling alone"
+)]
 fn the_pad_is_polled_as_fast_as_the_kernel_tick_allows() {
     let d = input_tree();
     let sys = d.path().join("sys/class/input");
@@ -251,6 +254,14 @@ fn the_pad_maps_by_the_codes_the_device_sends() {
         (115, Btn::VolUp),
         (114, Btn::VolDown),
         (116, Btn::Power),
+        (0x220, Btn::Up),
+        (0x221, Btn::Down),
+        (0x222, Btn::Left),
+        (0x223, Btn::Right),
+        (103, Btn::Up),
+        (108, Btn::Down),
+        (105, Btn::Left),
+        (106, Btn::Right),
     ];
     for (code, want) in expected {
         assert_eq!(

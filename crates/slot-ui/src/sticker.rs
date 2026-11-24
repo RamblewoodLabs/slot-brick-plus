@@ -40,8 +40,16 @@ pub const CREDITS: [&str; 11] = [
     "AN UNOFFICIAL PORT OF SLOT,",
     "THE GB/GBC/GBA FRONTEND BY",
     "BRANDON T. KOWALSKI FOR THE",
-    "ANBERNIC RG SP, TO THE STOCK",
-    "TRIMUI BRICK OS. PORT BY",
+    if cfg!(feature = "rg35xxsp") {
+        "ANBERNIC RG SP, ONTO THE"
+    } else {
+        "ANBERNIC RG SP, TO THE STOCK"
+    },
+    if cfg!(feature = "rg35xxsp") {
+        "RG35XX SP. PORT BY"
+    } else {
+        "TRIMUI BRICK OS. PORT BY"
+    },
     "LORDNORDYX: SCREEN, KEYS,",
     "WI-FI LINK, SLEEP, LEDS, LOGO.",
     "EMULATION BY MGBA AND GPSP.",
@@ -53,16 +61,35 @@ pub const CREDITS: [&str; 11] = [
 pub const ORIGIN: [&str; 2] = ["S/LOT-BRICK", "PORT OF SLOT"];
 
 /// Shown large where the original showed its handheld's wordmark.
-pub const TITLE: &str = "TRIMUI BRICK PORT";
+pub const TITLE: &str = if cfg!(feature = "rg35xxsp") {
+    "RG35XX SP PORT"
+} else {
+    "TRIMUI BRICK PORT"
+};
 
 pub const COPYRIGHT: &str = "SLOT \u{a9} 2026 BRANDON T. KOWALSKI";
 
-pub const HOME: &str = "BRICK PORT BY LORDNORDYX";
+pub const HOME: &str = if cfg!(feature = "rg35xxsp") {
+    "SP PORT BY LORDNORDYX"
+} else {
+    "BRICK PORT BY LORDNORDYX"
+};
 
 pub fn head_rows(f: &StickerFields) -> [String; 3] {
     [
-        "DEVICE : TRIMUI BRICK".into(),
-        format!("PORT : SLOT BRICK {PORT_VERSION}"),
+        if cfg!(feature = "rg35xxsp") {
+            "DEVICE : RG35XX SP".into()
+        } else {
+            "DEVICE : TRIMUI BRICK".into()
+        },
+        format!(
+            "PORT : SLOT {} {PORT_VERSION}",
+            if cfg!(feature = "rg35xxsp") {
+                "SP"
+            } else {
+                "BRICK"
+            }
+        ),
         match f.battery {
             Some(p) => format!("BATTERY : LI-ION ({p}%)"),
             None => "BATTERY : LI-ION".to_string(),

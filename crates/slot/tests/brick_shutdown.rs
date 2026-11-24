@@ -16,7 +16,10 @@ fn holding_power_opens_menu_and_release_does_not_confirm() {
 }
 #[test]
 fn menu_routes_exit_and_shutdown_separately() {
+    #[cfg(not(feature = "rg35xxsp"))]
     assert_eq!(PowerChoice::Restart.text(), "EXIT TO STOCK OS");
+    #[cfg(feature = "rg35xxsp")]
+    assert_eq!(PowerChoice::Restart.text(), "Restart");
     assert_eq!(PowerChoice::PowerOff.text(), "SHUT DOWN DEVICE");
     let mut app = App::new(Vec::new());
     app.apply(Action::PowerHold);

@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 brick = ["device"]
+rg35xxsp = ["brick"]
 default = ["host"]
 host = ["dep:glutin", "dep:glutin-winit", "dep:winit", "dep:raw-window-handle"]
 device = []

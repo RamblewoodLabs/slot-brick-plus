@@ -4,8 +4,11 @@ use libloading::Library;
 
 use crate::surface::{GfxError, Surface};
 
-const FALLBACK_PANEL: (u32, u32) = if cfg!(feature = "brick") {
+const FALLBACK_PANEL: (u32, u32) = if cfg!(all(feature = "brick", not(feature = "rg35xxsp"))) {
     (1024, 768)
+} else if cfg!(feature = "rg35xxsp") {
+    // The SP panel is the layout size. sysfs still wins when it answers.
+    (640, 480)
 } else {
     (720, 480)
 };
@@ -199,7 +202,8 @@ impl FbdevSurface {
             });
             // TrimUI's PowerVR EGL uses a null native window (official GE8300 SDL backend).
             // Never pass a Mali window struct into the PowerVR driver.
-            let native = if cfg!(feature = "brick") {
+            // The RG35XX SP is Mali fbdev: the window is width and height, as upstream Slot does.
+            let native = if cfg!(all(feature = "brick", not(feature = "rg35xxsp"))) {
                 std::ptr::null_mut()
             } else {
                 &mut *window as *mut FbdevWindow as Ptr
@@ -283,7 +287,13 @@ impl FbdevSurface {
             {
                 return Err(egl.fail("eglChooseConfig (pbuffer)"));
             }
-            let pbuffer_attrs = [EGL_WIDTH, size.0 as i32, EGL_HEIGHT, size.1 as i32, EGL_NONE];
+            let pbuffer_attrs = [
+                EGL_WIDTH,
+                size.0 as i32,
+                EGL_HEIGHT,
+                size.1 as i32,
+                EGL_NONE,
+            ];
             let surface = (egl.create_pbuffer_surface)(display, config, pbuffer_attrs.as_ptr());
             if surface.is_null() {
                 return Err(egl.fail("eglCreatePbufferSurface"));

@@ -3,20 +3,27 @@ use std::time::{Duration, Instant};
 
 use slot::boot_times::mark as boot_time;
 use slot::frontend::Frontend;
-#[cfg(all(feature = "brick", not(feature = "sim")))]
+#[cfg(all(feature = "brick", not(feature = "sim"), not(feature = "rg35xxsp")))]
 use slot::input::BrickInput;
-#[cfg(not(feature = "brick"))]
+#[cfg(any(not(feature = "brick"), feature = "rg35xxsp"))]
 use slot::input::DeviceInput;
 #[cfg(feature = "sim")]
 use slot::input::SimInput as BrickInput;
 use slot_gfx::{Compositor, FbdevSurface, Surface};
 use slot_power::trace_first_frame;
-#[cfg(feature = "brick")]
+#[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
 use slot_power::BrickPlatform;
-#[cfg(not(feature = "brick"))]
+#[cfg(any(not(feature = "brick"), feature = "rg35xxsp"))]
 use slot_power::DevicePlatform;
 
-const CARD: &str = "/mnt/sdcard";
+#[cfg(all(feature = "rg35xxsp", feature = "sim"))]
+compile_error!("the RG35XX SP target is a device build, not the Brick simulator");
+
+const CARD: &str = if cfg!(feature = "rg35xxsp") {
+    slot::rg35xxsp::CARD_ROOT
+} else {
+    "/mnt/sdcard"
+};
 
 const MIN_FRAME: Duration = Duration::from_millis(12);
 
@@ -96,10 +103,10 @@ fn wait_for_gpu() {
 #[cfg(all(feature = "brick", not(feature = "sim")))]
 fn run_sleep_script(
     root: &std::path::Path,
-    input: &mut BrickInput,
+    input: &mut dyn slot_input::InputSource,
     frontend: &Frontend,
 ) -> (std::io::Result<std::process::ExitStatus>, bool) {
-    use slot_input::{Btn, InputSource, RawEvent};
+    use slot_input::{Btn, RawEvent};
     const SUSPENDING: &str = "/tmp/slot-suspending";
     let _ = std::fs::remove_file(SUSPENDING);
     let mut child = match std::process::Command::new("/bin/sh")
@@ -185,7 +192,7 @@ pub fn run() {
     }
     // Knowing the model means reading all of the stock MainUI (several MB): on a
     // thread of its own, while the screen and sound open. The first to ask waits for it.
-    #[cfg(feature = "brick")]
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
     let _ = std::thread::Builder::new()
         .name("slot-model".into())
         .spawn(slot_power::model);
@@ -227,14 +234,14 @@ pub fn run() {
         }
     };
     boot_time("screen ready");
-    #[cfg(not(feature = "brick"))]
+    #[cfg(any(not(feature = "brick"), feature = "rg35xxsp"))]
     let platform = DevicePlatform::new(root.clone());
-    #[cfg(not(feature = "brick"))]
+    #[cfg(any(not(feature = "brick"), feature = "rg35xxsp"))]
     {
         eprintln!("slot: {}", platform.report());
         platform.trace_boot();
     }
-    #[cfg(feature = "brick")]
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
     let platform = BrickPlatform::new(root.clone());
     #[cfg(feature = "brick")]
     slot::brick_wifi::repair_at_boot();
@@ -243,11 +250,14 @@ pub fn run() {
     frontend.upload_shelf_faces(&mut compositor);
     frontend.upload_bezel(&mut compositor, surface.window_size());
     boot_time("faces drawn");
-    #[cfg(not(feature = "brick"))]
+    #[cfg(any(
+        not(feature = "brick"),
+        all(feature = "rg35xxsp", not(feature = "sim"))
+    ))]
     let mut input = DeviceInput::open(&root);
     #[cfg(feature = "sim")]
     let mut input = BrickInput::new(sim.clone());
-    #[cfg(all(feature = "brick", not(feature = "sim")))]
+    #[cfg(all(feature = "brick", not(feature = "sim"), not(feature = "rg35xxsp")))]
     let mut input = match BrickInput::open(&root) {
         Ok(i) => i,
         Err(e) => {
@@ -281,7 +291,7 @@ pub fn run() {
         }
         let began = Instant::now();
         frontend.advance(&mut input);
-        #[cfg(feature = "brick")]
+        #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
         if input.exit_requested() {
             cpu.restore();
             frontend.exit_to_launcher();

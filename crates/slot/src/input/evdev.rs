@@ -85,6 +85,13 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
         0x138 => Btn::Menu,
         0x13a => Btn::L2,
         0x13b => Btn::R2,
+        // D-pad. BaseOS Slot's own map uses a hat; H700 kernels also send
+        // BTN_DPAD_* (0x220) or KEY_UP/DOWN/LEFT/RIGHT. Accepting all three
+        // keeps the RG35XX SP moving if its driver picks any one of them.
+        0x220 | 103 => Btn::Up,
+        0x221 | 108 => Btn::Down,
+        0x222 | 105 => Btn::Left,
+        0x223 | 106 => Btn::Right,
         115 => Btn::VolUp,
         114 => Btn::VolDown,
         116 => Btn::Power,
@@ -92,9 +99,9 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
     })
 }
 
-const WANTED: [u16; 15] = [
-    0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136, 0x137, 0x138, 0x13a, 0x13b, 0x162, 115, 114,
-    116,
+const WANTED: [u16; 23] = [
+    0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136, 0x137, 0x138, 0x13a, 0x13b, 0x162, 0x220,
+    0x221, 0x222, 0x223, 103, 108, 105, 106, 115, 114, 116,
 ];
 
 pub use slot_power::has_bit;

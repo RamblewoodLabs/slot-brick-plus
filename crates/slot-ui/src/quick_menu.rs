@@ -256,7 +256,7 @@ impl QuickRow {
     }
     /// System: the Brick's lights, its clock, the font, rumble, Slot's sounds, the battery,
     /// asking GitHub for a newer Slot, every setting back to how it came, and what Slot is.
-    #[cfg(feature = "brick")]
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
     pub const SYSTEM: [QuickRow; 9] = [
         QuickRow::Lights,
         QuickRow::Clock,
@@ -265,6 +265,17 @@ impl QuickRow {
         QuickRow::SystemSounds,
         QuickRow::BatteryShutdown,
         QuickRow::UpdateCheck,
+        QuickRow::ResetSettings,
+        QuickRow::About,
+    ];
+    /// The SP has no Brick light bar, and Online → Update would install the Brick binary.
+    #[cfg(feature = "rg35xxsp")]
+    pub const SYSTEM: [QuickRow; 7] = [
+        QuickRow::Clock,
+        QuickRow::Font,
+        QuickRow::Rumble,
+        QuickRow::SystemSounds,
+        QuickRow::BatteryShutdown,
         QuickRow::ResetSettings,
         QuickRow::About,
     ];
@@ -280,12 +291,16 @@ impl QuickRow {
     /// Clock: setting it by hand, and from the internet.
     pub const CLOCK: [QuickRow; 2] = [QuickRow::DateTime, QuickRow::AutoClock];
     /// Online: what needs Wi-Fi, and Wi-Fi itself.
+    /// The SP build leaves Update off: that row installs the Brick's `slot` binary.
+    #[cfg(not(feature = "rg35xxsp"))]
     pub const ONLINE: [QuickRow; 4] = [
         QuickRow::Wifi,
         QuickRow::CartArt,
         QuickRow::Achievements,
         QuickRow::Update,
     ];
+    #[cfg(feature = "rg35xxsp")]
+    pub const ONLINE: [QuickRow; 3] = [QuickRow::Wifi, QuickRow::CartArt, QuickRow::Achievements];
     pub const LIGHTS: [QuickRow; 6] = [
         QuickRow::LedMode,
         QuickRow::LedTop,
@@ -476,14 +491,20 @@ impl QuickRow {
             | QuickRow::GbOverlay
             | QuickRow::GbcOverlay
             | QuickRow::AspectGb => &QuickRow::SCREEN_GB,
-            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaOverlay | QuickRow::AspectGba => {
-                &QuickRow::SCREEN_GBA
+            QuickRow::GbaShader
+            | QuickRow::GbaColourCorrection
+            | QuickRow::GbaOverlay
+            | QuickRow::AspectGba => &QuickRow::SCREEN_GBA,
+            QuickRow::NesShader | QuickRow::NesOverlay | QuickRow::AspectNes => {
+                &QuickRow::SCREEN_NES
             }
-            QuickRow::NesShader | QuickRow::NesOverlay | QuickRow::AspectNes => &QuickRow::SCREEN_NES,
-            QuickRow::SnesShader | QuickRow::SnesOverlay | QuickRow::AspectSnes => &QuickRow::SCREEN_SNES,
-            QuickRow::Ps1Shader | QuickRow::Ps1Dithering | QuickRow::Ps1Overlay | QuickRow::AspectPs1 => {
-                &QuickRow::SCREEN_PS1
+            QuickRow::SnesShader | QuickRow::SnesOverlay | QuickRow::AspectSnes => {
+                &QuickRow::SCREEN_SNES
             }
+            QuickRow::Ps1Shader
+            | QuickRow::Ps1Dithering
+            | QuickRow::Ps1Overlay
+            | QuickRow::AspectPs1 => &QuickRow::SCREEN_PS1,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind

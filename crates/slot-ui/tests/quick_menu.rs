@@ -78,15 +78,29 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 #[test]
 fn the_rows_run_in_the_order_the_user_chose() {
     #[cfg(not(feature = "brick"))]
-    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "System"]);
+    assert_eq!(
+        QuickRow::MAIN.map(QuickRow::label),
+        ["Emulation", "Gameplay", "Library", "System"]
+    );
     #[cfg(not(feature = "brick"))]
     assert_eq!(
         QuickRow::SYSTEM.map(QuickRow::label),
-        ["Date & Time", "Font", "Rumble", "System Sounds", "Low Battery Shutdown", "Reset Settings", "About"]
+        [
+            "Date & Time",
+            "Font",
+            "Rumble",
+            "System Sounds",
+            "Low Battery Shutdown",
+            "Reset Settings",
+            "About"
+        ]
     );
     #[cfg(feature = "brick")]
-    assert_eq!(QuickRow::MAIN.map(QuickRow::label), ["Emulation", "Gameplay", "Library", "Online", "System"]);
-    #[cfg(feature = "brick")]
+    assert_eq!(
+        QuickRow::MAIN.map(QuickRow::label),
+        ["Emulation", "Gameplay", "Library", "Online", "System"]
+    );
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
     assert_eq!(
         QuickRow::SYSTEM.map(QuickRow::label),
         [
@@ -101,28 +115,104 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "About"
         ]
     );
+    #[cfg(feature = "rg35xxsp")]
+    assert_eq!(
+        QuickRow::SYSTEM.map(QuickRow::label),
+        [
+            "Clock",
+            "Font",
+            "Rumble",
+            "System Sounds",
+            "Low Battery Shutdown",
+            "Reset Settings",
+            "About"
+        ]
+    );
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    assert_eq!(
+        QuickRow::ONLINE.map(QuickRow::label),
+        ["Wi-Fi", "Cart Art", "RetroAchievements", "Update"]
+    );
+    #[cfg(feature = "rg35xxsp")]
+    assert_eq!(
+        QuickRow::ONLINE.map(QuickRow::label),
+        ["Wi-Fi", "Cart Art", "RetroAchievements"]
+    );
     #[cfg(feature = "brick")]
-    assert_eq!(QuickRow::ONLINE.map(QuickRow::label), ["Wi-Fi", "Cart Art", "RetroAchievements", "Update"]);
-    #[cfg(feature = "brick")]
-    assert_eq!(QuickRow::CLOCK.map(QuickRow::label), ["Date & Time", "Auto Clock"]);
-    assert_eq!(QuickRow::SCREEN.map(QuickRow::label), ["Game Boy / GBC", "Game Boy Advance", "NES", "SNES", "PlayStation", "Aspect"]);
+    assert_eq!(
+        QuickRow::CLOCK.map(QuickRow::label),
+        ["Date & Time", "Auto Clock"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN.map(QuickRow::label),
+        [
+            "Game Boy / GBC",
+            "Game Boy Advance",
+            "NES",
+            "SNES",
+            "PlayStation",
+            "Aspect"
+        ]
+    );
     assert_eq!(
         QuickRow::SCREEN_GB.map(QuickRow::label),
-        ["Shader", "Color Correction", "GB Palettes", "GB Overlay", "GBC Overlay", "Aspect"]
+        [
+            "Shader",
+            "Color Correction",
+            "GB Palettes",
+            "GB Overlay",
+            "GBC Overlay",
+            "Aspect"
+        ]
     );
-    assert_eq!(QuickRow::SCREEN_GBA.map(QuickRow::label), ["Shader", "Color Correction", "Overlay", "Aspect"]);
-    assert_eq!(QuickRow::SCREEN_NES.map(QuickRow::label), ["Shader", "Overlay", "Aspect"]);
-    assert_eq!(QuickRow::SCREEN_SNES.map(QuickRow::label), ["Shader", "Overlay", "Aspect"]);
-    assert_eq!(QuickRow::SCREEN_PS1.map(QuickRow::label), ["Shader", "Dithering", "Overlay", "Aspect"]);
+    assert_eq!(
+        QuickRow::SCREEN_GBA.map(QuickRow::label),
+        ["Shader", "Color Correction", "Overlay", "Aspect"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN_NES.map(QuickRow::label),
+        ["Shader", "Overlay", "Aspect"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN_SNES.map(QuickRow::label),
+        ["Shader", "Overlay", "Aspect"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN_PS1.map(QuickRow::label),
+        ["Shader", "Dithering", "Overlay", "Aspect"]
+    );
     // Each Overlay row picks the overlay for its own system.
     use slot_store::Platform;
-    let systems: Vec<_> = QuickRow::ALL.into_iter().filter_map(QuickRow::overlay_of).collect();
-    assert_eq!(systems, [Platform::Gb, Platform::Gbc, Platform::Gba, Platform::Nes, Platform::Snes, Platform::Ps1]);
+    let systems: Vec<_> = QuickRow::ALL
+        .into_iter()
+        .filter_map(QuickRow::overlay_of)
+        .collect();
+    assert_eq!(
+        systems,
+        [
+            Platform::Gb,
+            Platform::Gbc,
+            Platform::Gba,
+            Platform::Nes,
+            Platform::Snes,
+            Platform::Ps1
+        ]
+    );
     assert_eq!(
         QuickRow::GAME.map(QuickRow::label),
-        ["Fast Forward", "Fast Forward Sound", "Rewind", "Turbo Buttons", "Swap A/B", "Saving"]
+        [
+            "Fast Forward",
+            "Fast Forward Sound",
+            "Rewind",
+            "Turbo Buttons",
+            "Swap A/B",
+            "Saving"
+        ]
     );
-    assert_eq!(QuickRow::SAVING.map(QuickRow::label), ["Auto Save", "Save on Eject"]);
+    assert_eq!(
+        QuickRow::SAVING.map(QuickRow::label),
+        ["Auto Save", "Save on Eject"]
+    );
     // A row with a page under it says A OPEN, not CHANGE.
     for row in QuickRow::ALL {
         if row.child().is_some() {
@@ -168,18 +258,59 @@ fn the_values_read_as_the_menu_prints_them() {
             "LCD3x",
             "Grid",
             "Dot",
-            "Simpletex", "Stock", "Low", "Medium", "High", "White", "Blue", "Green", "Amber", "Red", "Purple", "Steady", "Breathe", "Unavailable",
-            "1 min", "5 min", "10 min", "3%", "5%", "10%", "A–Z", "Last Played", "Most Played", "All Games", "Favorites", "Minutes", "Hours", "Sure?", "Done",
-            "Native", "4:3", "Full", "Integer", "Default"
+            "Simpletex",
+            "Stock",
+            "Low",
+            "Medium",
+            "High",
+            "White",
+            "Blue",
+            "Green",
+            "Amber",
+            "Red",
+            "Purple",
+            "Steady",
+            "Breathe",
+            "Unavailable",
+            "1 min",
+            "5 min",
+            "10 min",
+            "3%",
+            "5%",
+            "10%",
+            "A–Z",
+            "Last Played",
+            "Most Played",
+            "All Games",
+            "Favorites",
+            "Minutes",
+            "Hours",
+            "Sure?",
+            "Done",
+            "Native",
+            "4:3",
+            "Full",
+            "Integer",
+            "Default"
         ]
     );
     assert_eq!(
         slot_store::AUTOSAVE_MINS.map(QuickValue::minutes),
-        [Some(QuickValue::Off), Some(QuickValue::Min1), Some(QuickValue::Min5), Some(QuickValue::Min10)]
+        [
+            Some(QuickValue::Off),
+            Some(QuickValue::Min1),
+            Some(QuickValue::Min5),
+            Some(QuickValue::Min10)
+        ]
     );
     assert_eq!(
         slot_store::BATTERY_SHUTDOWNS.map(QuickValue::percent),
-        [Some(QuickValue::Off), Some(QuickValue::Percent3), Some(QuickValue::Percent5), Some(QuickValue::Percent10)]
+        [
+            Some(QuickValue::Off),
+            Some(QuickValue::Percent3),
+            Some(QuickValue::Percent5),
+            Some(QuickValue::Percent10)
+        ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);
     assert_eq!(QuickValue::flag(false), QuickValue::Off);
@@ -236,7 +367,10 @@ fn a_value_gets_the_room_beside_its_label_and_less_of_it_beside_the_carets() {
     use slot_ui::{quick_caret_face, quick_label_face, quick_value_room};
     let label = quick_label_face(QuickRow::GbaOverlay).w;
     let carets = (quick_caret_face(false).w, quick_caret_face(true).w);
-    let (dim, lit) = (quick_value_room(label, None), quick_value_room(label, Some(carets)));
+    let (dim, lit) = (
+        quick_value_room(label, None),
+        quick_value_room(label, Some(carets)),
+    );
     assert!(lit > 200 && dim > lit, "dim {dim}, lit {lit}");
     // A longer label leaves less room.
     assert!(quick_value_room(quick_label_face(QuickRow::GbcOverlay).w, None) < dim);

@@ -7,6 +7,9 @@ license.workspace = true
 
 [features]
 brick = ["device", "slot-gfx/brick", "slot-power/brick", "slot-ui/brick"]
+# Same software as the Brick (shelves, cores, achievements, sync) on the
+# RG35XX SP: Mali fbdev, the lid, and a 640x480 panel. See docs/rg35xxsp.md.
+rg35xxsp = ["brick", "slot-gfx/rg35xxsp", "slot-ui/rg35xxsp"]
 default = ["host"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
