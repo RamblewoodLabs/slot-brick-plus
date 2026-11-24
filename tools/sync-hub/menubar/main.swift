@@ -259,7 +259,7 @@ private func icon(running: Bool) -> NSImage {
 }
 
 let app = NSApplication.shared
-let delegate = SlotSyncMenu()
+private let delegate = SlotSyncMenu()
 app.setActivationPolicy(.accessory)
 app.delegate = delegate
 app.run()
