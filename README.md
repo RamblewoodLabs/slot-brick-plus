@@ -53,6 +53,7 @@ A port of [Slot.](https://github.com/BrandonKowalski/slot), originally developed
 | **Updates** | Update Slot from the menu over Wi-Fi: signed and checked, with your games, saves and settings left alone. |
 | **Library** | The selected game's name on a title card under its cart for a moment, play time beside the battery (minutes, or hours and minutes), favorites with a star, and shelves sorted A–Z, by last played or by most played, or showing only your favorites. Systems you don't play can be hidden (Library → Systems). |
 | **Companion** | Switched off. Not on the HOME menu, and it does not suggest a game or show a mission. |
+| **Continue** | With `Config/sync.txt` on the card, saves and the resume point copy to a computer at home, and your other handheld picks them up. System → Continue says whether that computer was reached. Off until the file is there. |
 | **Fonts** | HOME → System → Font: Slot's own font, GohuFont, or any `.ttf` / `.otf` you put in `Slot/Fonts`. |
 | **Auto clock** | The clock sets itself from an internet time server whenever Wi-Fi is on. |
 | **Wireless connectivity** | Wi-Fi, with its status shown beside the clock, and an experimental two-player link over Wi-Fi. |

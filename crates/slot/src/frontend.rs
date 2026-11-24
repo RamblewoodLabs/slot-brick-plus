@@ -962,6 +962,7 @@ impl Frontend {
     #[cfg(feature = "brick")]
     pub fn prepare_sleep(&mut self) -> bool {
         self.session.app_mut().settle_saves();
+        self.session.app().sync_after_settle();
         self.session.observed_speed().is_none_or(|s| s == crate::emu::Speed::Paused)
     }
 
