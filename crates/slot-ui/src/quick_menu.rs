@@ -94,8 +94,6 @@ pub enum QuickRow {
     SoundVolume,
     UpdateCheck,
     Companion,
-    /// System → Continue, once Config/sync.txt is on the card.
-    Continue,
     Aspect,
     AspectGb,
     AspectGba,
@@ -104,30 +102,11 @@ pub enum QuickRow {
     AspectPs1,
 }
 
-static CONTINUE_SYNC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    /// System → Continue. On only after boot finds Config/sync.txt.
-    pub fn set_continue_sync(on: bool) {
-        CONTINUE_SYNC.store(on, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn continue_sync() -> bool {
-        CONTINUE_SYNC.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn system_rows() -> &'static [QuickRow] {
-        if Self::continue_sync() {
-            &Self::SYSTEM_SYNC
-        } else {
-            &Self::SYSTEM
-        }
-    }
-
-    pub const ALL: [QuickRow; 86] = [
+    pub const ALL: [QuickRow; 85] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -207,7 +186,6 @@ impl QuickRow {
         QuickRow::SoundVolume,
         QuickRow::UpdateCheck,
         QuickRow::Companion,
-        QuickRow::Continue,
         QuickRow::Aspect,
         QuickRow::AspectGb,
         QuickRow::AspectGba,
@@ -240,17 +218,6 @@ impl QuickRow {
         QuickRow::BatteryShutdown,
         QuickRow::ResetSettings,
         QuickRow::About,
-    ];
-    #[cfg(not(feature = "brick"))]
-    const SYSTEM_SYNC: [QuickRow; 8] = [
-        QuickRow::DateTime,
-        QuickRow::Font,
-        QuickRow::Rumble,
-        QuickRow::SystemSounds,
-        QuickRow::BatteryShutdown,
-        QuickRow::ResetSettings,
-        QuickRow::About,
-        QuickRow::Continue,
     ];
 
     #[cfg(feature = "brick")]
@@ -300,19 +267,6 @@ impl QuickRow {
         QuickRow::UpdateCheck,
         QuickRow::ResetSettings,
         QuickRow::About,
-    ];
-    #[cfg(feature = "brick")]
-    const SYSTEM_SYNC: [QuickRow; 10] = [
-        QuickRow::Lights,
-        QuickRow::Clock,
-        QuickRow::Font,
-        QuickRow::Rumble,
-        QuickRow::SystemSounds,
-        QuickRow::BatteryShutdown,
-        QuickRow::UpdateCheck,
-        QuickRow::ResetSettings,
-        QuickRow::About,
-        QuickRow::Continue,
     ];
     /// System → System Sounds: how loud they all are, and each kind on or off.
     pub const SOUNDS: [QuickRow; 6] = [
@@ -447,13 +401,12 @@ impl QuickRow {
     /// Rows that read a name rather than a fixed value (an overlay's, the font's, About's, the
     /// sounds' volume), numbered: the overlay rows by their platform, then Font, then About's,
     /// then Volume.
-    pub const NAMED: usize = slot_store::Platform::ALL.len() + 1 + Self::ABOUT_INFO.len() + 2;
+    pub const NAMED: usize = slot_store::Platform::ALL.len() + 1 + Self::ABOUT_INFO.len() + 1;
     pub fn named(self) -> Option<usize> {
         let about = slot_store::Platform::ALL.len() + 1;
         match self {
             QuickRow::Font => Some(slot_store::Platform::ALL.len()),
-            QuickRow::SoundVolume => Some(Self::NAMED - 2),
-            QuickRow::Continue => Some(Self::NAMED - 1),
+            QuickRow::SoundVolume => Some(Self::NAMED - 1),
             row if row.info() => Self::ABOUT_INFO
                 .iter()
                 .position(|r| *r == row)
@@ -541,7 +494,7 @@ impl QuickRow {
             #[cfg(feature = "brick")]
             QuickRow::DateTime | QuickRow::AutoClock => &QuickRow::CLOCK,
             #[cfg(not(feature = "brick"))]
-            QuickRow::DateTime | QuickRow::AutoClock => QuickRow::system_rows(),
+            QuickRow::DateTime | QuickRow::AutoClock => &Self::SYSTEM,
             QuickRow::Lights
             | QuickRow::Clock
             | QuickRow::Font
@@ -549,10 +502,9 @@ impl QuickRow {
             | QuickRow::SystemSounds
             | QuickRow::BatteryShutdown
             | QuickRow::ResetSettings
-            | QuickRow::About
-            | QuickRow::Continue => QuickRow::system_rows(),
+            | QuickRow::About => &Self::SYSTEM,
             #[cfg(feature = "brick")]
-            QuickRow::UpdateCheck => QuickRow::system_rows(),
+            QuickRow::UpdateCheck => &Self::SYSTEM,
             QuickRow::ShowGba
             | QuickRow::ShowGb
             | QuickRow::ShowGbc
@@ -645,7 +597,6 @@ impl QuickRow {
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
             QuickRow::Companion => "Companion",
-            QuickRow::Continue => "Continue",
             QuickRow::Aspect
             | QuickRow::AspectGb
             | QuickRow::AspectGba
