@@ -13,8 +13,14 @@ pub const VIDEO_MODE_FILE: &str = if cfg!(feature = "brick") {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum VideoMode {
+    /// Square pixels, fitted inside the screen. Saved as `actual` or `native`.
     Actual,
+    /// The picture fills the screen. Saved as `stretch` or `full`.
     Stretch,
+    /// The picture is shown at 4:3. On this 4:3 screen that fills it, the same as Full.
+    FourThree,
+    /// The largest whole-number scale that fits, with bars around it.
+    Integer,
 }
 
 impl Default for VideoMode {
@@ -22,17 +28,48 @@ impl Default for VideoMode {
 }
 
 impl VideoMode {
+    pub const CHOICES: [VideoMode; 4] = [
+        VideoMode::Actual,
+        VideoMode::FourThree,
+        VideoMode::Stretch,
+        VideoMode::Integer,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             VideoMode::Actual => "actual",
             VideoMode::Stretch => "stretch",
+            VideoMode::FourThree => "4:3",
+            VideoMode::Integer => "integer",
         }
+    }
+
+    /// What the menus print.
+    pub fn label(self) -> &'static str {
+        match self {
+            VideoMode::Actual => "Native",
+            VideoMode::FourThree => "4:3",
+            VideoMode::Stretch => "Full",
+            VideoMode::Integer => "Integer",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::CHOICES.iter().position(|mode| *mode == self).unwrap_or(0)
+    }
+
+    pub fn step(self, right: bool) -> VideoMode {
+        let n = Self::CHOICES.len();
+        let at = self.index();
+        Self::CHOICES[if right { (at + 1) % n } else { (at + n - 1) % n }]
     }
 
     pub fn parse(s: &str) -> Option<VideoMode> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "actual" => Some(VideoMode::Actual),
-            "stretch" => Some(VideoMode::Stretch),
+            "actual" | "native" | "original" => Some(VideoMode::Actual),
+            "stretch" | "full" => Some(VideoMode::Stretch),
+            "4:3" | "43" | "fourthree" => Some(VideoMode::FourThree),
+            "integer" => Some(VideoMode::Integer),
             _ => None,
         }
     }
@@ -57,7 +94,81 @@ pub fn write_video_mode(root: &Path, stem: &str, mode: VideoMode) -> std::io::Re
     ini::write(root, VIDEO_MODE_FILE, stem, mode.as_str())
 }
 
+fn global_key() -> &'static str {
+    "default"
+}
+
+fn system_key(platform: Platform) -> String {
+    format!("system_{}", platform.dir_name())
+}
+
+/// The picture for this game: its own saved choice, else the system's, else the global one.
+pub fn effective(root: &Path, stem: &str, platform: Platform) -> VideoMode {
+    if let Some(mode) = ini::value(root, VIDEO_MODE_FILE, stem).as_deref().and_then(VideoMode::parse) {
+        return mode;
+    }
+    system_mode(root, platform).unwrap_or_else(|| global_mode(root))
+}
+
+pub fn global_mode(root: &Path) -> VideoMode {
+    ini::value(root, VIDEO_MODE_FILE, global_key())
+        .as_deref()
+        .and_then(VideoMode::parse)
+        .unwrap_or(VideoMode::Actual)
+}
+
+pub fn system_mode(root: &Path, platform: Platform) -> Option<VideoMode> {
+    ini::value(root, VIDEO_MODE_FILE, &system_key(platform))
+        .as_deref()
+        .and_then(VideoMode::parse)
+}
+
+pub fn write_global(root: &Path, mode: VideoMode) -> std::io::Result<()> {
+    ini::write(root, VIDEO_MODE_FILE, global_key(), mode.as_str())
+}
+
+pub fn write_system(root: &Path, platform: Platform, mode: Option<VideoMode>) -> std::io::Result<()> {
+    write_opt(root, &system_key(platform), mode.map(VideoMode::as_str))
+}
+
+pub fn clear_game(root: &Path, stem: &str) -> std::io::Result<()> {
+    write_opt(root, stem, None)
+}
+
+fn write_opt(root: &Path, key: &str, value: Option<&str>) -> std::io::Result<()> {
+    let path = root.join(VIDEO_MODE_FILE);
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
+    let out = ini::set(&existing, key, value)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    slot_store::atomic_write(&path, out.as_bytes())
+}
+
+/// Largest whole-number scale of the picture that fits the screen, centred.
+fn integer_rect(platform: Platform) -> [f32; 4] {
+    let (pw, ph) = platform.picture();
+    let (cw, ch) = platform.canvas();
+    let scale = (slot_gfx::OUT_W / pw).min(slot_gfx::OUT_H / ph).max(1);
+    let vw = slot_gfx::OUT_W as f32 / scale as f32;
+    let vh = slot_gfx::OUT_H as f32 / scale as f32;
+    let px = (cw - pw) as f32 / 2.0;
+    let py = (ch - ph) as f32 / 2.0;
+    let x = px + pw as f32 / 2.0 - vw / 2.0;
+    let y = py + ph as f32 / 2.0 - vh / 2.0;
+    [x / cw as f32, y / ch as f32, vw / cw as f32, vh / ch as f32]
+}
+
 pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {
+    if mode == VideoMode::Integer {
+        return integer_rect(platform);
+    }
+    // 4:3 on this 4:3 panel is the picture filling the screen.
+    let mode = if mode == VideoMode::FourThree { VideoMode::Stretch } else { mode };
     let (w, h) = platform.picture();
     // In canvas units: a NES frame arrives on a 256x240 canvas, the Game Boys' on 240x160.
     let (src_w, src_h) = platform.canvas();
@@ -89,6 +200,28 @@ pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {
         w as f32 / src_w as f32,
         h as f32 / src_h as f32,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_game_follows_its_own_choice_then_its_system_then_the_global_one() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Actual);
+        write_global(root.path(), VideoMode::Integer).unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Integer);
+        write_system(root.path(), Platform::Nes, Some(VideoMode::Stretch)).unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Stretch);
+        assert_eq!(effective(root.path(), "Emerald", Platform::Gba), VideoMode::Integer);
+        write_video_mode(root.path(), "Emerald", VideoMode::FourThree).unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::FourThree);
+        clear_game(root.path(), "Emerald").unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Stretch);
+        write_system(root.path(), Platform::Nes, None).unwrap();
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Integer);
+    }
 }
 
 #[cfg(all(test, feature = "brick"))]
@@ -146,6 +279,22 @@ mod brick_tests {
         let [_, _, w, h] = source_rect(Platform::Nes, VideoMode::Actual);
         assert!((w * cw as f32 / (h * ch as f32) - 4.0 / 3.0).abs() < 0.001, "padded to 4:3");
         assert!((h * ch as f32 - 224.0).abs() < 0.001, "no line cropped");
+    }
+
+    #[test]
+    fn integer_scale_is_a_whole_number_of_screen_pixels() {
+        let (pw, ph) = Platform::Nes.picture();
+        let scale = (slot_gfx::OUT_W / pw).min(slot_gfx::OUT_H / ph);
+        let [x, y, w, h] = source_rect(Platform::Nes, VideoMode::Integer);
+        let (cw, ch) = Platform::Nes.canvas();
+        let screen_w = w * cw as f32 * scale as f32;
+        let screen_h = h * ch as f32 * scale as f32;
+        assert!((screen_w - slot_gfx::OUT_W as f32).abs() < 0.01);
+        assert!((screen_h - slot_gfx::OUT_H as f32).abs() < 0.01);
+        let picture_x = (cw - pw) as f32 / 2.0;
+        let shown = (picture_x / cw as f32 - x) / w * slot_gfx::OUT_W as f32;
+        assert!((shown - (slot_gfx::OUT_W as f32 - pw as f32 * scale as f32) / 2.0).abs() < 0.5);
+        let _ = (y, ph);
     }
 
     #[test]

@@ -576,6 +576,14 @@ impl Frontend {
             })
             .collect();
         self.session.app_mut().set_pause_buttons_faces(buttons);
+        let aspects = crate::video_mode::VideoMode::CHOICES
+            .into_iter()
+            .map(|mode| {
+                let f = menu_face(&format!("ASPECT: {}", mode.label().to_ascii_uppercase()));
+                (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
+            })
+            .collect();
+        self.session.app_mut().set_aspect_faces(aspects);
         let mut up = |f: UndoFace| (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h);
         let labels = QuickRow::ALL
             .iter()

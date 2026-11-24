@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- L1 and R1 no longer change the picture while a game is running. On NES, Game Boy and Game Boy Color they do nothing. Emulation → Aspect, and the same row on each system's page, chooses Native, 4:3, Full or Integer. A system can follow that, or use its own. The pause menu has Aspect too, and the choice is remembered.
 - Videos and Music are gone. HOME no longer lists them, and Slot no longer downloads or plays them.
 - HOME no longer lists Companion, and Pip does not suggest a game or show a mission. The companion itself is still in Slot, switched off.
 - The system menu shows the same battery, Wi-Fi and clock as the shelf. The battery stays the usual colour above 20%, turns yellow below that, and red at 10% or less. The charging mark shows only while a cable is plugged in.

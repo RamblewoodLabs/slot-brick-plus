@@ -184,9 +184,18 @@ fn l_fills_the_panel_and_r_gives_back_the_centred_picture() {
         "actual size has something above the picture"
     );
 
-    input.0.push_back(vec![RawEvent::Down(Btn::L1)]);
-    f.advance(&mut input);
-    input.0.push_back(vec![RawEvent::Up(Btn::L1)]);
+    // The pause menu's Aspect row steps Native to 4:3, which fills this screen.
+    let mut tap = |btn: Btn| {
+        input.0.push_back(vec![RawEvent::Down(btn)]);
+        f.advance(&mut input);
+        input.0.push_back(vec![RawEvent::Up(btn)]);
+        f.advance(&mut input);
+    };
+    tap(Btn::Menu);
+    tap(Btn::Down);
+    tap(Btn::Down);
+    tap(Btn::Down);
+    tap(Btn::A);
     run_for(&mut f, &mut input, 1.0);
     f.compose(&mut c);
     let stretched = c.read_frame();
@@ -208,9 +217,10 @@ fn l_fills_the_panel_and_r_gives_back_the_centred_picture() {
     let (w, h, close) = zoom(&actual, &stretched, 300, 200, 90, 60, 6);
     write_png("picture-zoom", w, h, &close);
 
-    input.0.push_back(vec![RawEvent::Down(Btn::R1)]);
-    f.advance(&mut input);
-    input.0.push_back(vec![RawEvent::Up(Btn::R1)]);
+    // Three more steps: Full, Integer, back to Native.
+    tap(Btn::A);
+    tap(Btn::A);
+    tap(Btn::A);
     run_for(&mut f, &mut input, 1.0);
     f.compose(&mut c);
     let back = c.read_frame();
