@@ -64,3 +64,25 @@ yt-dlp can get it). Music files are AAC in an M4A.
 ```bash
 python3 -m unittest discover -s tools/mac-relay -v
 ```
+
+## Menu bar switch
+
+`menubar/` holds **Slot Relay.app**, a small menu bar item (no Dock icon) that
+shows whether the relay is on and turns it on or off.
+
+```bash
+bash tools/mac-relay/menubar/install.sh     # build, copy to ~/Applications, start at login
+bash tools/mac-relay/menubar/uninstall.sh   # remove it; the relay is left as it is
+```
+
+- The icon is a filled TV with a play mark when the relay answers on its port,
+  an outline TV while launchd is starting it, and a crossed-out TV when it is off.
+- The menu shows the state, the port (read from `config.json`), and the Mac's
+  LAN address and `.local` name, then **Turn On** / **Turn Off**, the logs and
+  relay folders, and Quit.
+- **Turn Off** runs `launchctl disable` and `bootout` for `com.slot.relay`, so
+  the relay stays off across restarts until **Turn On** (`enable`, `bootstrap`,
+  `kickstart`). `com.slot.relay.ytdlp` is not touched.
+- The app checks every 5 seconds with a request that has no token; the relay's
+  401 answer is enough to know it is serving. It never reads the token.
+- A LaunchAgent, `com.slot.relay.menubar`, starts it at login.
