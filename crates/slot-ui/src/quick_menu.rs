@@ -94,13 +94,19 @@ pub enum QuickRow {
     SoundVolume,
     UpdateCheck,
     Companion,
+    Aspect,
+    AspectGb,
+    AspectGba,
+    AspectNes,
+    AspectSnes,
+    AspectPs1,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 79] = [
+    pub const ALL: [QuickRow; 85] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -180,6 +186,12 @@ impl QuickRow {
         QuickRow::SoundVolume,
         QuickRow::UpdateCheck,
         QuickRow::Companion,
+        QuickRow::Aspect,
+        QuickRow::AspectGb,
+        QuickRow::AspectGba,
+        QuickRow::AspectNes,
+        QuickRow::AspectSnes,
+        QuickRow::AspectPs1,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -325,31 +337,43 @@ impl QuickRow {
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
 
     /// Screen: a page for each system, holding that system's own picture settings.
-    pub const SCREEN: [QuickRow; 5] = [
+    pub const SCREEN: [QuickRow; 6] = [
         QuickRow::ScreenGb,
         QuickRow::ScreenGba,
         QuickRow::ScreenNes,
         QuickRow::ScreenSnes,
         QuickRow::ScreenPs1,
+        QuickRow::Aspect,
     ];
-    pub const SCREEN_GB: [QuickRow; 5] = [
+    pub const SCREEN_GB: [QuickRow; 6] = [
         QuickRow::GbShader,
         QuickRow::GbColourCorrection,
         QuickRow::GbPalettes,
         QuickRow::GbOverlay,
         QuickRow::GbcOverlay,
+        QuickRow::AspectGb,
     ];
-    pub const SCREEN_GBA: [QuickRow; 3] = [
+    pub const SCREEN_GBA: [QuickRow; 4] = [
         QuickRow::GbaShader,
         QuickRow::GbaColourCorrection,
         QuickRow::GbaOverlay,
+        QuickRow::AspectGba,
     ];
-    pub const SCREEN_NES: [QuickRow; 2] = [QuickRow::NesShader, QuickRow::NesOverlay];
-    pub const SCREEN_SNES: [QuickRow; 2] = [QuickRow::SnesShader, QuickRow::SnesOverlay];
-    pub const SCREEN_PS1: [QuickRow; 3] = [
+    pub const SCREEN_NES: [QuickRow; 3] = [
+        QuickRow::NesShader,
+        QuickRow::NesOverlay,
+        QuickRow::AspectNes,
+    ];
+    pub const SCREEN_SNES: [QuickRow; 3] = [
+        QuickRow::SnesShader,
+        QuickRow::SnesOverlay,
+        QuickRow::AspectSnes,
+    ];
+    pub const SCREEN_PS1: [QuickRow; 4] = [
         QuickRow::Ps1Shader,
         QuickRow::Ps1Dithering,
         QuickRow::Ps1Overlay,
+        QuickRow::AspectPs1,
     ];
 
     /// System → About: what this Slot is and what it runs on, then its label.
@@ -444,18 +468,20 @@ impl QuickRow {
             | QuickRow::ScreenGba
             | QuickRow::ScreenNes
             | QuickRow::ScreenSnes
-            | QuickRow::ScreenPs1 => &QuickRow::SCREEN,
+            | QuickRow::ScreenPs1
+            | QuickRow::Aspect => &QuickRow::SCREEN,
             QuickRow::GbShader
             | QuickRow::GbColourCorrection
             | QuickRow::GbPalettes
             | QuickRow::GbOverlay
-            | QuickRow::GbcOverlay => &QuickRow::SCREEN_GB,
-            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaOverlay => {
+            | QuickRow::GbcOverlay
+            | QuickRow::AspectGb => &QuickRow::SCREEN_GB,
+            QuickRow::GbaShader | QuickRow::GbaColourCorrection | QuickRow::GbaOverlay | QuickRow::AspectGba => {
                 &QuickRow::SCREEN_GBA
             }
-            QuickRow::NesShader | QuickRow::NesOverlay => &QuickRow::SCREEN_NES,
-            QuickRow::SnesShader | QuickRow::SnesOverlay => &QuickRow::SCREEN_SNES,
-            QuickRow::Ps1Shader | QuickRow::Ps1Dithering | QuickRow::Ps1Overlay => {
+            QuickRow::NesShader | QuickRow::NesOverlay | QuickRow::AspectNes => &QuickRow::SCREEN_NES,
+            QuickRow::SnesShader | QuickRow::SnesOverlay | QuickRow::AspectSnes => &QuickRow::SCREEN_SNES,
+            QuickRow::Ps1Shader | QuickRow::Ps1Dithering | QuickRow::Ps1Overlay | QuickRow::AspectPs1 => {
                 &QuickRow::SCREEN_PS1
             }
             QuickRow::FastForward
@@ -571,6 +597,12 @@ impl QuickRow {
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
             QuickRow::Companion => "Companion",
+            QuickRow::Aspect
+            | QuickRow::AspectGb
+            | QuickRow::AspectGba
+            | QuickRow::AspectNes
+            | QuickRow::AspectSnes
+            | QuickRow::AspectPs1 => "Aspect",
             QuickRow::Font => "Font",
             QuickRow::Lights => "LEDs",
             QuickRow::LedMode => "All LEDs",
@@ -724,10 +756,15 @@ pub enum QuickValue {
     ResetAsk,
     /// Reset Settings, done.
     ResetDone,
+    AspectNative,
+    Aspect43,
+    AspectFull,
+    AspectInteger,
+    AspectDefault,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 38] = [
+    pub const ALL: [QuickValue; 43] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -766,6 +803,11 @@ impl QuickValue {
         QuickValue::Hours,
         QuickValue::ResetAsk,
         QuickValue::ResetDone,
+        QuickValue::AspectNative,
+        QuickValue::Aspect43,
+        QuickValue::AspectFull,
+        QuickValue::AspectInteger,
+        QuickValue::AspectDefault,
     ];
 
     pub fn index(self) -> usize {
@@ -812,6 +854,11 @@ impl QuickValue {
             QuickValue::Hours => "Hours",
             QuickValue::ResetAsk => "Sure?",
             QuickValue::ResetDone => "Done",
+            QuickValue::AspectNative => "Native",
+            QuickValue::Aspect43 => "4:3",
+            QuickValue::AspectFull => "Full",
+            QuickValue::AspectInteger => "Integer",
+            QuickValue::AspectDefault => "Default",
         }
     }
 
