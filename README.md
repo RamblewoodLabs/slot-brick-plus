@@ -32,6 +32,8 @@ A port of [Slot.](https://github.com/BrandonKowalski/slot), originally developed
 >
 > Please report port-specific bugs in **this repository**, rather than in the upstream Slot. project.
 
+The same Slot also builds for the **Anbernic RG35XX SP** (640×480, BaseOS on TF1, the Brick's `Slot` folder on TF2). Preparation, the Mac mini build, and copying a library off a Brick card are in [docs/rg35xxsp.md](docs/rg35xxsp.md).
+
 <a name="features"></a>
 <details>
 <summary><h2>Features</h2></summary>

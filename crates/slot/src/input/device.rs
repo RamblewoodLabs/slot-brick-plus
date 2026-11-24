@@ -37,7 +37,9 @@ impl DeviceInput {
     fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
         for node in pick_devices(dev, sys) {
-            #[cfg(feature = "brick")]
+            // The Brick reads the pad through SDL and only the power key through evdev.
+            // The SP has no TrimUI joystick daemon: every button, and the lid switch, is evdev.
+            #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
             {
                 let Some(name) = node.file_name() else {
                     continue;
@@ -53,7 +55,7 @@ impl DeviceInput {
                 node.display(),
                 device_name(sys, &node)
             );
-            if !cfg!(feature = "brick") {
+            if !cfg!(all(feature = "brick", not(feature = "rg35xxsp"))) {
                 quicken_poll(sys, &node);
             }
             let queue = pending.clone();
@@ -68,7 +70,7 @@ impl DeviceInput {
         }
         DeviceInput {
             pending,
-            hall: if cfg!(feature = "brick") {
+            hall: if cfg!(all(feature = "brick", not(feature = "rg35xxsp"))) {
                 None
             } else {
                 find_hall(Path::new(PSY))
@@ -137,7 +139,10 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>) {
             }
             // Joystick input is read via SDL on Brick, only its separate power key
             // comes through evdev. This avoids duplicate face/volume events.
-            if cfg!(feature = "brick") && !(ev.kind == EV_KEY && ev.code == 116) {
+            // The SP build keeps the brick software but reads the whole pad here.
+            if cfg!(all(feature = "brick", not(feature = "rg35xxsp")))
+                && !(ev.kind == EV_KEY && ev.code == 116)
+            {
                 continue;
             }
             match ev.kind {

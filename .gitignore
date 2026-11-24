@@ -6,6 +6,8 @@ target-docker/
 dist-brick/
 # docker-build.sh takes the output directory as an argument, so it is not always that one.
 dist-brick-*/
+dist-rg35xxsp/
+dist-rg35xxsp-*/
 # The card, zipped for people to download.
 *.zip
 # Except the test archives slot-store reads.

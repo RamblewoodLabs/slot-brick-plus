@@ -76,3 +76,27 @@ mod brick_tests {
         assert_eq!(super::blit_rect((1024, 768), 0.0), (0, 0, 1024, 768));
     }
 }
+
+/// Where a logical layout lands on a panel, centred, keeping its shape.
+#[cfg(test)]
+fn layout_on_panel(layout: (u32, u32), panel: (u32, u32)) -> (i32, i32, i32, i32) {
+    let scale = (panel.0 as f32 / layout.0 as f32).min(panel.1 as f32 / layout.1 as f32);
+    let w = (layout.0 as f32 * scale).round() as i32;
+    let h = (layout.1 as f32 * scale).round() as i32;
+    ((panel.0 as i32 - w) / 2, (panel.1 as i32 - h) / 2, w, h)
+}
+
+#[cfg(test)]
+mod panel_fit {
+    use super::layout_on_panel;
+
+    #[test]
+    fn the_sp_shows_the_brick_layout_at_one_to_one() {
+        assert_eq!(layout_on_panel((640, 480), (640, 480)), (0, 0, 640, 480));
+    }
+
+    #[test]
+    fn the_brick_scales_that_layout_to_the_whole_panel() {
+        assert_eq!(layout_on_panel((640, 480), (1024, 768)), (0, 0, 1024, 768));
+    }
+}

@@ -774,13 +774,15 @@ impl App {
         let mut app = App::new(carts);
         crate::boot_times::mark("  carts set up");
         app.root = Some(root.to_path_buf());
-        #[cfg(feature = "brick")]
+        #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
         {
             let model = slot_power::model();
             eprintln!("slot: running on a TrimUI {}", model.name());
             slot_ui::set_brick_pro(model == slot_power::Model::BrickPro);
             app.brick_leds = Some(crate::brick_led::BrickLeds::open(root));
         }
+        #[cfg(feature = "rg35xxsp")]
+        eprintln!("slot: running on an Anbernic RG35XX SP");
         crate::boot_times::mark("  model and LEDs");
         app.state = read_slot_state(root);
         app.library = slot_store::Library::read(root);
