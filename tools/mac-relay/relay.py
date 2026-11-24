@@ -33,6 +33,41 @@ def job_id(kind: str, video_id: str) -> str:
     return f"{kind}-{video_id}"
 
 
+def _is_job_file(name: str) -> bool:
+    """A download, its job record, or its work folder. Nothing else."""
+    stem = name
+    for suffix in (".json", ".mp4", ".m4a", ".part", ".tmp"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return bool(JOB_ID.match(stem))
+
+
+def media_fix(streams: list[dict]) -> str:
+    """How to make a file Brick-friendly: ok, audio (picture is already fine), or full."""
+    video_ok = False
+    audio_ok = False
+    audio_present = False
+    for stream in streams:
+        kind = stream.get("codec_type")
+        codec = str(stream.get("codec_name") or "")
+        if kind == "video" and codec == "h264":
+            height = int(stream.get("height") or 0)
+            if height == 0 or height <= 360:
+                video_ok = True
+        if kind == "audio":
+            audio_present = True
+            rate = int(stream.get("sample_rate") or 0)
+            channels = int(stream.get("channels") or 0)
+            if codec == "aac" and rate == 48000 and channels == 2:
+                audio_ok = True
+    if video_ok and (audio_ok or not audio_present):
+        return "ok"
+    if video_ok and audio_present:
+        return "audio"
+    return "full"
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -63,7 +98,11 @@ class Relay:
         keep_seconds: int = KEEP_SECONDS,
         now=None,
     ):
-        self.root = Path(root)
+        # Config and scripts stay in `home`. Only download and job files go in
+        # `downloads`, so a 24 hour sweep cannot delete update-ytdlp.sh or config.json.
+        self.home = Path(root)
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.root = self.home / "downloads"
         self.root.mkdir(parents=True, exist_ok=True)
         self.token = token
         self.ytdlp = ytdlp
@@ -72,8 +111,21 @@ class Relay:
         self.now = now or time.time
         self.lock = threading.Lock()
         self.jobs: dict[str, dict] = {}
+        self._adopt_legacy()
         self._load()
         self.sweep()
+
+    def _adopt_legacy(self) -> None:
+        """Older builds kept job files next to config.json. Move only those."""
+        for path in list(self.home.iterdir()):
+            if path.parent == self.root or path == self.root:
+                continue
+            if not _is_job_file(path.name) and not (path.is_dir() and JOB_ID.match(path.name)):
+                continue
+            dest = self.root / path.name
+            if dest.exists():
+                continue
+            path.replace(dest)
 
     def _path(self, name: str) -> Path:
         return self.root / name
@@ -111,11 +163,17 @@ class Relay:
                 if job.get("path"):
                     known.add(Path(job["path"]).name)
                 known.add(job["id"] + ".json")
+                known.add(job["id"])
             for path in self.root.iterdir():
-                if path.name in known or path.suffix == ".json":
+                if path.name in known or not _is_job_file(path.name):
                     continue
-                if path.is_file() and now - path.stat().st_mtime > self.keep_seconds:
-                    path.unlink(missing_ok=True)
+                if now - path.stat().st_mtime > self.keep_seconds:
+                    if path.is_dir():
+                        for child in path.iterdir():
+                            child.unlink(missing_ok=True)
+                        path.rmdir()
+                    else:
+                        path.unlink(missing_ok=True)
                     removed += 1
         return removed
 
@@ -337,7 +395,8 @@ class Relay:
     def _normalize(self, src: Path, kind: str) -> Path:
         if not self.ffmpeg or not Path(self.ffmpeg).is_file():
             return src
-        if kind == "video" and self._already_brick(src):
+        fix = "full" if kind == "audio" else media_fix(self._streams(src))
+        if fix == "ok":
             return src
         dest = src.with_name(src.stem + ".brick" + (".m4a" if kind == "audio" else ".mp4"))
         if kind == "audio":
@@ -345,6 +404,13 @@ class Relay:
                 self.ffmpeg, "-y", "-i", str(src),
                 "-vn", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
                 str(dest),
+            ]
+        elif fix == "audio":
+            # Picture is already H.264 at 360p or below. Only the soundtrack changes.
+            cmd = [
+                self.ffmpeg, "-y", "-i", str(src),
+                "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
+                "-movflags", "+faststart", str(dest),
             ]
         else:
             cmd = [
@@ -358,31 +424,22 @@ class Relay:
         src.unlink(missing_ok=True)
         return dest
 
-    def _already_brick(self, src: Path) -> bool:
+    def _streams(self, src: Path) -> list[dict]:
         probe = Path(self.ffmpeg).with_name("ffprobe")
         if not probe.is_file():
-            return False
+            return []
         try:
             out = subprocess.check_output(
                 [
-                    str(probe), "-v", "error",
-                    "-show_entries", "stream=codec_name,height,codec_type",
-                    "-of", "csv=p=0", str(src),
+                    str(probe), "-v", "error", "-print_format", "json",
+                    "-show_streams", str(src),
                 ],
                 text=True,
                 stderr=subprocess.DEVNULL,
             )
-        except (OSError, subprocess.CalledProcessError):
-            return False
-        video = audio = False
-        for line in out.splitlines():
-            cells = [c.strip() for c in line.split(",")]
-            if "h264" in cells and "video" in cells:
-                height = next((int(c) for c in cells if c.isdigit()), 0)
-                video = height == 0 or height <= 360
-            if "aac" in cells and "audio" in cells:
-                audio = True
-        return video and audio
+            return json.loads(out).get("streams") or []
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+            return []
 
 
 class Handler(BaseHTTPRequestHandler):

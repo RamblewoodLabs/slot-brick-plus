@@ -44,6 +44,7 @@ PY
 fi
 
 token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$config")
+port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("port", 8787))' "$config")
 python=$(command -v python3)
 update="$support/update-ytdlp.sh"
 cp "$here/update-ytdlp.sh" "$update"
@@ -75,7 +76,7 @@ name=$(scutil --get LocalHostName 2>/dev/null || echo Mac-mini)
 echo
 echo "Relay is running. On the Brick, add these lines to Slot/Config/videos.txt:"
 echo "relay_host=${name}.local"
-echo "relay_port=8787"
+echo "relay_port=${port}"
 echo "relay_token=${token}"
 echo
 echo "If the Brick cannot see ${name}.local, use the Mac's LAN address as relay_host."
