@@ -497,6 +497,7 @@ impl Session {
                 &self.root, stem, platform,
             ));
         self.app.set_link_loaded(serial);
+        crate::sync::pull_before_play(&self.root, platform, core, stem);
         let resume = (!self.app.starting_clean())
             .then(|| persist::read_resume(&self.root, platform, core, stem))
             .flatten();

@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- System → Continue: with Config/sync.txt on the card, saves, the resume point, and last-played copy to a computer at home and onto your other handheld. The row says whether that computer was reached. It stays off until the file is there.
 - Videos and Music are gone. HOME no longer lists them, and Slot no longer downloads or plays them.
 - HOME no longer lists Companion, and Pip does not suggest a game or show a mission. The companion itself is still in Slot, switched off.
 - The system menu shows the same battery, Wi-Fi and clock as the shelf. The battery stays the usual colour above 20%, turns yellow below that, and red at 10% or less. The charging mark shows only while a cable is plugged in.

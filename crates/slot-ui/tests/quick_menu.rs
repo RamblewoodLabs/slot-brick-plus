@@ -248,3 +248,14 @@ fn each_row_sits_in_all_at_its_own_index() {
         assert_eq!(row.index(), i, "{row:?}");
     }
 }
+
+#[test]
+fn continue_is_on_system_only_while_sync_is_configured() {
+    QuickRow::set_continue_sync(false);
+    assert!(!QuickRow::About.page().contains(&QuickRow::Continue));
+    QuickRow::set_continue_sync(true);
+    assert_eq!(QuickRow::About.page().last().copied(), Some(QuickRow::Continue));
+    assert_eq!(QuickRow::Continue.label(), "Continue");
+    QuickRow::set_continue_sync(false);
+    assert!(!QuickRow::About.page().contains(&QuickRow::Continue));
+}

@@ -45,6 +45,7 @@ pub mod session;
 mod sheet;
 pub mod sntp;
 pub mod state_writer;
+pub mod sync;
 pub mod thumb;
 pub mod update;
 pub mod video_mode;
