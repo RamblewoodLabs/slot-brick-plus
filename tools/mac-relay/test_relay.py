@@ -172,9 +172,30 @@ class RelayTest(unittest.TestCase):
             "cancel": False,
         }
         (data / f"{ident}.json").write_text(json.dumps(record))
+        script = data / "update-ytdlp.sh"
+        script.write_text("#!/bin/bash\nbrew upgrade yt-dlp\n")
+        os_utime = __import__("os").utime
+        old = time.time() - relay.KEEP_SECONDS - 10
+        os_utime(script, (old, old))
+        config = data / "config.json"
+        config.write_text('{"port": 8788}\n')
+        os_utime(config, (old, old))
         started = relay.Relay(root=data, token="secret-token", ytdlp=str(self.ytdlp), ffmpeg="")
         self.assertFalse(media.exists())
         self.assertIsNone(started.get(ident))
+        self.assertTrue(script.is_file())
+        self.assertTrue(config.is_file())
+        self.assertEqual(script.read_text(), "#!/bin/bash\nbrew upgrade yt-dlp\n")
+
+    def test_44khz_aac_is_remuxed_and_48khz_stereo_passes(self):
+        h264 = {"codec_type": "video", "codec_name": "h264", "height": 360}
+        aac_44 = {"codec_type": "audio", "codec_name": "aac", "sample_rate": "44100", "channels": 2}
+        aac_48 = {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2}
+        mono = {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 1}
+        self.assertEqual(relay.media_fix([h264, aac_44]), "audio")
+        self.assertEqual(relay.media_fix([h264, aac_48]), "ok")
+        self.assertEqual(relay.media_fix([h264, mono]), "audio")
+        self.assertEqual(relay.media_fix([{"codec_type": "video", "codec_name": "vp9", "height": 360}, aac_48]), "full")
 
 
 if __name__ == "__main__":

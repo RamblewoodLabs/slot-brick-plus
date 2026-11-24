@@ -2,8 +2,10 @@
 
 A small server for a Mac mini on the same Wi-Fi as the Brick. Slot asks it to
 fetch a video or a track with yt-dlp. The Brick then copies the finished file,
-checks its size and sha256, and tells the Mac to delete it. A file that is
-never collected is deleted after 24 hours. If the Mac is off or the download
+checks its size and sha256, and tells the Mac to delete it. A download that is
+never collected is deleted after 24 hours. Those files live in `downloads/`
+inside the relay folder. The sweep does not touch `config.json` or
+`update-ytdlp.sh`. If the Mac is off or the download
 fails, Slot uses YouTube directly, as it did before.
 
 The relay listens on port **8787** and expects a shared token.
