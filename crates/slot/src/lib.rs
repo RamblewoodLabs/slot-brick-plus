@@ -29,8 +29,6 @@ pub mod link_screen;
 pub mod link_start;
 pub mod link_state;
 pub mod menu_status;
-pub mod music;
-pub mod music_queue;
 pub mod net;
 pub mod offline_ra;
 pub mod overlay;
@@ -40,7 +38,6 @@ mod pip_art;
 pub mod prefetch;
 pub mod quiet;
 pub mod ra;
-mod relay;
 pub mod resample;
 pub mod rewind;
 pub mod root;
@@ -51,10 +48,7 @@ pub mod state_writer;
 pub mod thumb;
 pub mod update;
 pub mod video_mode;
-pub mod video_queue;
-pub mod videos;
 pub mod wallpaper;
-pub mod youtube;
 
 #[cfg(feature = "brick")]
 pub mod brick_led;

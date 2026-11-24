@@ -53,7 +53,6 @@ A port of [Slot.](https://github.com/BrandonKowalski/slot), originally developed
 | **Updates** | Update Slot from the menu over Wi-Fi: signed and checked, with your games, saves and settings left alone. |
 | **Library** | The selected game's name on a title card under its cart for a moment, play time beside the battery (minutes, or hours and minutes), favorites with a star, and shelves sorted A–Z, by last played or by most played, or showing only your favorites. Systems you don't play can be hidden (Library → Systems). |
 | **Companion** | Switched off. Not on the HOME menu, and it does not suggest a game or show a mission. |
-| **Videos** | HOME → Videos: follow a YouTube channel, fetch its five latest videos, download one over Wi-Fi into `Slot/Videos`, and play it offline. Saved videos also have a shelf of their own, beside the game shelves. |
 | **Fonts** | HOME → System → Font: Slot's own font, GohuFont, or any `.ttf` / `.otf` you put in `Slot/Fonts`. |
 | **Auto clock** | The clock sets itself from an internet time server whenever Wi-Fi is on. |
 | **Wireless connectivity** | Wi-Fi, with its status shown beside the clock, and an experimental two-player link over Wi-Fi. |
@@ -184,13 +183,13 @@ The three small buttons on the bottom of the Brick and Brick Hammer are **HOME**
 | :--- | :--- |
 | `Left` / `Right` | Browse the carousel |
 | `Up` / `Down` | Jump to the previous / next letter |
-| `L1` / `R1` | Switch between the GBA, GB, GBC, NES, SNES, PlayStation and Videos shelves |
+| `L1` / `R1` | Switch between the GBA, GB, GBC, NES, SNES and PlayStation shelves |
 | Tap `A` | Resume the last save state |
 | Hold `A` | Start the game fresh |
 | `START` | Customise the cartridge (GBA: also choose the emulator core) |
 | `Y` | Mark the game as a favorite (a star on its cart), or unmark it |
 | `SELECT` | Sort the shelves: A–Z, last played, most played |
-| `HOME` | Open the menu: Emulation, Gameplay, Library, Videos, Online (Wi-Fi, Cart Art, RetroAchievements, Update), and System (LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
+| `HOME` | Open the menu: Emulation, Gameplay, Library, Online (Wi-Fi, Cart Art, RetroAchievements, Update), and System (LEDs, Clock, Font, Rumble, System Sounds, Low Battery Shutdown, Reset Settings, About) |
 
 ### In game
 
@@ -346,17 +345,9 @@ Slot/Logs/slot.log
 
 <a name="companion"></a>
 <details>
-<summary><h2>Companion and Videos</h2></summary>
+<summary><h2>Companion</h2></summary>
 
 **Companion** is switched off. It is not on the HOME menu, X on the shelf does not open it, and it does not suggest a game or show a mission. `Slot/Config/companion.txt` is left on the card.
-
-**Videos and Music** can use a computer on the home network as a download relay (`tools/mac-relay/`). Downloads says "Relay downloading…" and then "Transferring…". Slot checks the file, then keeps it. If that computer is off, the download uses YouTube as before. `Slot/Config/videos.txt` holds `relay_host` (a `.local` name, or an IP), `relay_port` (8787 if omitted), and `relay_token`. With no token, Slot does not try the relay.
-
-**Videos** (HOME → Videos) is a channel list, not a general YouTube app. Add a channel by its name, `@handle`, or link (`youtube.com/@…`, `youtube.com/channel/UC…`). Open a followed channel for its five latest videos: title, when it was posted, and the video's picture on the row when the fetch works. A downloads one over Wi-Fi into `Slot/Videos`, or plays it if it is already there. The picture is saved next to the file. The queue shows progress; A pauses the download and X cancels it. A failed download can be tried again from Downloads, and the screen says what went wrong. The same screen shows how much the videos use and how much space is free on the card. Video space limit, on the next row, is No limit until you set 1, 2, 4, 8, or 16 GB. Saved videos play with Wi-Fi off: A pauses, Left and Right skip 10 seconds, Up and Down change the volume, and playback resumes.
-
-Saved videos also sit on their own shelf. `L1` and `R1` reach it beside the game shelves, and it is not there when nothing is saved. Each video is a tape with its picture as the label. A plays it from where it stopped. Y asks, then deletes it. Library → Systems → Videos hides that shelf.
-
-Downloads ask for H.264 in an MP4 at 360p or below. ffmpeg, at `Slot/System/ffmpeg` or on the path, decodes that to a 480×270 picture at 12 frames a second, which the H700 can do in software. The card build tries to fetch ffmpeg. A `yt-dlp` binary at `Slot/System/yt-dlp` is tried first and, if it fails, Slot fetches the file itself from Piped, Invidious, or a direct address on the watch page. YouTube often hides addresses behind a signature or asks the network to prove it is not a bot, and public Piped instances go offline, so a download can fail and the status line says the reason. Age-restricted and members-only videos are not fetched. There is no YouTube sign-in. The latest videos come from the channel's public RSS feed (`youtube.com/feeds/videos.xml?channel_id=…`), which needs no account. Secure connections use Slot's own certificate list, not the firmware's, and a wrong clock is named when a certificate is not valid yet.
 
 </details>
 

@@ -27,10 +27,7 @@ pub fn install() {
             "panic at {loc}: {msg}\n{}\n",
             std::backtrace::Backtrace::force_capture()
         );
-        let root = std::env::var_os("SLOT_ROOT")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("/mnt/SDCARD/Slot"));
-        crate::videos::log_line(&root, &text);
+        eprint!("{text}");
         previous(info);
     }));
     for (sig, _) in SIGNALS {

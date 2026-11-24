@@ -14,14 +14,7 @@ cp brick/card/Slot/System/slot-filecheck "$OUT/Apps/BootLogo/"
 cp target/aarch64-unknown-linux-gnu/device/slot "$OUT/Slot/System/"
 cp vendor/mgba_libretro.so vendor/gpsp_libretro.so vendor/fceumm_libretro.so vendor/snes9x_libretro.so vendor/pcsx_rearmed_libretro.so "$OUT/Slot/System/"
 for f in slot mgba_libretro.so gpsp_libretro.so fceumm_libretro.so snes9x_libretro.so pcsx_rearmed_libretro.so; do "$BRICK_TOOLCHAIN/bin/aarch64-linux-gnu-strip" "$OUT/Slot/System/$f"; done
-for d in BIOS Config Games/GB Games/GBC Games/GBA Games/NES Games/SNES Games/PS1 Labels/GB Labels/GBC Labels/GBA Labels/NES Labels/SNES Labels/PS1 Saves/GB Saves/GBC Saves/GBA Saves/NES Saves/SNES Saves/PS1 States/GB States/GBC States/GBA States/NES States/SNES States/PS1 Overlays/GB Overlays/GBC Overlays/GBA Overlays/NES Overlays/SNES Overlays/PS1 Wallpapers Videos Logs; do mkdir -p "$OUT/Slot/$d"; done
-if [ ! -x brick/vendor/ffmpeg ]; then
-    sh brick/fetch-ffmpeg.sh || echo "warning: ffmpeg was not fetched; Videos playback needs Slot/System/ffmpeg" >&2
-fi
-if [ -x brick/vendor/ffmpeg ]; then
-    cp brick/vendor/ffmpeg "$OUT/Slot/System/ffmpeg"
-    chmod +x "$OUT/Slot/System/ffmpeg"
-fi
+for d in BIOS Config Games/GB Games/GBC Games/GBA Games/NES Games/SNES Games/PS1 Labels/GB Labels/GBC Labels/GBA Labels/NES Labels/SNES Labels/PS1 Saves/GB Saves/GBC Saves/GBA Saves/NES Saves/SNES Saves/PS1 States/GB States/GBC States/GBA States/NES States/SNES States/PS1 Overlays/GB Overlays/GBC Overlays/GBA Overlays/NES Overlays/SNES Overlays/PS1 Wallpapers Logs; do mkdir -p "$OUT/Slot/$d"; done
 cp brick/README.md "$OUT/Slot/README.md"
 # Overlays kept on this machine only (brick/overlays-local is not in git, so a card built by
 # GitHub never has them): PNGs only, for a card built here for its own owner.

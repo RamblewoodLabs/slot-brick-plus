@@ -195,7 +195,6 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             library_sort: slot_store::LibrarySort::Az,
             favorites_only: false,
             hidden_systems: [false; Platform::ALL.len()],
-            show_videos: true,
             play_time_hours: false,
             title_card: true,
             rumble: true,
