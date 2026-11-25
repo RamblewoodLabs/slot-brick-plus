@@ -183,6 +183,7 @@ fn the_slot_takes_over_the_cart_where_the_row_had_it() {
         dim: 0.0,
         screen: 0.0,
         game: false,
+        turn: None,
     }
     .draw(&mut after);
     let after = composed(&mut c, &after);

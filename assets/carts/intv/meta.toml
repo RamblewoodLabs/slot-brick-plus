@@ -1,0 +1,10 @@
+# intv: Blender render of the intellivision shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 300x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 68.0x88.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 25
+y = 251
+w = 250
+h = 59
+rotation = 0.0
+aspect = 4.2373

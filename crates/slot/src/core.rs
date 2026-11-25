@@ -40,13 +40,14 @@ pub struct Opened {
 pub fn open_core(
     root: &Path,
     core: Core,
+    platform: Platform,
     serial: &str,
     colour: bool,
     palette: Option<GbPalette>,
     link: Option<u8>,
 ) -> Opened {
     let paths = candidates(root, core);
-    match open_named(root, core, serial, colour, palette, link, &paths) {
+    match open_named(root, core, platform, serial, colour, palette, link, &paths) {
         Some(core) => Opened { core, named: true },
         None => {
             report_missing(core, &paths);
@@ -76,15 +77,38 @@ pub fn open_core_for_palette(
     palette: Option<GbPalette>,
     paths: &[PathBuf],
 ) -> Box<dyn RetroCore> {
-    open_named(root, core, serial, colour, palette, None, paths).unwrap_or_else(|| {
+    open_named(
+        root,
+        core,
+        platform_of(core),
+        serial,
+        colour,
+        palette,
+        None,
+        paths,
+    )
+    .unwrap_or_else(|| {
         report_missing(core, paths);
         Box::new(MockCore::new())
     })
 }
 
+/// The shelf a core was built for, when a caller does not name one. gpSP is the GBA's
+/// second core, so it is not the name stored on a platform row.
+fn platform_of(core: Core) -> Platform {
+    if core == Core::Gpsp {
+        return Platform::Gba;
+    }
+    Platform::ALL
+        .into_iter()
+        .find(|p| p.def().core == core.as_str())
+        .unwrap_or(Platform::Gba)
+}
+
 fn open_named(
     root: &Path,
     core: Core,
+    platform: Platform,
     serial: &str,
     colour: bool,
     palette: Option<GbPalette>,
@@ -99,19 +123,13 @@ fn open_named(
         }
         match LibretroCore::open_with(path, &bios, &saves) {
             Ok(mut opened) => {
-                let platform = match core {
-                    Core::Fceumm => Some(Platform::Nes),
-                    Core::Snes9x => Some(Platform::Snes),
-                    Core::PcsxRearmed => Some(Platform::Ps1),
-                    Core::Mgba | Core::Gpsp => None,
-                };
-                if let Some((w, h)) = platform.map(Platform::canvas) {
-                    opened.set_canvas(w, h);
-                }
-                opened.set_fill(core == Core::PcsxRearmed);
+                let (w, h) = platform.canvas();
+                opened.set_canvas(w, h);
+                opened.set_fill(platform.def().fill);
+                opened.set_fit(platform.def().fit);
                 // A DualShock: what DualShock games want, what plain ones run on as well, and
                 // what carries rumble.
-                if core == Core::PcsxRearmed {
+                if platform.def().dualshock {
                     opened.set_device(slot_retro::DEVICE_DUALSHOCK);
                 }
                 apply_core_options(
@@ -122,6 +140,9 @@ fn open_named(
                     colour,
                     palette,
                 );
+                for (key, value) in platform.def().options {
+                    opened.set_option(key, value);
+                }
                 if let Some(player) = link {
                     apply_link_options(&mut opened, core, player);
                 }
@@ -140,8 +161,7 @@ pub fn palette_for(
     rom: &Path,
     link: Option<u8>,
 ) -> Option<GbPalette> {
-    let game_boy = matches!(platform, Platform::Gb | Platform::Gbc);
-    chosen.filter(|_| link.is_none() && game_boy && dmg_only(rom))
+    chosen.filter(|_| link.is_none() && platform.def().gb_palette && dmg_only(rom))
 }
 
 pub fn dmg_only(rom: &Path) -> bool {
@@ -169,7 +189,8 @@ pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static st
             if on { "enabled" } else { "disabled" },
         )),
         // A NES, SNES or PlayStation drew on a TV, with no LCD to correct for.
-        Core::Fceumm | Core::Snes9x | Core::PcsxRearmed => None,
+        // So did every system added after them.
+        _ => None,
     }
 }
 
@@ -205,7 +226,10 @@ pub fn apply_core_options(
     if which == Core::Snes9x {
         // A 256x224 picture like the NES's, and no HD Mode 7: it would cost the A53 dearly
         // and send frames twice as wide for nothing on this screen.
-        for (key, value) in [("snes9x_overscan", "enabled"), ("snes9x_mode7_hires", "disabled")] {
+        for (key, value) in [
+            ("snes9x_overscan", "enabled"),
+            ("snes9x_mode7_hires", "disabled"),
+        ] {
             core.set_option(key, value);
         }
     }

@@ -89,6 +89,17 @@ fn a_plain_rom_wins_over_an_archive_of_the_same_name_and_a_zip_over_a_7z() {
 }
 
 #[test]
+fn an_arcade_zip_is_the_game_and_is_not_unpacked() {
+    let d = tmp_root();
+    let zip = put(d.path(), "ARCADE/mslug.zip", b"the zip is the rom");
+    assert_eq!(stems(d.path(), Platform::Arcade), ["mslug"]);
+    let cache = d.path().join("System/Cache/Unpacked");
+    std::fs::create_dir_all(&cache).unwrap();
+    assert_eq!(slot_store::archive::playable(&zip, &cache).unwrap(), zip);
+    assert!(std::fs::read_dir(&cache).unwrap().next().is_none());
+}
+
+#[test]
 fn the_playstation_shelf_takes_no_archives() {
     let d = tmp_root();
     put(
@@ -100,8 +111,8 @@ fn the_playstation_shelf_takes_no_archives() {
     assert!(!Platform::Ps1.takes_archives());
     assert!(Platform::ALL
         .iter()
-        .filter(|p| **p != Platform::Ps1)
-        .all(|p| p.takes_archives()));
+        .filter(|p| !p.def().archive_is_rom)
+        .all(|p| { p.takes_archives() == (*p != Platform::Ps1) }));
 }
 
 fn gb_rom(cgb: u8) -> Vec<u8> {

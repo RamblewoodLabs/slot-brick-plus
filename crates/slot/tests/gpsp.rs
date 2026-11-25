@@ -175,7 +175,7 @@ fn both_cores_are_told_about_colour_correction_in_their_own_words() {
         let theirs = match which {
             Core::Mgba => "gpsp_color_correction",
             Core::Gpsp => "mgba_color_correction",
-            Core::Fceumm | Core::Snes9x | Core::PcsxRearmed => unreachable!("only the GBA cores correct colour"),
+            _ => unreachable!("only the GBA cores correct colour"),
         };
         assert_eq!(
             core.option(theirs),
@@ -602,7 +602,16 @@ fn open_core_reaches_a_gpsp_named_dylib_under_the_content_roots_system_directory
         .join(slot::core::dylib_name(Core::Gpsp));
     std::fs::copy(&mgba, &planted).expect("plant a dylib under gpSP's name");
 
-    let mut core = slot::core::open_core(d.path(), Core::Gpsp, "auto", false, None, None).core;
+    let mut core = slot::core::open_core(
+        d.path(),
+        Core::Gpsp,
+        Platform::Gba,
+        "auto",
+        false,
+        None,
+        None,
+    )
+    .core;
     core.load(&d.path().join("Games/GBA/Probe.gba"))
         .expect("the planted core refused the test rom");
     core.run_frame(ButtonMask::default());

@@ -3,14 +3,37 @@ use slot_store::Platform;
 #[test]
 fn every_platform_has_a_directory() {
     let names: Vec<&str> = Platform::ALL.iter().map(|p| p.dir_name()).collect();
-    assert_eq!(names, vec!["GBA", "GB", "GBC", "NES", "SNES", "PS1"]);
+    assert_eq!(
+        names,
+        vec![
+            "GBA", "GB", "GBC", "NES", "SNES", "PS1", "MD", "SMS", "GG", "ARCADE", "PCE", "A2600",
+            "INTV", "LYNX", "A7800", "GW",
+        ]
+    );
 }
 
 #[test]
 fn every_platform_is_a_shelf_of_its_own() {
     assert_eq!(
         Platform::ALL,
-        [Platform::Gba, Platform::Gb, Platform::Gbc, Platform::Nes, Platform::Snes, Platform::Ps1]
+        [
+            Platform::Gba,
+            Platform::Gb,
+            Platform::Gbc,
+            Platform::Nes,
+            Platform::Snes,
+            Platform::Ps1,
+            Platform::Md,
+            Platform::Sms,
+            Platform::Gg,
+            Platform::Arcade,
+            Platform::Pce,
+            Platform::A2600,
+            Platform::Intv,
+            Platform::Lynx,
+            Platform::A7800,
+            Platform::Gw,
+        ]
     );
     for (i, p) in Platform::ALL.iter().enumerate() {
         assert!(
@@ -31,7 +54,12 @@ fn each_platform_takes_only_its_own_extensions() {
     assert!(Platform::Nes.accepts(std::path::Path::new("Super Mario Bros. (World).nes")));
     assert!(!Platform::Nes.accepts(std::path::Path::new("Tetris.gb")));
     assert!(!Platform::Gba.accepts(std::path::Path::new("Zelda.NES")));
-    for disc in ["Ridge Racer.cue", "Ridge Racer.chd", "Ridge Racer.PBP", "Final Fantasy VII.m3u"] {
+    for disc in [
+        "Ridge Racer.cue",
+        "Ridge Racer.chd",
+        "Ridge Racer.PBP",
+        "Final Fantasy VII.m3u",
+    ] {
         assert!(Platform::Ps1.accepts(std::path::Path::new(disc)), "{disc}");
     }
     assert!(!Platform::Ps1.accepts(std::path::Path::new("Ridge Racer.sfc")));

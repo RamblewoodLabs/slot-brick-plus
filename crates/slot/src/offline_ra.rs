@@ -1142,14 +1142,7 @@ impl CacheRun {
 }
 
 fn console_of(platform: Platform) -> Option<Console> {
-    Some(match platform {
-        Platform::Gba => Console::Gba,
-        Platform::Gb => Console::Gb,
-        Platform::Gbc => Console::Gbc,
-        Platform::Nes => Console::Nes,
-        Platform::Snes => Console::Snes,
-        Platform::Ps1 => Console::Ps1,
-    })
+    Console::from_id(platform.def().ra)
 }
 
 fn post_form(body: &str) -> Result<(u16, Vec<u8>), String> {

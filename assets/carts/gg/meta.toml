@@ -1,0 +1,10 @@
+# gg: Blender render of the gamegear shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 322x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 66.0x68.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 26
+y = 40
+w = 270
+h = 207
+rotation = 0.0
+aspect = 1.3043

@@ -2526,3 +2526,93 @@ fn y_in_the_cart_menu_searches_only_online_and_b_leaves_the_label_as_it_was() {
     assert!(app.cart_menu().is_none());
     assert!(!d.path().join("Labels/GB/Tetris.png").exists(), "a label was written");
 }
+
+fn app_on(platform: Platform, ext: &str) -> App {
+    App::new(
+        ["Turner", "Zzz"]
+            .iter()
+            .map(|stem| Cart {
+                platform,
+                stem: (*stem).to_string(),
+                rom: format!("Games/X/{stem}.{ext}").into(),
+                label: None,
+                code: String::new(),
+                shell: None,
+                title: stem.to_uppercase(),
+                famicom_label: None,
+            })
+            .collect(),
+    )
+}
+
+fn insert_seconds(platform: Platform, ext: &str) -> f32 {
+    let mut a = app_on(platform, ext);
+    a.apply(Action::Insert);
+    a.on_core_ready();
+    seconds_until(&mut a, |a| matches!(a.phase(), Phase::Playing { .. }))
+}
+
+#[test]
+fn the_new_carts_turn_to_face_the_slot_first_and_the_old_ones_go_straight_in() {
+    let straight = insert_seconds(Platform::Gba, "gba");
+    for (platform, ext) in [
+        (Platform::Intv, "int"),
+        (Platform::Arcade, "zip"),
+        (Platform::Md, "md"),
+    ] {
+        let turn = slot_ui::turn::seconds(platform);
+        assert!(turn > 0.3, "{platform:?} has no turn");
+        let took = insert_seconds(platform, ext);
+        assert!(
+            (took - straight - turn).abs() < 0.05,
+            "{platform:?}: {took}s against {straight}s straight in plus a {turn}s turn"
+        );
+    }
+    assert_eq!(slot_ui::turn::seconds(Platform::Gba), 0.0);
+    assert_eq!(slot_ui::turn::seconds(Platform::Nes), 0.0);
+}
+
+#[test]
+fn a_turning_cart_does_not_move_toward_the_slot_until_it_has_turned() {
+    let mut a = app_on(Platform::Intv, "int");
+    a.apply(Action::Insert);
+    let turn = slot_ui::turn::seconds(Platform::Intv);
+    let mut t = 0.0;
+    while t + 1.0 / 60.0 < turn {
+        a.update(1.0 / 60.0);
+        t += 1.0 / 60.0;
+        assert_eq!(a.seat(), 0.0, "moved at {t}s, mid-turn");
+    }
+    for _ in 0..10 {
+        a.update(1.0 / 60.0);
+    }
+    assert!(a.seat() > 0.0);
+}
+
+#[test]
+fn a_turning_cart_ejected_turns_back_before_it_is_on_the_shelf() {
+    let mut a = app_on(Platform::Intv, "int");
+    a.apply(Action::Insert);
+    a.on_core_ready();
+    seconds_until(&mut a, |a| matches!(a.phase(), Phase::Playing { .. }));
+    a.apply(Action::Eject);
+    let took = seconds_until(&mut a, |a| matches!(a.phase(), Phase::Shelf));
+    let turn = slot_ui::turn::seconds(Platform::Intv);
+    assert!(
+        took > EJECT_S + turn - 0.05,
+        "back on the shelf after {took}s, before turning back"
+    );
+}
+
+#[test]
+fn a_cart_refused_mid_turn_turns_back_from_where_it_got_to() {
+    let mut a = app_on(Platform::Intv, "int");
+    a.apply(Action::Insert);
+    for _ in 0..12 {
+        a.update(1.0 / 60.0);
+    }
+    a.on_core_failed();
+    let took = seconds_until(&mut a, |a| matches!(a.phase(), Phase::Shelf));
+    assert!(took < 0.3, "{took}s to turn back 0.2s of turn");
+    assert!(took > 0.1, "{took}s: it jumped back");
+}

@@ -60,11 +60,17 @@ pub const NES_SHELL: Shell = shell([0x8e, 0x8d, 0x8a], Finish::Solid);
 /// The blue the unlicensed Color Dreams carts were moulded in.
 pub const NES_BLUE_SHELL: Shell = shell([0x2b, 0x4f, 0xa6], Finish::Solid);
 /// The silver Camerica's carts were moulded in, which shone as their gold did.
-pub const NES_SILVER_SHELL: Shell = Shell { colour: [0xc3, 0xc7, 0xcd], finish: Finish::Sheen };
+pub const NES_SILVER_SHELL: Shell = Shell {
+    colour: [0xc3, 0xc7, 0xcd],
+    finish: Finish::Sheen,
+};
 /// The black the unlicensed Tengen carts were moulded in.
 pub const NES_BLACK_SHELL: Shell = shell([0x26, 0x26, 0x29], Finish::Solid);
 /// The gold the two Zelda carts were moulded in: a polished metal, not a yellow plastic.
-pub const NES_GOLD_SHELL: Shell = Shell { colour: [0xd0, 0xa4, 0x2c], finish: Finish::Sheen };
+pub const NES_GOLD_SHELL: Shell = Shell {
+    colour: [0xd0, 0xa4, 0x2c],
+    finish: Finish::Sheen,
+};
 
 /// The SNES cart's lighter, cooler grey.
 pub const SNES_SHELL: Shell = shell([0x95, 0x94, 0x9a], Finish::Solid);
@@ -157,6 +163,8 @@ pub fn shell_for(cart: &Cart) -> Shell {
             None if cart.platform == Platform::Gba => gba_shell_for(&cart.code),
             None => gb_shell_for(&cart.rom),
         },
+        // A PNG shell brings its own plastic. This colour is only a fallback.
+        _ => shell([0x88, 0x88, 0x88], Finish::Solid),
     }
 }
 
@@ -180,9 +188,9 @@ pub fn nes_shell_for(stem: &str) -> Shell {
 /// One of the Famicom plastics, picked steadily from the ROM's name.
 pub fn famicom_shell(stem: &str) -> Shell {
     // FNV-1a: the same name always gets the same plastic.
-    let hash = stem
-        .bytes()
-        .fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    let hash = stem.bytes().fold(0x811c_9dc5u32, |h, b| {
+        (h ^ b as u32).wrapping_mul(0x0100_0193)
+    });
     FAMICOM_SHELLS[hash as usize % FAMICOM_SHELLS.len()]
 }
 
@@ -190,8 +198,24 @@ pub fn famicom_shell(stem: &str) -> Shell {
 /// PAL / Super Famicom cart. No-Intro "(Europe)", "(Japan)", GoodTools "(E)", "(J)".
 pub fn snes_pal(stem: &str) -> bool {
     const PAL: &[&str] = &[
-        "Japan", "Europe", "Germany", "France", "Spain", "Italy", "UK", "Australia",
-        "Netherlands", "Sweden", "Scandinavia", "J", "E", "G", "F", "S", "I", "A",
+        "Japan",
+        "Europe",
+        "Germany",
+        "France",
+        "Spain",
+        "Italy",
+        "UK",
+        "Australia",
+        "Netherlands",
+        "Sweden",
+        "Scandinavia",
+        "J",
+        "E",
+        "G",
+        "F",
+        "S",
+        "I",
+        "A",
     ];
     let mut pal = false;
     for region in region_tags(stem) {

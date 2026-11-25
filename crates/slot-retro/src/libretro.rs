@@ -53,6 +53,9 @@ struct Host {
     /// In fill mode, the frame column each canvas column takes, kept while the frame and
     /// canvas widths (the key) hold.
     fill_columns: ((usize, usize), Vec<usize>),
+    /// Every frame scaled whole into the canvas, its shape kept and the rest black: a Game &
+    /// Watch draws its own handheld, from 480x650 to 1073x580, and says so frame by frame.
+    fit: bool,
     /// For a disc-based core: how it swaps discs, and how it is told the disc to start on.
     disk: Option<DiskControl>,
     initial_disc: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
@@ -377,6 +380,10 @@ unsafe extern "C" fn video_refresh(
             fill_canvas(h, data, width, height, pitch);
             return;
         }
+        if h.fit {
+            fit_canvas(h, data, width, height, pitch);
+            return;
+        }
         let (cw, ch) = h.canvas;
         // A frame larger than the canvas (a SNES hi-res mode: 512 wide, or 448 lines
         // interlaced) is halved to fit: pixels averaged across, as a TV blended them, and
@@ -461,6 +468,38 @@ unsafe fn fill_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: 
             ptr::copy_nonoverlapping(src, h.video.as_mut_ptr().add(row), cw * 4);
             continue;
         }
+        for (x, &from) in h.fill_columns.1.iter().enumerate() {
+            let [b, g, r] = pixel(format, src, from);
+            let o = row + x * 4;
+            h.video[o..o + 4].copy_from_slice(&[b, g, r, 0]);
+        }
+    }
+}
+
+/// The frame scaled whole into the canvas, nearest pixel, centred, the margins black.
+unsafe fn fit_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
+    let (cw, ch) = (h.canvas.0 as usize, h.canvas.1 as usize);
+    let (w, hgt) = (width as usize, height as usize);
+    if w == 0 || hgt == 0 || cw == 0 || ch == 0 {
+        return;
+    }
+    // The larger of the two scales that fit: w/cw or hgt/ch frame pixels per canvas pixel.
+    let (dw, dh) = if w * ch >= hgt * cw {
+        (cw, (hgt * cw / w).clamp(1, ch))
+    } else {
+        ((w * ch / hgt).clamp(1, cw), ch)
+    };
+    let (ox, oy) = ((cw - dw) / 2, (ch - dh) / 2);
+    // Keyed on the frame's whole size: a new one leaves margins of another shape to clear.
+    let key = (w | hgt << 24, dw);
+    if h.fill_columns.0 != key {
+        h.fill_columns = (key, (0..dw).map(|x| x * w / dw).collect());
+        h.video.fill(0);
+    }
+    let format = h.format;
+    for y in 0..dh {
+        let src = (data as *const u8).add((y * hgt / dh) * pitch);
+        let row = ((y + oy) * cw + ox) * 4;
         for (x, &from) in h.fill_columns.1.iter().enumerate() {
             let [b, g, r] = pixel(format, src, from);
             let o = row + x * 4;
@@ -583,6 +622,11 @@ impl LibretroCore {
         self.host.fill = fill;
     }
 
+    /// Every frame scaled whole to fit the canvas, its shape kept (see `Host::fit`).
+    pub fn set_fit(&mut self, fit: bool) {
+        self.host.fit = fit;
+    }
+
     pub fn set_option(&mut self, key: &str, value: &str) {
         if !self.host.declared.is_empty() {
             match self.host.declared.get(key) {
@@ -649,6 +693,7 @@ impl LibretroCore {
             memory_map: Vec::new(),
             fill: false,
             fill_columns: ((0, 0), Vec::new()),
+            fit: false,
             disk: None,
             initial_disc: None,
         });
@@ -967,6 +1012,7 @@ mod tests {
             memory_map: Vec::new(),
             fill: false,
             fill_columns: ((0, 0), Vec::new()),
+            fit: false,
             disk: None,
             initial_disc: None,
         })
@@ -1894,6 +1940,31 @@ mod tests {
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
         assert_eq!((px(0, 0), px(318, 479)), (255, 255), "the left half is not white to its edges");
         assert_eq!((px(322, 0), px(639, 479)), (0, 0), "the right half is not dark to its edges");
+    }
+
+    #[test]
+    fn in_fit_mode_a_frame_keeps_its_shape_and_is_centred() {
+        let mut host = host_with(HashMap::new(), false);
+        host.canvas = (640, 480);
+        host.video = vec![1; 640 * 480 * 4];
+        host.fit = true;
+        let _active = Active::bind(&mut host);
+        // 1280x400, white: scaled to 640x200, so black bands of 140 lines above and below.
+        let (w, h) = (1280usize, 400usize);
+        let frame = vec![255u8; w * h * 4];
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
+        let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
+        let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
+        assert_eq!((px(0, 139), px(639, 340)), (0, 0), "the bands are not black");
+        assert_eq!((px(0, 140), px(639, 339)), (255, 255), "the picture does not reach both sides");
+        // 480x650, tall: 354x480, centred across.
+        let (w, h) = (480usize, 650usize);
+        let frame = vec![255u8; w * h * 4];
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
+        let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
+        let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
+        assert_eq!((px(0, 240), px(142, 0), px(497, 479)), (0, 0, 0), "the sides are not black");
+        assert_eq!((px(143, 0), px(496, 479)), (255, 255), "the picture does not reach top and bottom");
     }
 
     #[test]

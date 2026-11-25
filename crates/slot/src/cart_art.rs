@@ -313,6 +313,8 @@ fn platforms_for(platform: Platform) -> &'static [Platform] {
         Platform::Nes => &[Platform::Nes],
         Platform::Snes => &[Platform::Snes],
         Platform::Ps1 => &[Platform::Ps1],
+        // Newer shelves are not in the No-Intro list this looks through.
+        _ => &[],
     }
 }
 

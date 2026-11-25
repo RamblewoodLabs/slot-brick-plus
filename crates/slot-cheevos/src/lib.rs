@@ -107,9 +107,25 @@ pub enum Console {
     Nes,
     Snes,
     Ps1,
+    /// A RetroAchievements console id Slot does not name. 0 is not a console.
+    Other(u32),
 }
 
 impl Console {
+    /// The console RetroAchievements uses for this id. None for 0.
+    pub fn from_id(id: u32) -> Option<Console> {
+        Some(match id {
+            5 => Console::Gba,
+            4 => Console::Gb,
+            6 => Console::Gbc,
+            7 => Console::Nes,
+            3 => Console::Snes,
+            12 => Console::Ps1,
+            0 => return None,
+            other => Console::Other(other),
+        })
+    }
+
     fn id(self) -> c_uint {
         unsafe {
             match self {
@@ -119,6 +135,7 @@ impl Console {
                 Console::Nes => slot_cheevos_console_nes(),
                 Console::Snes => slot_cheevos_console_snes(),
                 Console::Ps1 => slot_cheevos_console_ps1(),
+                Console::Other(id) => id as c_uint,
             }
         }
     }

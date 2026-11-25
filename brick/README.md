@@ -128,6 +128,22 @@ Overlay. Cart Art fetches disc scans (below), or put your own round picture in `
 a disc of a game of several can have its own, named after that disc's file. RetroAchievements
 work, `.chd` included.
 
+**Genesis, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx, Atari 7800:**
+each has a shelf. Put ROMs in `Slot/Games/MD` (`.md` `.gen` `.smd` `.bin`), `SMS` (`.sms`), `GG` (`.gg`),
+`ARCADE` (`.zip`, the zip itself, not unpacked), `PCE` (`.pce` `.sgx`), `A2600` (`.a26` `.bin`),
+`INTV` (`.int` `.bin`), `LYNX` (`.lnx`) and `A7800` (`.a78` `.bin`). Genesis is a 6-button pad
+(B is B, A is C, Y is A, X is Y, L is X, R is Z). On the 2600 and 7800, L and R are the difficulty
+switches. On Intellivision, hold L or R for the keypad. Intellivision needs `Slot/BIOS/exec.bin` and
+`grom.bin`. Lynx needs `Slot/BIOS/lynxboot.img`. Neo Geo needs `Slot/BIOS/neogeo.zip`. A picture at
+`Slot/Labels/<folder>/<game>.png` is the cartridge label. Library → Systems shows or hides a shelf.
+How the cartridge art is drawn is in `docs/cart-shells.md`.
+
+**Game & Watch:** put `.mgw` games (the MADrigal simulators gw-libretro runs) in
+`Slot/Games/GW`. The D-pad, A and B are the handheld's buttons; Select steps through Game A,
+Game B and Time, and Start presses it. Each handheld drawn on the shelf, and the frames of it
+opening or lighting up, are `Slot/Labels/GW/<game>.png` and `Slot/Labels/GW/open/<game>.png`,
+made from ES-DE media by `brick/gw-art`. The core has no save states, so there is no rewind.
+
 **Zipped games:** GB, GBC, GBA, NES and SNES ROMs can be zipped (`.zip`) or 7z'd (`.7z`), one
 ROM in each. The cart takes the archive's name, so `Tetris.gb` zipped as `Tetris.zip` keeps its
 saves, states, label and play time. Starting one unpacks its ROM into `Slot/System/Cache/Unpacked`,

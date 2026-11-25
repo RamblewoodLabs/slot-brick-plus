@@ -9,13 +9,13 @@ mod cart;
 mod cart_menu;
 mod disc;
 pub use disc::{disc_face, disc_shadow, DISC_PX};
-mod label_adjust;
-mod label_grid;
 mod clock;
 mod draw;
 mod footer;
 mod hud;
 mod icon;
+mod label_adjust;
+mod label_grid;
 mod link_art;
 mod peel;
 mod plate;
@@ -26,14 +26,17 @@ mod rebuild;
 mod refusal;
 mod shelf;
 mod shell;
+pub mod shell_png;
 mod silhouette;
 mod slot_chrome;
 mod sticker;
-mod title_card;
 pub mod text;
+mod title_card;
 mod toast;
+pub mod turn;
 
 pub use backdrop::{bezel_face, draw_backdrop, wallpaper_face};
+pub use banner::{banner_face, BADGE_PX, BANNER_H, BANNER_W, BANNER_X, BANNER_Y};
 pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
 pub use battery::{draw_gauge, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
 pub use board::{
@@ -44,63 +47,67 @@ pub use board::{
     SLIDE_SHARE, SLIDE_UP, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 pub use cart::{
-    cart_box, cart_cutout_face, cart_face, cart_face_with, cart_shadow, clean_label, gb_cart_shadow, gb_label_panel,
+    cart_box, cart_cutout_face, cart_face, cart_face_with, cart_shadow, clean_label,
+    famicom_label_panel, fitted_label, fitted_label_rgba, gb_cart_shadow, gb_label_panel,
     gb_shell_of, label_colour, label_panel, label_size, label_tags, label_text, nes_cart_shadow,
-    nes_label_panel, seated_box, snes_cart_shadow, snes_label_panel, snes_shell_of, nes_famicom_of, famicom_label_panel, fitted_label, fitted_label_rgba, shown_label, CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W, GB_LABEL_H,
-    GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_X, LABEL_Y, NES_CART_H, NES_CART_W, NES_LABEL_H, NES_LABEL_W, NES_LABEL_X,
-    NES_LABEL_Y, SNES_CART_H, SNES_CART_W, SNES_LABEL_H, SNES_LABEL_W, SNES_LABEL_X, SNES_LABEL_Y,
+    nes_famicom_of, nes_label_panel, seated_box, shown_label, snes_cart_shadow, snes_label_panel,
+    snes_shell_of, CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W, GB_LABEL_H, GB_LABEL_W,
+    GB_LABEL_X, GB_LABEL_Y, LABEL_H, LABEL_W, LABEL_X, LABEL_Y, NES_CART_H, NES_CART_W,
+    NES_LABEL_H, NES_LABEL_W, NES_LABEL_X, NES_LABEL_Y, SNES_CART_H, SNES_CART_W, SNES_LABEL_H,
+    SNES_LABEL_W, SNES_LABEL_X, SNES_LABEL_Y,
 };
 pub use cart_menu::{
-    cart_menu_cart_at, cart_menu_label_face, cart_menu_legend_faces, GREYED, cart_menu_value_face, colour_choices,
-    finish_name, CartMenuFaces, CartMenuView, CartRow, FINISHES, NES_SHAPES, SHAPES, SNES_SHAPES,
+    cart_menu_cart_at, cart_menu_label_face, cart_menu_legend_faces, cart_menu_value_face,
+    colour_choices, finish_name, CartMenuFaces, CartMenuView, CartRow, FINISHES, GREYED,
+    NES_SHAPES, SHAPES, SNES_SHAPES,
 };
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
-pub use label_adjust::{
-    label_adjust_legend_faces, slot_stand, LabelAdjustView, Rect,
-};
-pub use peel::{
-    draw_peel, fade_from, peel_bow, peel_face, peel_pad, peel_pose, peel_shadow_face, peel_step, PeelPose, LAND_MS as PEEL_LAND_MS, PEEL_MS, PEEL_STEPS,
-};
-pub use label_grid::{
-    label_grid_legend_faces, LabelGridView, GRID_COLS, GRID_ROWS, PAGE,
-};
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
-pub use footer::{draw_footer, draw_footer_note, draw_menu_header, battery_colour, Printed, WIFI_PX};
+pub use footer::{
+    battery_colour, draw_footer, draw_footer_note, draw_menu_header, Printed, WIFI_PX,
+};
 pub use hud::{
     badge_at, ff_badge, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H, HUD_ICON_PX,
     HUD_INK, HUD_MS, LINK_HOST_INK, LINK_JOIN_INK, PLATE_H,
 };
 pub use icon::{badge_face, icon_box, icon_face, star_face, Badge, Icon};
+pub use label_adjust::{label_adjust_legend_faces, slot_stand, LabelAdjustView, Rect};
+pub use label_grid::{label_grid_legend_faces, LabelGridView, GRID_COLS, GRID_ROWS, PAGE};
 pub use link_art::{
     link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
     ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, PLUG_H,
     PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
 };
-pub use banner::{banner_face, BADGE_PX, BANNER_H, BANNER_W, BANNER_X, BANNER_Y};
+pub use peel::{
+    draw_peel, fade_from, peel_bow, peel_face, peel_pad, peel_pose, peel_shadow_face, peel_step,
+    PeelPose, LAND_MS as PEEL_LAND_MS, PEEL_MS, PEEL_STEPS,
+};
 pub use plate::{
-    arrows_hint_face, caret_hint_face, arrows_hint_width, cap_width, centred_hints, hint_face, hint_quad, hint_row,
-    caption_face, footer_plate, hint_width, title_face, word_face, word_width, Hint, UndoFace, ARROW_GAP, CAP, CAP_GAP,
-    CAPTION_Y, HINT_EDGE, HINT_GAP, HINT_H, LEGEND_GAP, LEGEND_Y, TITLE_H, TITLE_W,
+    arrows_hint_face, arrows_hint_width, cap_width, caption_face, caret_hint_face, centred_hints,
+    footer_plate, hint_face, hint_quad, hint_row, hint_width, title_face, word_face, word_width,
+    Hint, UndoFace, ARROW_GAP, CAP, CAPTION_Y, CAP_GAP, HINT_EDGE, HINT_GAP, HINT_H, LEGEND_GAP,
+    LEGEND_Y, TITLE_H, TITLE_W,
 };
 pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
 pub use power_menu::{menu_face, swap_ab_text, PauseChoice, PowerChoice, MENU_PAD};
 pub use quick_menu::{
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, quick_value_room, QuickMenu,
-    QuickMenuFaces, QuickRow, QuickValue, quick_pitch, set_brick_pro, QUICK_EDGE, QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
-    PIP,
+    quick_caret_face, quick_label_face, quick_legend_faces, quick_pitch, quick_value_face,
+    quick_value_room, set_brick_pro, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, PIP,
+    QUICK_EDGE, QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
 };
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
 pub use refusal::Refusal;
 pub use shelf::{foot_y, pop_in, pop_out, rest_y, set_shelf_slack, Shelf};
 pub use shell::{
-    gb_table_shells, gba_shell_for, lookup_order_is_exact_then_family_then_default, shell_for,
-    famicom_shell, nes_shell_for, shell_presets, snes_pal, table_keys, Finish, Shell, DEFAULT_SHELL, DMG_SHELL,
-    DUAL_MODE_SHELL, FAMICOM_NAMES, FAMICOM_SHELLS, GB_CLEAR_SHELL, NES_SHELL, SNES_PAL_SHELL, SNES_SHELL,
+    famicom_shell, gb_table_shells, gba_shell_for, lookup_order_is_exact_then_family_then_default,
+    nes_shell_for, shell_for, shell_presets, snes_pal, table_keys, Finish, Shell, DEFAULT_SHELL,
+    DMG_SHELL, DUAL_MODE_SHELL, FAMICOM_NAMES, FAMICOM_SHELLS, GB_CLEAR_SHELL, NES_SHELL,
+    SNES_PAL_SHELL, SNES_SHELL,
 };
 pub use silhouette::{gb_silhouette, silhouette, GbShell, NesShell, SnesShell};
 pub use slot_chrome::{
-    draw_empty_slot, draw_slot_name, ease, edge, housing, opening, recess, set_disc_slot, set_theme, SlotChrome,
-    ALERT_PX, LIP_H, MOUTH_H, MOUTH_W,
+    draw_empty_slot, draw_slot_name, ease, edge, housing, opening, recess, set_disc_slot,
+    set_theme, SlotChrome, ALERT_PX, LIP_H, MOUTH_H, MOUTH_W,
 };
 pub use sticker::{
     draw_sticker, head_rows, sticker_face, sticker_lines, StickerFields, COPYRIGHT, CREDITS, DC,
@@ -110,4 +117,4 @@ pub use title_card::{draw_title_card, title_card_face};
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
 
 #[cfg(feature = "brick")]
-pub use slot_chrome::{upload_slot_art,slot_art_face};
+pub use slot_chrome::{slot_art_face, upload_slot_art};

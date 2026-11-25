@@ -285,6 +285,22 @@ pub enum Phase {
     },
 }
 
+/// A cart's turn frames on the GPU (see `slot_ui::turn`).
+pub struct TurnTex {
+    pub platform: Platform,
+    pub stem: String,
+    /// Each frame and its place relative to the shelf face's top-left (x, y, w, h).
+    pub frames: Vec<(TexId, [f32; 4])>,
+    /// The face a cart that ends the turn the other way up goes in with.
+    pub seated: Option<TexId>,
+}
+
+impl TurnTex {
+    pub fn textures(&self) -> impl Iterator<Item = TexId> + '_ {
+        self.frames.iter().map(|(t, _)| *t).chain(self.seated)
+    }
+}
+
 pub struct App {
     #[cfg(feature = "brick")]
     pub(crate) wifi: Option<crate::brick_wifi::WifiMenu>,
@@ -305,6 +321,8 @@ pub struct App {
     shelves: Vec<(Platform, Shelf)>,
     /// Faces of carts whose label changed, for CartFaces to recycle and rebuild.
     stale_faces: Vec<TexId>,
+    /// The turn frames of the cart on its way in (or the selected one, ready ahead).
+    turn: Option<TurnTex>,
     /// Two-line notices waiting their turn across the top of the screen (RetroAchievements).
     /// Title, detail, badge image, when it was queued.
     banners: std::collections::VecDeque<(String, String, Option<std::path::PathBuf>, Millis)>,
@@ -587,6 +605,7 @@ impl App {
             phase: Phase::Shelf,
             shelves,
             stale_faces: Vec::new(),
+            turn: None,
             banners: std::collections::VecDeque::new(),
             banner: None,
             banner_seq: 0,
@@ -1500,7 +1519,17 @@ impl App {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => row
+            | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
@@ -1595,6 +1624,14 @@ impl App {
     pub fn set_disc_shadow(&mut self, face: TexId) {
         for (_, shelf) in &mut self.shelves {
             shelf.set_disc_shadow(face);
+        }
+    }
+
+    pub fn set_png_shadow(&mut self, platform: Platform, face: TexId) {
+        for (p, shelf) in &mut self.shelves {
+            if *p == platform {
+                shelf.set_png_shadow(face);
+            }
         }
     }
 
@@ -1743,6 +1780,22 @@ impl App {
     }
 
     pub fn set_cart_face(&mut self, shelf: usize, index: usize, tex: TexId) -> Option<TexId> {
+        // A new face (a new label) makes that cart's turn frames stale.
+        let key = self
+            .shelves
+            .get(shelf)?
+            .1
+            .carts
+            .get(index)
+            .map(|c| (c.platform, c.stem.clone()));
+        let stale = key
+            .as_ref()
+            .is_some_and(|(p, s)| self.turn_for() == Some((*p, s.as_str())));
+        if stale && !self.turn_needed() {
+            if let Some(old) = self.turn.take() {
+                self.stale_faces.extend(old.textures());
+            }
+        }
         self.shelves.get_mut(shelf)?.1.set_face(index, tex)
     }
 
@@ -1950,8 +2003,7 @@ impl App {
     /// GB, GBC and NES have no shoulder buttons. L1 and R1 are not the game's, and they
     /// do not change the picture either: that lives in Emulation → Aspect and the pause menu.
     fn slot_owns_the_shoulders(&self) -> bool {
-        matches!(self.phase, Phase::Playing { .. })
-            && matches!(self.platform, Platform::Gb | Platform::Gbc | Platform::Nes)
+        matches!(self.phase, Phase::Playing { .. }) && self.platform.def().shoulders_are_slot
     }
 
     pub fn taken_buttons(&self) -> &'static [Btn] {
@@ -2017,7 +2069,9 @@ impl App {
             return;
         }
         let (to, said) = match self.video_mode {
-            VideoMode::Stretch | VideoMode::FourThree => (VideoMode::Actual, Toast::PictureOriginal),
+            VideoMode::Stretch | VideoMode::FourThree => {
+                (VideoMode::Actual, Toast::PictureOriginal)
+            }
             VideoMode::Actual | VideoMode::Integer => (VideoMode::Stretch, Toast::PictureFull),
         };
         if self.set_picture(to) {
@@ -2064,7 +2118,7 @@ impl App {
     }
 
     pub fn records_rewind(&self) -> bool {
-        self.state.rewind && self.platform != Platform::Ps1
+        self.state.rewind && self.platform.def().rewind
     }
 
     /// The canvas the running core draws into.
@@ -2194,22 +2248,22 @@ impl App {
     }
 
     pub fn screen_shader(&self) -> Shader {
-        match self.platform {
-            Platform::Gba => self.state.shader_gba,
-            Platform::Gb | Platform::Gbc => self.state.shader_gb,
-            Platform::Nes => self.state.shader_nes,
-            Platform::Snes => self.state.shader_snes,
-            Platform::Ps1 => self.state.shader_ps1,
+        match self.platform.def().shader {
+            slot_store::ShaderFamily::Gba => self.state.shader_gba,
+            slot_store::ShaderFamily::Gb => self.state.shader_gb,
+            slot_store::ShaderFamily::Nes => self.state.shader_nes,
+            slot_store::ShaderFamily::Snes => self.state.shader_snes,
+            slot_store::ShaderFamily::Ps1 => self.state.shader_ps1,
         }
     }
 
     /// Colour correction for the system being played: the Game Boys share one, the GBA has its
-    /// own, and a NES, SNES or PlayStation has no LCD colour to correct.
+    /// own, and a television has no LCD colour to correct.
     pub fn colour_correction(&self) -> bool {
-        match self.platform {
-            Platform::Gb | Platform::Gbc => self.state.colour_correction_gb,
-            Platform::Gba => self.state.colour_correction_gba,
-            Platform::Nes | Platform::Snes | Platform::Ps1 => false,
+        match self.platform.def().colour {
+            slot_store::ColourCorrect::Gb => self.state.colour_correction_gb,
+            slot_store::ColourCorrect::Gba => self.state.colour_correction_gba,
+            slot_store::ColourCorrect::None => false,
         }
     }
 
@@ -2908,6 +2962,16 @@ impl App {
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
             | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -2932,7 +2996,10 @@ impl App {
     }
 
     fn aspect_global(&self) -> VideoMode {
-        self.root.as_deref().map(video_mode::global_mode).unwrap_or_default()
+        self.root
+            .as_deref()
+            .map(video_mode::global_mode)
+            .unwrap_or_default()
     }
 
     fn aspect_system_value(&self, platform: Platform) -> QuickValue {
@@ -2946,14 +3013,20 @@ impl App {
     }
 
     fn cycle_aspect_setting(&mut self, row: QuickRow, right: bool) {
-        let Some(root) = self.root.clone() else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         match row {
             QuickRow::Aspect => {
                 let next = self.aspect_global().step(right);
                 let _ = video_mode::write_global(&root, next);
                 self.announce("Aspect", next.label());
             }
-            QuickRow::AspectGb | QuickRow::AspectGba | QuickRow::AspectNes | QuickRow::AspectSnes | QuickRow::AspectPs1 => {
+            QuickRow::AspectGb
+            | QuickRow::AspectGba
+            | QuickRow::AspectNes
+            | QuickRow::AspectSnes
+            | QuickRow::AspectPs1 => {
                 let platforms: &[Platform] = match row {
                     QuickRow::AspectGb => &[Platform::Gb, Platform::Gbc],
                     QuickRow::AspectGba => &[Platform::Gba],
@@ -2962,10 +3035,23 @@ impl App {
                     _ => &[Platform::Ps1],
                 };
                 let current = video_mode::system_mode(&root, platforms[0]);
-                let choices = [None, Some(VideoMode::Actual), Some(VideoMode::FourThree), Some(VideoMode::Stretch), Some(VideoMode::Integer)];
-                let at = choices.iter().position(|mode| *mode == current).unwrap_or(0);
+                let choices = [
+                    None,
+                    Some(VideoMode::Actual),
+                    Some(VideoMode::FourThree),
+                    Some(VideoMode::Stretch),
+                    Some(VideoMode::Integer),
+                ];
+                let at = choices
+                    .iter()
+                    .position(|mode| *mode == current)
+                    .unwrap_or(0);
                 let n = choices.len();
-                let next = choices[if right { (at + 1) % n } else { (at + n - 1) % n }];
+                let next = choices[if right {
+                    (at + 1) % n
+                } else {
+                    (at + n - 1) % n
+                }];
                 for platform in platforms {
                     let _ = video_mode::write_system(&root, *platform, next);
                 }
@@ -2984,8 +3070,12 @@ impl App {
 
     /// The picture for the game that is open, from the pause menu.
     fn cycle_game_aspect(&mut self, right: bool) {
-        let Some(root) = self.root.clone() else { return };
-        let Some(stem) = self.seated().map(str::to_string) else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some(stem) = self.seated().map(str::to_string) else {
+            return;
+        };
         let next = self.video_mode.step(right);
         if video_mode::write_video_mode(&root, &stem, next).is_ok() {
             self.video_mode = next;
@@ -3132,7 +3222,17 @@ impl App {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => {
+            | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };
@@ -3211,12 +3311,12 @@ impl App {
         if !matches!(self.phase, Phase::Inserting { .. } | Phase::Playing { .. }) {
             return;
         }
-        let (shader, choices) = match self.platform {
-            Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
-            Platform::Gb | Platform::Gbc => (&mut self.state.shader_gb, &Shader::GB[..]),
-            Platform::Nes => (&mut self.state.shader_nes, &Shader::NES[..]),
-            Platform::Snes => (&mut self.state.shader_snes, &Shader::NES[..]),
-            Platform::Ps1 => (&mut self.state.shader_ps1, &Shader::NES[..]),
+        let (shader, choices) = match self.platform.def().shader {
+            slot_store::ShaderFamily::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+            slot_store::ShaderFamily::Gb => (&mut self.state.shader_gb, &Shader::GB[..]),
+            slot_store::ShaderFamily::Nes => (&mut self.state.shader_nes, &Shader::NES[..]),
+            slot_store::ShaderFamily::Snes => (&mut self.state.shader_snes, &Shader::NES[..]),
+            slot_store::ShaderFamily::Ps1 => (&mut self.state.shader_ps1, &Shader::NES[..]),
         };
         *shader = shader.step(choices, right);
         let said = match *shader {
@@ -3509,6 +3609,10 @@ impl App {
         }
         let mut touched = false;
         let at = self.shelf_at;
+        let eject_turn = match &self.phase {
+            Phase::Ejecting { cart, .. } => self.turn_seconds_of(cart),
+            _ => 0.0,
+        };
         let next = match &mut self.phase {
             Phase::Shelf => {
                 let shelf = &mut self.shelves[at].1;
@@ -3537,7 +3641,7 @@ impl App {
                     *t += dt;
                     touched = was < 0.0 && *t >= 0.0;
                 }
-                (*t >= EJECT_S).then_some(Phase::Shelf)
+                (*t >= EJECT_S + eject_turn).then_some(Phase::Shelf)
             }
             _ => None,
         };
@@ -3951,7 +4055,13 @@ impl App {
     }
 
     fn refuse_out(&mut self, cart: String, caught: f32) {
-        let t = (1.0 - caught) * EJECT_S;
+        let mut t = (1.0 - caught) * EJECT_S;
+        // Refused mid-turn: it turns back from where it had got to.
+        if let Phase::Inserting { t: at, .. } = &self.phase {
+            if *at < 0.0 {
+                t = EJECT_S - *at;
+            }
+        }
         self.phase = Phase::Ejecting { cart, t };
         self.refused_from = Some(t);
     }
@@ -3962,6 +4072,81 @@ impl App {
 
     pub fn refusal_active(&self, now: Millis) -> bool {
         self.refusal.is_some_and(|r| r.active(now))
+    }
+
+    fn turn_seconds_of(&self, stem: &str) -> f32 {
+        self.shelf()
+            .find(stem)
+            .map_or(0.0, |(cart, _)| slot_ui::turn::seconds(cart.platform))
+    }
+
+    /// How far through its turn the cart going in (or out) is: `None` when it isn't turning.
+    fn turn_u(&self) -> Option<(&str, f32)> {
+        match &self.phase {
+            Phase::Inserting {
+                cart,
+                t,
+                resumed: false,
+                ..
+            } => {
+                let s = self.turn_seconds_of(cart);
+                (s > 0.0).then(|| (cart.as_str(), ((t + s) / s).clamp(0.0, 1.0)))
+            }
+            Phase::Ejecting { cart, t } => {
+                let s = self.turn_seconds_of(cart);
+                (s > 0.0).then(|| (cart.as_str(), 1.0 - ((t - EJECT_S) / s).clamp(0.0, 1.0)))
+            }
+            _ => None,
+        }
+    }
+
+    /// The cart whose turn frames should be ready: the one going in or out, else the
+    /// selected one on the shelf (so a press of A never waits on them).
+    pub fn turn_want(&self) -> Option<Cart> {
+        let cart = match &self.phase {
+            Phase::Inserting { cart, .. } | Phase::Ejecting { cart, .. } => {
+                self.shelf().find(cart).map(|(c, _)| c)
+            }
+            Phase::Shelf => self.shelf().carts.get(self.shelf().index),
+            _ => None,
+        }?;
+        slot_ui::turn::turns(cart.platform).then(|| cart.clone())
+    }
+
+    /// The turn being shown needs its frames now.
+    pub fn turn_needed(&self) -> bool {
+        self.turn_u().is_some_and(|(_, u)| u < 1.0)
+    }
+
+    pub fn turn_for(&self) -> Option<(Platform, &str)> {
+        self.turn.as_ref().map(|t| (t.platform, t.stem.as_str()))
+    }
+
+    /// Hands over a cart's turn frames; the textures they replace come back to be reused.
+    pub fn set_turn(&mut self, turn: TurnTex) -> Option<TurnTex> {
+        self.turn.replace(turn)
+    }
+
+    /// The frame to draw in the cart's place, and (for a cart that goes in turned over)
+    /// the face it slides in with.
+    fn turn_draw(&self, stem: &str) -> (Option<(TexId, [f32; 4])>, Option<TexId>) {
+        let platform = self.shelf().find(stem).map(|(c, _)| c.platform);
+        let Some(tex) = self
+            .turn
+            .as_ref()
+            .filter(|t| t.stem == stem && Some(t.platform) == platform)
+        else {
+            return (None, None);
+        };
+        let Some((_, u)) = self.turn_u().filter(|(s, _)| *s == stem) else {
+            return (None, None);
+        };
+        if u >= 1.0 || tex.frames.is_empty() {
+            return (None, tex.seated);
+        }
+        let n = tex.frames.len();
+        let i = ((u * n as f32) as usize).min(n - 1);
+        (Some(tex.frames[i]), None)
     }
 
     pub fn seat(&self) -> f32 {
@@ -4309,7 +4494,10 @@ impl App {
                 }
             } else {
                 let mut faces = self.pause_menu_faces.clone();
-                if let Some(at) = PauseChoice::ALL.iter().position(|c| *c == PauseChoice::Picture) {
+                if let Some(at) = PauseChoice::ALL
+                    .iter()
+                    .position(|c| *c == PauseChoice::Picture)
+                {
                     if let Some(face) = self.aspect_faces.get(self.video_mode.index()) {
                         if let Some(slot) = faces.get_mut(at) {
                             *slot = *face;
@@ -4359,7 +4547,10 @@ impl App {
             .or(face);
         let alpha = self.alert_alpha();
         let (rest, scale) = self.shelf().selected_at();
+        let (turn, seated) = self.turn_draw(stem);
+        let face = seated.or(face);
         SlotChrome {
+            turn,
             cart,
             face,
             rest,
@@ -4876,9 +5067,9 @@ impl App {
         }
         // 1.6.0: the scan no longer opens every ROM; the header is read on insert.
         let at = self.shelf().index;
-        let Some(cart) = self.shelf_mut().carts.get_mut(at).map(|c| {
+        let Some((cart, turn)) = self.shelf_mut().carts.get_mut(at).map(|c| {
             c.read_header();
-            c.stem.clone()
+            (c.stem.clone(), slot_ui::turn::seconds(c.platform))
         }) else {
             return;
         };
@@ -4886,9 +5077,10 @@ impl App {
         self.pause_menu = None;
         self.refusal = None;
         self.refused_from = None;
+        // A cart that turns to face the slot does so first; the slide in is unchanged.
         self.phase = Phase::Inserting {
             cart,
-            t: 0.0,
+            t: -turn,
             core_ready: false,
             resumed: false,
             clean,
@@ -7544,8 +7736,8 @@ impl CartMenu {
                 CartRow::Reset,
             ],
             Platform::Gba => vec![CartRow::Colour, CartRow::Finish, CartRow::Reset],
-            // A stand-in cart (see slot_ui::PS1_SHELL): nothing of it to choose yet.
-            Platform::Ps1 => vec![CartRow::Reset],
+            // A stand-in cart (see slot_ui::PS1_SHELL), and a PNG shell: nothing of it to choose yet.
+            _ => vec![CartRow::Reset],
         };
         let mut menu = CartMenu {
             stem: cart.stem.clone(),

@@ -1,0 +1,11 @@
+# gw: a Game & Watch is no cart. Its shelf face is the game's own handheld, rendered for
+# that game (brick/gw-art) and kept as its label, Labels/GW/<stem>.png, 360x331 like the
+# box here. The shell is clear and its label window is the whole box, so the label is the face.
+# Opening (a clamshell) or lighting up (one screen) is Labels/GW/open/<stem>.png: 18 frames
+# of this size side by side. See docs/cart-shells.md.
+x = 0
+y = 0
+w = 360
+h = 331
+rotation = 0.0
+aspect = 1.0876

@@ -65,7 +65,12 @@ fn snes() -> Cart {
 
 /// Every cart shape the slot takes.
 fn both() -> [(&'static str, Cart); 4] {
-    [("the GBA cart", cart()), ("the Game Boy pak", pak()), ("the NES cart", nes()), ("the SNES cart", snes())]
+    [
+        ("the GBA cart", cart()),
+        ("the Game Boy pak", pak()),
+        ("the NES cart", nes()),
+        ("the SNES cart", snes()),
+    ]
 }
 
 fn label_band(c: &Cart) -> (f32, f32) {
@@ -74,6 +79,7 @@ fn label_band(c: &Cart) -> (f32, f32) {
         Platform::Gb | Platform::Gbc => (GB_LABEL_Y as f32, GB_LABEL_H as f32),
         Platform::Nes => (NES_LABEL_Y as f32, NES_LABEL_H as f32),
         Platform::Snes => (SNES_LABEL_Y as f32, SNES_LABEL_H as f32),
+        _ => (LABEL_Y as f32, LABEL_H as f32),
     };
     let k = seated_box(c.platform).1 as f32 / cart_box(c.platform).1 as f32;
     (y * k, h * k)
@@ -178,6 +184,7 @@ fn chrome_into(c: &Cart, seat: f32, out: &mut Vec<Draw>) {
         dim: 0.5,
         screen: 0.0,
         game: true,
+        turn: None,
     }
     .draw(out);
 }
@@ -207,6 +214,7 @@ fn a_cart_the_row_had_not_finished_moving_slides_across_as_it_goes_in() {
             dim: 0.0,
             screen: 0.0,
             game: false,
+            turn: None,
         }
         .draw(&mut out);
         out.iter()
@@ -263,6 +271,7 @@ fn draw_powering_on(t: f32, out: &mut Vec<Draw>) {
         dim: 0.0,
         screen: t,
         game: true,
+        turn: None,
     }
     .draw(out);
 }
@@ -673,6 +682,7 @@ fn the_empty_slot_is_the_same_slot_the_chrome_draws() {
         dim: 0.0,
         screen: 0.0,
         game: false,
+        turn: None,
     }
     .draw(&mut seated);
 
