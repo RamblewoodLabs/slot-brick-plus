@@ -1,0 +1,8 @@
+# pce placeholder. Replace shell.png with the Blender render.
+# Shell is 320x180 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 28
+y = 22
+w = 264
+h = 124
+rotation = 0.0
+aspect = 2.129

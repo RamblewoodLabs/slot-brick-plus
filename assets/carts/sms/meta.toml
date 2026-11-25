@@ -1,0 +1,8 @@
+# sms placeholder. Replace shell.png with the Blender render.
+# Shell is 240x320 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 32
+y = 48
+w = 176
+h = 200
+rotation = 0.0
+aspect = 0.88

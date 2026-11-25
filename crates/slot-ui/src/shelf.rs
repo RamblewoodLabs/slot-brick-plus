@@ -2,7 +2,9 @@ use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 use slot_store::Cart;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::cart::{cart_box, gb_shell_of, nes_famicom_of, snes_shell_of, label_colour, label_text, CART_H, CART_W};
+use crate::cart::{
+    cart_box, gb_shell_of, label_colour, label_text, nes_famicom_of, snes_shell_of, CART_H, CART_W,
+};
 use crate::hud::Millis;
 use crate::silhouette::{GbShell, NesShell, SnesShell};
 use crate::slot_chrome::{draw_empty_slot, MOUTH_H};
@@ -51,9 +53,13 @@ enum Backing {
     Nes(NesShell),
     Snes(SnesShell),
     Disc,
+    Png,
 }
 
 fn backing(cart: &Cart) -> Backing {
+    if cart.platform.def().shell.is_some() {
+        return Backing::Png;
+    }
     match cart.platform {
         slot_store::Platform::Nes if nes_famicom_of(cart) => Backing::Nes(NesShell::Famicom),
         slot_store::Platform::Nes => Backing::Nes(NesShell::Nes),
@@ -76,6 +82,7 @@ pub struct Shelf {
     snes_shadow: Option<TexId>,
     snes_pal_shadow: Option<TexId>,
     disc_shadow: Option<TexId>,
+    png_shadow: Option<TexId>,
     /// Each cart's shadow shape: reading it needs the ROM, so it is read once, not per frame.
     shells: Vec<Backing>,
     /// Which carts are favorites, starred on the shelf, and the star.
@@ -107,6 +114,7 @@ impl Shelf {
             snes_shadow: None,
             snes_pal_shadow: None,
             disc_shadow: None,
+            png_shadow: None,
             ride: 0.0,
             vel: 0.0,
             held: None,
@@ -122,7 +130,13 @@ impl Shelf {
 
     /// The same shelf with `carts` on it instead (another order, or fewer), each with its face
     /// if it has one, and `keep` still selected if it is there.
-    pub fn replace(&mut self, carts: Vec<Cart>, faces: Vec<Option<TexId>>, favorites: Vec<bool>, keep: Option<&str>) {
+    pub fn replace(
+        &mut self,
+        carts: Vec<Cart>,
+        faces: Vec<Option<TexId>>,
+        favorites: Vec<bool>,
+        keep: Option<&str>,
+    ) {
         let at = keep.and_then(|stem| carts.iter().position(|c| c.stem == stem));
         self.shells = carts.iter().map(backing).collect();
         self.faces = faces;
@@ -189,6 +203,10 @@ impl Shelf {
 
     pub fn set_disc_shadow(&mut self, face: TexId) {
         self.disc_shadow = Some(face);
+    }
+
+    pub fn set_png_shadow(&mut self, face: TexId) {
+        self.png_shadow = Some(face);
     }
 
     pub fn set_faces(&mut self, faces: Vec<TexId>) {
@@ -467,6 +485,7 @@ impl Shelf {
                     Some(Backing::Snes(SnesShell::Us)) => self.snes_shadow,
                     Some(Backing::Snes(SnesShell::Pal)) => self.snes_pal_shadow,
                     Some(Backing::Disc) => self.disc_shadow,
+                    Some(Backing::Png) => self.png_shadow,
                     Some(Backing::Gba) | None => self.shadow,
                 };
                 if let Some(tex) = backing {

@@ -231,7 +231,8 @@ pub fn crc32(path: &Path) -> io::Result<u32> {
 /// `<archive's name>.<ROM's extension>`. The same archive, unchanged, is not unpacked again;
 /// any other unpacked ROM is deleted first.
 pub fn playable(path: &Path, dir: &Path) -> io::Result<PathBuf> {
-    if !is_archive(path) {
+    // An arcade zip is the game FBNeo loads. Everything else zipped is one ROM to unpack.
+    if !is_archive(path) || crate::archive_is_the_rom(path) {
         return Ok(path.to_path_buf());
     }
     let rom = rom_of(path)?;

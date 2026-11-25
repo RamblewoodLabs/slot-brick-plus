@@ -1,0 +1,8 @@
+# a7800 placeholder. Replace shell.png with the Blender render.
+# Shell is 240x300 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 28
+y = 36
+w = 184
+h = 200
+rotation = 0.0
+aspect = 0.92

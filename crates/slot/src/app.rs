@@ -1500,7 +1500,16 @@ impl App {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => row
+            | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800 => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
@@ -1595,6 +1604,14 @@ impl App {
     pub fn set_disc_shadow(&mut self, face: TexId) {
         for (_, shelf) in &mut self.shelves {
             shelf.set_disc_shadow(face);
+        }
+    }
+
+    pub fn set_png_shadow(&mut self, platform: Platform, face: TexId) {
+        for (p, shelf) in &mut self.shelves {
+            if *p == platform {
+                shelf.set_png_shadow(face);
+            }
         }
     }
 
@@ -1950,8 +1967,7 @@ impl App {
     /// GB, GBC and NES have no shoulder buttons. L1 and R1 are not the game's, and they
     /// do not change the picture either: that lives in Emulation → Aspect and the pause menu.
     fn slot_owns_the_shoulders(&self) -> bool {
-        matches!(self.phase, Phase::Playing { .. })
-            && matches!(self.platform, Platform::Gb | Platform::Gbc | Platform::Nes)
+        matches!(self.phase, Phase::Playing { .. }) && self.platform.def().shoulders_are_slot
     }
 
     pub fn taken_buttons(&self) -> &'static [Btn] {
@@ -2017,7 +2033,9 @@ impl App {
             return;
         }
         let (to, said) = match self.video_mode {
-            VideoMode::Stretch | VideoMode::FourThree => (VideoMode::Actual, Toast::PictureOriginal),
+            VideoMode::Stretch | VideoMode::FourThree => {
+                (VideoMode::Actual, Toast::PictureOriginal)
+            }
             VideoMode::Actual | VideoMode::Integer => (VideoMode::Stretch, Toast::PictureFull),
         };
         if self.set_picture(to) {
@@ -2064,7 +2082,7 @@ impl App {
     }
 
     pub fn records_rewind(&self) -> bool {
-        self.state.rewind && self.platform != Platform::Ps1
+        self.state.rewind && self.platform.def().rewind
     }
 
     /// The canvas the running core draws into.
@@ -2194,22 +2212,22 @@ impl App {
     }
 
     pub fn screen_shader(&self) -> Shader {
-        match self.platform {
-            Platform::Gba => self.state.shader_gba,
-            Platform::Gb | Platform::Gbc => self.state.shader_gb,
-            Platform::Nes => self.state.shader_nes,
-            Platform::Snes => self.state.shader_snes,
-            Platform::Ps1 => self.state.shader_ps1,
+        match self.platform.def().shader {
+            slot_store::ShaderFamily::Gba => self.state.shader_gba,
+            slot_store::ShaderFamily::Gb => self.state.shader_gb,
+            slot_store::ShaderFamily::Nes => self.state.shader_nes,
+            slot_store::ShaderFamily::Snes => self.state.shader_snes,
+            slot_store::ShaderFamily::Ps1 => self.state.shader_ps1,
         }
     }
 
     /// Colour correction for the system being played: the Game Boys share one, the GBA has its
-    /// own, and a NES, SNES or PlayStation has no LCD colour to correct.
+    /// own, and a television has no LCD colour to correct.
     pub fn colour_correction(&self) -> bool {
-        match self.platform {
-            Platform::Gb | Platform::Gbc => self.state.colour_correction_gb,
-            Platform::Gba => self.state.colour_correction_gba,
-            Platform::Nes | Platform::Snes | Platform::Ps1 => false,
+        match self.platform.def().colour {
+            slot_store::ColourCorrect::Gb => self.state.colour_correction_gb,
+            slot_store::ColourCorrect::Gba => self.state.colour_correction_gba,
+            slot_store::ColourCorrect::None => false,
         }
     }
 
@@ -2908,6 +2926,15 @@ impl App {
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
             | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -2932,7 +2959,10 @@ impl App {
     }
 
     fn aspect_global(&self) -> VideoMode {
-        self.root.as_deref().map(video_mode::global_mode).unwrap_or_default()
+        self.root
+            .as_deref()
+            .map(video_mode::global_mode)
+            .unwrap_or_default()
     }
 
     fn aspect_system_value(&self, platform: Platform) -> QuickValue {
@@ -2946,14 +2976,20 @@ impl App {
     }
 
     fn cycle_aspect_setting(&mut self, row: QuickRow, right: bool) {
-        let Some(root) = self.root.clone() else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         match row {
             QuickRow::Aspect => {
                 let next = self.aspect_global().step(right);
                 let _ = video_mode::write_global(&root, next);
                 self.announce("Aspect", next.label());
             }
-            QuickRow::AspectGb | QuickRow::AspectGba | QuickRow::AspectNes | QuickRow::AspectSnes | QuickRow::AspectPs1 => {
+            QuickRow::AspectGb
+            | QuickRow::AspectGba
+            | QuickRow::AspectNes
+            | QuickRow::AspectSnes
+            | QuickRow::AspectPs1 => {
                 let platforms: &[Platform] = match row {
                     QuickRow::AspectGb => &[Platform::Gb, Platform::Gbc],
                     QuickRow::AspectGba => &[Platform::Gba],
@@ -2962,10 +2998,23 @@ impl App {
                     _ => &[Platform::Ps1],
                 };
                 let current = video_mode::system_mode(&root, platforms[0]);
-                let choices = [None, Some(VideoMode::Actual), Some(VideoMode::FourThree), Some(VideoMode::Stretch), Some(VideoMode::Integer)];
-                let at = choices.iter().position(|mode| *mode == current).unwrap_or(0);
+                let choices = [
+                    None,
+                    Some(VideoMode::Actual),
+                    Some(VideoMode::FourThree),
+                    Some(VideoMode::Stretch),
+                    Some(VideoMode::Integer),
+                ];
+                let at = choices
+                    .iter()
+                    .position(|mode| *mode == current)
+                    .unwrap_or(0);
                 let n = choices.len();
-                let next = choices[if right { (at + 1) % n } else { (at + n - 1) % n }];
+                let next = choices[if right {
+                    (at + 1) % n
+                } else {
+                    (at + n - 1) % n
+                }];
                 for platform in platforms {
                     let _ = video_mode::write_system(&root, *platform, next);
                 }
@@ -2984,8 +3033,12 @@ impl App {
 
     /// The picture for the game that is open, from the pause menu.
     fn cycle_game_aspect(&mut self, right: bool) {
-        let Some(root) = self.root.clone() else { return };
-        let Some(stem) = self.seated().map(str::to_string) else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some(stem) = self.seated().map(str::to_string) else {
+            return;
+        };
         let next = self.video_mode.step(right);
         if video_mode::write_video_mode(&root, &stem, next).is_ok() {
             self.video_mode = next;
@@ -3132,7 +3185,16 @@ impl App {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => {
+            | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800 => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };
@@ -3211,12 +3273,12 @@ impl App {
         if !matches!(self.phase, Phase::Inserting { .. } | Phase::Playing { .. }) {
             return;
         }
-        let (shader, choices) = match self.platform {
-            Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
-            Platform::Gb | Platform::Gbc => (&mut self.state.shader_gb, &Shader::GB[..]),
-            Platform::Nes => (&mut self.state.shader_nes, &Shader::NES[..]),
-            Platform::Snes => (&mut self.state.shader_snes, &Shader::NES[..]),
-            Platform::Ps1 => (&mut self.state.shader_ps1, &Shader::NES[..]),
+        let (shader, choices) = match self.platform.def().shader {
+            slot_store::ShaderFamily::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+            slot_store::ShaderFamily::Gb => (&mut self.state.shader_gb, &Shader::GB[..]),
+            slot_store::ShaderFamily::Nes => (&mut self.state.shader_nes, &Shader::NES[..]),
+            slot_store::ShaderFamily::Snes => (&mut self.state.shader_snes, &Shader::NES[..]),
+            slot_store::ShaderFamily::Ps1 => (&mut self.state.shader_ps1, &Shader::NES[..]),
         };
         *shader = shader.step(choices, right);
         let said = match *shader {
@@ -4309,7 +4371,10 @@ impl App {
                 }
             } else {
                 let mut faces = self.pause_menu_faces.clone();
-                if let Some(at) = PauseChoice::ALL.iter().position(|c| *c == PauseChoice::Picture) {
+                if let Some(at) = PauseChoice::ALL
+                    .iter()
+                    .position(|c| *c == PauseChoice::Picture)
+                {
                     if let Some(face) = self.aspect_faces.get(self.video_mode.index()) {
                         if let Some(slot) = faces.get_mut(at) {
                             *slot = *face;
@@ -7544,8 +7609,8 @@ impl CartMenu {
                 CartRow::Reset,
             ],
             Platform::Gba => vec![CartRow::Colour, CartRow::Finish, CartRow::Reset],
-            // A stand-in cart (see slot_ui::PS1_SHELL): nothing of it to choose yet.
-            Platform::Ps1 => vec![CartRow::Reset],
+            // A stand-in cart (see slot_ui::PS1_SHELL), and a PNG shell: nothing of it to choose yet.
+            _ => vec![CartRow::Reset],
         };
         let mut menu = CartMenu {
             stem: cart.stem.clone(),

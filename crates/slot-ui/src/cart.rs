@@ -171,7 +171,6 @@ enum Shape {
 
 pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
     match cart.platform {
-        Platform::Gba | Platform::Nes | Platform::Snes | Platform::Ps1 => None,
         Platform::Gb | Platform::Gbc => Some(match cart.shell.map(|c| c.outline) {
             Some(Outline::Notched) => GbShell::Notched,
             Some(Outline::Rounded) => GbShell::Rounded,
@@ -180,6 +179,7 @@ pub fn gb_shell_of(cart: &Cart) -> Option<GbShell> {
                 Class::Original | Class::DualMode => GbShell::Notched,
             },
         }),
+        _ => None,
     }
 }
 
@@ -190,7 +190,9 @@ pub fn snes_shell_of(cart: &Cart) -> Option<SnesShell> {
     (cart.platform == Platform::Snes).then(|| match cart.shell.map(|c| c.outline) {
         Some(Outline::Notched) => SnesShell::Us,
         Some(Outline::Rounded) => SnesShell::Pal,
-        _ => match slot_store::region::snes_pal_or_japan(&cart.rom).unwrap_or_else(|| snes_pal(&cart.stem)) {
+        _ => match slot_store::region::snes_pal_or_japan(&cart.rom)
+            .unwrap_or_else(|| snes_pal(&cart.stem))
+        {
             true => SnesShell::Pal,
             false => SnesShell::Us,
         },
@@ -210,7 +212,14 @@ pub fn fitted_label(cart: &Cart, w: u32, h: u32) -> Option<Vec<u8>> {
 
 /// `fitted_label` for a label picture already in memory, `sw` by `sh` RGBA: as the cart will
 /// show it once it is written.
-pub fn fitted_label_rgba(cart: &Cart, src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8>> {
+pub fn fitted_label_rgba(
+    cart: &Cart,
+    src: &[u8],
+    sw: u32,
+    sh: u32,
+    w: u32,
+    h: u32,
+) -> Option<Vec<u8>> {
     if nes_famicom_of(cart) {
         art::label_fit_rgba(src, sw, sh, w, h)
     } else {
@@ -351,6 +360,10 @@ const NES_SEATED_H: u32 = 288;
 const SNES_SEATED_H: u32 = 157;
 
 pub fn seated_box(platform: Platform) -> (u32, u32) {
+    if let Some(shell) = crate::shell_png::of(platform) {
+        let sh = (SEATED_W * shell.h + shell.w / 2) / shell.w;
+        return (SEATED_W, sh.max(1));
+    }
     match platform {
         Platform::Gba => (SEATED_W, SEATED_H),
         // A disc goes in as wide as a cart.
@@ -358,6 +371,7 @@ pub fn seated_box(platform: Platform) -> (u32, u32) {
         Platform::Gb | Platform::Gbc => (SEATED_W, GB_SEATED_H),
         Platform::Nes => (SEATED_W, NES_SEATED_H),
         Platform::Snes => (SEATED_W, SNES_SEATED_H),
+        _ => (SEATED_W, SEATED_H),
     }
 }
 
@@ -365,11 +379,15 @@ pub fn cart_box(platform: Platform) -> (u32, u32) {
     if platform == Platform::Ps1 {
         return (crate::disc::DISC_PX, crate::disc::DISC_PX);
     }
+    if let Some(shell) = crate::shell_png::of(platform) {
+        return (shell.w, shell.h);
+    }
     let s = spec(match platform {
         Platform::Gba | Platform::Ps1 => Shape::Gba,
         Platform::Gb | Platform::Gbc => Shape::Gb(GbShell::Notched),
         Platform::Nes => Shape::Nes(NesShell::Nes),
         Platform::Snes => Shape::Snes(SnesShell::Us),
+        _ => Shape::Gba,
     });
     (s.w, s.h)
 }
@@ -409,6 +427,9 @@ pub fn label_size(cart: &Cart) -> (u32, u32) {
     if cart.platform == Platform::Ps1 {
         return (crate::disc::DISC_PX, crate::disc::DISC_PX);
     }
+    if let Some(shell) = crate::shell_png::of(cart.platform) {
+        return (shell.lw, shell.lh);
+    }
     let (_, _, lw, lh) = spec(shape_of(cart)).label;
     (lw, lh)
 }
@@ -416,6 +437,13 @@ pub fn label_size(cart: &Cart) -> (u32, u32) {
 pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
     if cart.platform == Platform::Ps1 {
         return crate::disc::disc_face(cart, art, None);
+    }
+    if cart.platform.def().shell.is_some() {
+        return crate::shell_png::cart_face(cart, art).unwrap_or(CartFace {
+            rgba: vec![0, 0, 0, 0],
+            w: 1,
+            h: 1,
+        });
     }
     let s = spec(shape_of(cart));
     let shell = shell_for(cart);
@@ -435,6 +463,9 @@ pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
 /// it. Framing a label draws the picture behind this, so it is seen through the very window it
 /// will be worn in. Gives the slot's place on the face as well, to line the picture up with.
 pub fn cart_cutout_face(cart: &Cart) -> (CartFace, (u32, u32, u32, u32)) {
+    if let Some(cut) = crate::shell_png::cutout(cart) {
+        return cut;
+    }
     let s = spec(shape_of(cart));
     let shell = shell_for(cart);
     let mut face = shell_face(&s, &shell);
@@ -597,8 +628,15 @@ fn inside(s: &Spec, x: u32, y: u32) -> Option<[u8; 3]> {
 fn chrome(base: [u8; 3], y: u32, h: u32) -> [u8; 3] {
     // Down the face: a lit top, a dark band under it, the broad shine across the middle, then
     // dark again towards the foot. Positive turns it to the light, negative away.
-    const BANDS: [(f32, f32); 7] =
-        [(0.0, 0.55), (0.18, -0.34), (0.34, 0.05), (0.50, 0.82), (0.63, 0.20), (0.80, -0.40), (1.0, 0.30)];
+    const BANDS: [(f32, f32); 7] = [
+        (0.0, 0.55),
+        (0.18, -0.34),
+        (0.34, 0.05),
+        (0.50, 0.82),
+        (0.63, 0.20),
+        (0.80, -0.40),
+        (1.0, 0.30),
+    ];
     let t = y as f32 / h.max(1) as f32;
     let turn = BANDS
         .windows(2)

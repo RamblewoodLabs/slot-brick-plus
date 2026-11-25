@@ -31,6 +31,8 @@ pub struct Session {
     reloading: bool,
     driven: bool,
     prefetch: Prefetch,
+    /// The game we already refused for a missing BIOS, so the note is not repeated every frame.
+    bios_blocked: Option<String>,
 }
 
 /// Gameplay → Swap A/B: A and B trade places in both the menus and the game, but a shortcut
@@ -54,7 +56,11 @@ impl Session {
             root,
             emu: None,
             sink,
-            gestures: if cfg!(feature = "brick") { Gestures::brick() } else { Gestures::new() },
+            gestures: if cfg!(feature = "brick") {
+                Gestures::brick()
+            } else {
+                Gestures::new()
+            },
             prefetch: Prefetch::default(),
             pad: Pad::default(),
             rewinding: false,
@@ -63,6 +69,7 @@ impl Session {
             pulse: None,
             reloading: false,
             driven: false,
+            bios_blocked: None,
         }
     }
 
@@ -74,7 +81,8 @@ impl Session {
         }
         let mut samples = sfx.render(rate);
         // The volume, and System Sounds' own on top of it, in one pass.
-        let gain = crate::audio::volume::gain(self.app.output_volume()) * crate::audio::volume::gain(self.app.sound_volume());
+        let gain = crate::audio::volume::gain(self.app.output_volume())
+            * crate::audio::volume::gain(self.app.sound_volume());
         for s in samples.iter_mut() {
             *s = (*s as f32 * gain) as i16;
         }
@@ -164,7 +172,7 @@ impl Session {
 
     pub fn feed(&mut self, events: impl IntoIterator<Item = RawEvent>, now: Millis) {
         self.gestures
-            .set_triggers_to_game(self.has_core() && self.app.platform() == Platform::Ps1);
+            .set_triggers_to_game(self.has_core() && self.app.platform().def().triggers);
         let swap = self.app.swap_ab();
         let mut actions = Vec::new();
         for ev in events {
@@ -202,7 +210,9 @@ impl Session {
             self.pad.apply(Action::GbaUp(*btn));
         }
         if let Some(emu) = &self.emu {
-            emu.set_input(self.pad.mask());
+            emu.set_input(slot_retro::ButtonMask(
+                self.app.platform().apply_pad(self.pad.mask().0),
+            ));
         }
     }
 
@@ -219,7 +229,11 @@ impl Session {
     fn act(&mut self, action: Action) {
         // Keep the existing Select+B shortcut as an alias on Brick.
         #[cfg(feature = "brick")]
-        let action = if action == Action::ShaderPrev { Action::LedToggle } else { action };
+        let action = if action == Action::ShaderPrev {
+            Action::LedToggle
+        } else {
+            action
+        };
         if trace() {
             eprintln!("slot: {action:?} in {:?}", self.app.phase());
         }
@@ -460,6 +474,25 @@ impl Session {
             _ => return,
         };
         if self.emu.is_none() {
+            let platform = self
+                .app
+                .seated_cart()
+                .filter(|c| c.stem == stem)
+                .map(|c| c.platform);
+            if let Some(platform) = platform {
+                if let Some(file) = slot_store::missing_bios(&self.root, platform)
+                    .into_iter()
+                    .find(|f| f.required)
+                {
+                    if self.bios_blocked.as_deref() != Some(stem.as_str()) {
+                        self.app
+                            .announce("BIOS", &format!("Needs Slot/BIOS/{}", file.name));
+                        self.bios_blocked = Some(stem.clone());
+                    }
+                    return;
+                }
+            }
+            self.bios_blocked = None;
             let (_, serial) = self.app.link_mode(&stem);
             self.spawn_core(&stem, serial);
         }
@@ -493,9 +526,7 @@ impl Session {
         self.app.set_core(core);
         self.app.set_platform(platform);
         self.app
-            .set_video_mode(crate::video_mode::effective(
-                &self.root, stem, platform,
-            ));
+            .set_video_mode(crate::video_mode::effective(&self.root, stem, platform));
         self.app.set_link_loaded(serial);
         let resume = (!self.app.starting_clean())
             .then(|| persist::read_resume(&self.root, platform, core, stem))
@@ -506,6 +537,7 @@ impl Session {
         let mut opened = open_core(
             &self.root,
             core,
+            platform,
             serial,
             self.app.colour_correction(),
             palette,
@@ -522,22 +554,27 @@ impl Session {
         let emu = EmuHandle::spawn_game(opened.core, rom, unpack_into, ring, sav, resume, linked);
         emu.set_volume(self.app.output_volume());
         if platform == Platform::Ps1 {
-            emu.set_option("pcsx_rearmed_dithering", crate::core::dithering(self.app.ps1_dithering()));
+            emu.set_option(
+                "pcsx_rearmed_dithering",
+                crate::core::dithering(self.app.ps1_dithering()),
+            );
         }
-        // The SNES and PlayStation pads have X and Y of their own: no turbo on them.
-        emu.set_native_xy(matches!(platform, Platform::Snes | Platform::Ps1));
+        // X and Y are turbo, unless the console's own pad uses them.
+        emu.set_native_xy(platform.def().native_xy);
         emu.set_driven(self.driven);
+        for file in slot_store::missing_bios(&self.root, platform) {
+            if !file.required {
+                self.app.announce(
+                    "BIOS",
+                    &format!("{} is not in Slot/BIOS. Neo Geo needs it.", file.name),
+                );
+            }
+        }
         // Logged in to RetroAchievements: this game earns achievements (softcore).
         if let Some(account) = crate::ra::load(&self.root) {
-            let console = match platform {
-                Platform::Gba => slot_cheevos::Console::Gba,
-                Platform::Gb => slot_cheevos::Console::Gb,
-                Platform::Gbc => slot_cheevos::Console::Gbc,
-                Platform::Nes => slot_cheevos::Console::Nes,
-                Platform::Snes => slot_cheevos::Console::Snes,
-                Platform::Ps1 => slot_cheevos::Console::Ps1,
-            };
-            emu.achievements(&self.root, &account.user, &account.token, console);
+            if let Some(console) = slot_cheevos::Console::from_id(platform.def().ra) {
+                emu.achievements(&self.root, &account.user, &account.token, console);
+            }
         }
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);

@@ -1,6 +1,6 @@
 # Slot on the Anbernic RG35XX SP
 
-This is the same Slot as the TrimUI Brick build in this repository: GB, GBC, GBA, NES (FCEUmm), SNES (Snes9x) and PS1 (PCSX ReARMed), and RetroAchievements through `slot-cheevos` (rcheevos 12.5.0). Videos and Music stay off, as they are on main. Emulation → Aspect is the same as on the Brick: Native, 4:3, Full or Integer, and L1 and R1 do not change the picture.
+This is the same Slot as the TrimUI Brick build in this repository: GB, GBC, GBA, NES (FCEUmm), SNES (Snes9x) and PS1 (PCSX ReARMed), plus Genesis, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx and Atari 7800. `sh rg35xxsp/docker-build.sh --cores` builds those cores with the same script as the Brick. RetroAchievements go through `slot-cheevos` (rcheevos 12.5.0). Videos and Music stay off, as they are on main. Emulation → Aspect is the same as on the Brick: Native, 4:3, Full or Integer, and L1 and R1 do not change the picture.
 
 The SP is a different machine. It is an Allwinner H700 with a 640×480 panel, a lid sensor, TF1 for the operating system and TF2 for games. The Brick is a tg5040 with a 1024×768 panel. The picture you see is the same layout. The Brick scales that 640×480 layout up to fill 1024×768 (exactly 8/5). On the SP it is drawn 1:1.
 

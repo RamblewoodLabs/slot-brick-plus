@@ -1,0 +1,8 @@
+# lynx placeholder. Replace shell.png with the Blender render.
+# Shell is 280x160 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 24
+y = 22
+w = 232
+h = 108
+rotation = 0.0
+aspect = 2.1481

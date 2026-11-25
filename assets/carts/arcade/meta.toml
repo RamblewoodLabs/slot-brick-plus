@@ -1,0 +1,9 @@
+# arcade placeholder. Replace shell.png with the Blender render.
+# Shell is 360x140 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 18
+y = 16
+w = 324
+h = 108
+rotation = 0.0
+aspect = 3.0
+# mask.png: label alpha. 0 hides the label (the shell shows through).

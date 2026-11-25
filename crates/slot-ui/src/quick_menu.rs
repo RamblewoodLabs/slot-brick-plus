@@ -100,13 +100,22 @@ pub enum QuickRow {
     AspectNes,
     AspectSnes,
     AspectPs1,
+    ShowMd,
+    ShowSms,
+    ShowGg,
+    ShowArcade,
+    ShowPce,
+    ShowA2600,
+    ShowIntv,
+    ShowLynx,
+    ShowA7800,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 85] = [
+    pub const ALL: [QuickRow; 94] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -192,6 +201,15 @@ impl QuickRow {
         QuickRow::AspectNes,
         QuickRow::AspectSnes,
         QuickRow::AspectPs1,
+        QuickRow::ShowMd,
+        QuickRow::ShowSms,
+        QuickRow::ShowGg,
+        QuickRow::ShowArcade,
+        QuickRow::ShowPce,
+        QuickRow::ShowA2600,
+        QuickRow::ShowIntv,
+        QuickRow::ShowLynx,
+        QuickRow::ShowA7800,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -340,13 +358,22 @@ impl QuickRow {
         QuickRow::LibraryPlayTime,
     ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
-    pub const SYSTEMS: [QuickRow; 6] = [
+    pub const SYSTEMS: [QuickRow; 15] = [
         QuickRow::ShowGba,
         QuickRow::ShowGb,
         QuickRow::ShowGbc,
         QuickRow::ShowNes,
         QuickRow::ShowSnes,
         QuickRow::ShowPs1,
+        QuickRow::ShowMd,
+        QuickRow::ShowSms,
+        QuickRow::ShowGg,
+        QuickRow::ShowArcade,
+        QuickRow::ShowPce,
+        QuickRow::ShowA2600,
+        QuickRow::ShowIntv,
+        QuickRow::ShowLynx,
+        QuickRow::ShowA7800,
     ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
@@ -440,6 +467,15 @@ impl QuickRow {
             QuickRow::ShowNes => Platform::Nes,
             QuickRow::ShowSnes => Platform::Snes,
             QuickRow::ShowPs1 => Platform::Ps1,
+            QuickRow::ShowMd => Platform::Md,
+            QuickRow::ShowSms => Platform::Sms,
+            QuickRow::ShowGg => Platform::Gg,
+            QuickRow::ShowArcade => Platform::Arcade,
+            QuickRow::ShowPce => Platform::Pce,
+            QuickRow::ShowA2600 => Platform::A2600,
+            QuickRow::ShowIntv => Platform::Intv,
+            QuickRow::ShowLynx => Platform::Lynx,
+            QuickRow::ShowA7800 => Platform::A7800,
             _ => return None,
         })
     }
@@ -531,7 +567,16 @@ impl QuickRow {
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
             | QuickRow::ShowSnes
-            | QuickRow::ShowPs1 => &QuickRow::SYSTEMS,
+            | QuickRow::ShowPs1
+            | QuickRow::ShowMd
+            | QuickRow::ShowSms
+            | QuickRow::ShowGg
+            | QuickRow::ShowArcade
+            | QuickRow::ShowPce
+            | QuickRow::ShowA2600
+            | QuickRow::ShowIntv
+            | QuickRow::ShowLynx
+            | QuickRow::ShowA7800 => &QuickRow::SYSTEMS,
             QuickRow::SoundVolume
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
@@ -645,6 +690,15 @@ impl QuickRow {
             QuickRow::ShowNes => "NES",
             QuickRow::ShowSnes => "SNES",
             QuickRow::ShowPs1 => "PlayStation",
+            QuickRow::ShowMd => "Genesis / Mega Drive",
+            QuickRow::ShowSms => "Master System",
+            QuickRow::ShowGg => "Game Gear",
+            QuickRow::ShowArcade => "Arcade",
+            QuickRow::ShowPce => "TurboGrafx-16",
+            QuickRow::ShowA2600 => "Atari 2600",
+            QuickRow::ShowIntv => "Intellivision",
+            QuickRow::ShowLynx => "Atari Lynx",
+            QuickRow::ShowA7800 => "Atari 7800",
             QuickRow::ResetSettings => "Reset Settings",
             QuickRow::AboutVersion => "Version",
             QuickRow::AboutBuild => "Build",

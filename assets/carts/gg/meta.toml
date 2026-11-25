@@ -1,0 +1,8 @@
+# gg placeholder. Replace shell.png with the Blender render.
+# Shell is 200x280 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 28
+y = 64
+w = 144
+h = 144
+rotation = 0.0
+aspect = 1.0

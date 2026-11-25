@@ -13,10 +13,30 @@ pub enum Core {
     Fceumm,
     Snes9x,
     PcsxRearmed,
+    GenesisPlusGx,
+    Fbneo,
+    MednafenPceFast,
+    Stella2014,
+    FreeIntv,
+    Handy,
+    Prosystem,
 }
 
 impl Core {
-    pub const ALL: [Core; 5] = [Core::Mgba, Core::Gpsp, Core::Fceumm, Core::Snes9x, Core::PcsxRearmed];
+    pub const ALL: [Core; 12] = [
+        Core::Mgba,
+        Core::Gpsp,
+        Core::Fceumm,
+        Core::Snes9x,
+        Core::PcsxRearmed,
+        Core::GenesisPlusGx,
+        Core::Fbneo,
+        Core::MednafenPceFast,
+        Core::Stella2014,
+        Core::FreeIntv,
+        Core::Handy,
+        Core::Prosystem,
+    ];
     /// The GBA's choice of cores, the picker board's two sockets (in Core::index order).
     pub const PICKER: [Core; 2] = [Core::Mgba, Core::Gpsp];
 
@@ -27,6 +47,13 @@ impl Core {
             Core::Fceumm => "fceumm",
             Core::Snes9x => "snes9x",
             Core::PcsxRearmed => "pcsx_rearmed",
+            Core::GenesisPlusGx => "genesis_plus_gx",
+            Core::Fbneo => "fbneo",
+            Core::MednafenPceFast => "mednafen_pce_fast",
+            Core::Stella2014 => "stella2014",
+            Core::FreeIntv => "freeintv",
+            Core::Handy => "handy",
+            Core::Prosystem => "prosystem",
         }
     }
 
@@ -41,6 +68,13 @@ impl Core {
             Core::Fceumm => "FCEUmm",
             Core::Snes9x => "Snes9x",
             Core::PcsxRearmed => "PCSX ReARMed",
+            Core::GenesisPlusGx => "GenPlus",
+            Core::Fbneo => "FBNeo",
+            Core::MednafenPceFast => "PCE",
+            Core::Stella2014 => "Stella",
+            Core::FreeIntv => "Intv",
+            Core::Handy => "Handy",
+            Core::Prosystem => "7800",
         }
     }
 
@@ -51,27 +85,23 @@ impl Core {
             "fceumm" => Some(Core::Fceumm),
             "snes9x" => Some(Core::Snes9x),
             "pcsx_rearmed" => Some(Core::PcsxRearmed),
+            "genesis_plus_gx" => Some(Core::GenesisPlusGx),
+            "fbneo" => Some(Core::Fbneo),
+            "mednafen_pce_fast" => Some(Core::MednafenPceFast),
+            "stella2014" => Some(Core::Stella2014),
+            "freeintv" => Some(Core::FreeIntv),
+            "handy" => Some(Core::Handy),
+            "prosystem" => Some(Core::Prosystem),
             _ => None,
         }
     }
 
     pub fn runs(self, platform: Platform) -> bool {
-        match self {
-            Core::Mgba => matches!(platform, Platform::Gba | Platform::Gb | Platform::Gbc),
-            Core::Gpsp => platform == Platform::Gba,
-            Core::Fceumm => platform == Platform::Nes,
-            Core::Snes9x => platform == Platform::Snes,
-            Core::PcsxRearmed => platform == Platform::Ps1,
-        }
+        platform.def().core == self.as_str() || (self == Core::Gpsp && platform == Platform::Gba)
     }
 
     pub fn default_for(platform: Platform) -> Core {
-        match platform {
-            Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
-            Platform::Nes => Core::Fceumm,
-            Platform::Snes => Core::Snes9x,
-            Platform::Ps1 => Core::PcsxRearmed,
-        }
+        Core::parse(platform.def().core).unwrap_or(Core::Mgba)
     }
 }
 

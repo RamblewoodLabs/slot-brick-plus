@@ -1,6 +1,9 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- New shelves: Genesis / Mega Drive (`Games/MD`), Master System (`Games/SMS`), Game Gear (`Games/GG`), Arcade (`Games/ARCADE`), TurboGrafx-16 (`Games/PCE`), Atari 2600 (`Games/A2600`), Intellivision (`Games/INTV`), Atari Lynx (`Games/LYNX`) and Atari 7800 (`Games/A7800`). Library → Systems shows or hides each one. A label picture in `Labels/<that folder>` sits on the cartridge.
+- Genesis is a 6-button pad: B is B, A is C, Y is A, X is Y, L is X, R is Z, Select is Mode. Atari 2600 and 7800 use L and R as the difficulty switches. Intellivision: the D-pad is the disc, A and B and Y are the action buttons, and holding L or R shows the keypad (D-pad moves, A B X or Y presses, X repeats the last key, L2 is Clear, R2 is Enter).
+- Intellivision will not start without `Slot/BIOS/exec.bin` and `Slot/BIOS/grom.bin`. Lynx will not start without `Slot/BIOS/lynxboot.img`. Neo Geo games need `Slot/BIOS/neogeo.zip`; other arcade games start without it and Slot says so if it is missing.
 - The Anbernic RG35XX SP can run this same Slot. TF1 is BaseOS, TF2 holds a `Slot` folder with the same Games, BIOS, Saves, States and Config as the Brick, and the screen is the Brick's layout at the SP's own 640×480. How to flash the cards is in `docs/rg35xxsp.md`.
 - System → Continue is gone. Saves, the resume point, and last-played stay on this handheld.
 - L1 and R1 no longer change the picture while a game is running. On NES, Game Boy and Game Boy Color they do nothing. Emulation → Aspect, and the same row on each system's page, chooses Native, 4:3, Full or Integer. A system can follow that, or use its own. The pause menu has Aspect too, and the choice is remembered.

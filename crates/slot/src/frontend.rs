@@ -479,6 +479,11 @@ impl Frontend {
         let disc = slot_ui::disc_shadow();
         let disc = compositor.create_texture(disc.w, disc.h, &disc.rgba);
         self.session.app_mut().set_disc_shadow(disc);
+        for platform in slot_store::Platform::ALL {
+            let Some(face) = slot_ui::shell_png::shadow(platform) else { continue };
+            let id = compositor.create_texture(face.w, face.h, &face.rgba);
+            self.session.app_mut().set_png_shadow(platform, id);
+        }
         let bolt = icon_face(Icon::Charging, BOLT_PX, HUD_INK);
         let bolt_id = compositor.create_texture(bolt.w, bolt.h, &bolt.rgba);
         self.session.app_mut().set_bolt_face(bolt_id);

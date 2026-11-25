@@ -1,0 +1,8 @@
+# intv placeholder. Replace shell.png with the Blender render.
+# Shell is 240x320 RGBA. Label rect is in those pixels, origin top-left, y down.
+x = 30
+y = 40
+w = 180
+h = 210
+rotation = 0.0
+aspect = 0.8571

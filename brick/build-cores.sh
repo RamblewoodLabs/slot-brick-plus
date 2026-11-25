@@ -62,3 +62,66 @@ cp "$gpsp_src/gpsp_libretro.so" vendor/
 cp "$fceumm_src/fceumm_libretro.so" vendor/
 cp "$snes9x_src/libretro/snes9x_libretro.so" vendor/
 cp "$pcsx_src/pcsx_rearmed_libretro.so" vendor/
+
+# Genesis / Master System / Game Gear, Arcade, TurboGrafx-16, Atari 2600,
+# Intellivision, Lynx and 7800. Same toolchain as the cores above, so both the
+# Brick card and the RG35XX SP card (rg35xxsp/docker-build.sh --cores) get them.
+GENESIS=099c962e7374eb84cae9bba180c9e0e49e767b40
+FBNEO=2e6605c4a08b86455e3aee03294fe35e7618fa91
+PCE=4cf066e22533186d0cfad85a0fec2aced93e4e29
+STELLA=7d1361e407e63f29e52892655069e5fb4096e691
+FREEINTV=ef3e0fe322bec62a7f916c0bb0834c08c348d0b4
+HANDY=bc55d462f0b2d6b073ea93dc552ebd73cec60fd1
+PROSYSTEM=8a88014287c7a01cd568067e5a557d0a2b2a051f
+[ -f vendor/genesis_plus_gx-src.tar.gz ] || curl -fL "https://github.com/libretro/Genesis-Plus-GX/archive/$GENESIS.tar.gz" -o vendor/genesis_plus_gx-src.tar.gz
+[ -f vendor/fbneo-src.tar.gz ] || curl -fL "https://github.com/libretro/FBNeo/archive/$FBNEO.tar.gz" -o vendor/fbneo-src.tar.gz
+[ -f vendor/mednafen_pce_fast-src.tar.gz ] || curl -fL "https://github.com/libretro/beetle-pce-fast-libretro/archive/$PCE.tar.gz" -o vendor/mednafen_pce_fast-src.tar.gz
+[ -f vendor/stella2014-src.tar.gz ] || curl -fL "https://github.com/libretro/stella2014-libretro/archive/$STELLA.tar.gz" -o vendor/stella2014-src.tar.gz
+[ -f vendor/freeintv-src.tar.gz ] || curl -fL "https://github.com/libretro/FreeIntv/archive/$FREEINTV.tar.gz" -o vendor/freeintv-src.tar.gz
+[ -f vendor/handy-src.tar.gz ] || curl -fL "https://github.com/libretro/libretro-handy/archive/$HANDY.tar.gz" -o vendor/handy-src.tar.gz
+[ -f vendor/prosystem-src.tar.gz ] || curl -fL "https://github.com/libretro/prosystem-libretro/archive/$PROSYSTEM.tar.gz" -o vendor/prosystem-src.tar.gz
+sha256sum -c - <<'SUMS'
+5146e86c16a0e7cf32206533434880f0b45cf294c0575a97ace7bda0e338d219  vendor/genesis_plus_gx-src.tar.gz
+cb1ac0e28a69ba01826be5dee41dbeb842e04b36a23bd14b28fcc5b83af4a411  vendor/fbneo-src.tar.gz
+6832f9c4b3b960d30f9019d54a64224a0cd4717b18cc45eb0e7ba65115d39934  vendor/mednafen_pce_fast-src.tar.gz
+c0f5e53f3c21e7760e434784634d44a02e57a30917da5279cfd3add4736afd82  vendor/stella2014-src.tar.gz
+912d0a9c314cc63c396f8bc5a5778c341a3f4f860ebae1e069a877b9c98d0f11  vendor/freeintv-src.tar.gz
+65ad333df22aab7f3c8156c21ffd0b8da1ef09c7a7f1775df964b89986aa7324  vendor/handy-src.tar.gz
+23401c8b104ef24db111bbc4b13e37f224ffe16febfb89c704c70cdb269603bc  vendor/prosystem-src.tar.gz
+SUMS
+genesis_src="$PWD/brick/core-src/Genesis-Plus-GX-$GENESIS"
+fbneo_src="$PWD/brick/core-src/FBNeo-$FBNEO"
+pce_src="$PWD/brick/core-src/beetle-pce-fast-libretro-$PCE"
+stella_src="$PWD/brick/core-src/stella2014-libretro-$STELLA"
+freeintv_src="$PWD/brick/core-src/FreeIntv-$FREEINTV"
+handy_src="$PWD/brick/core-src/libretro-handy-$HANDY"
+prosystem_src="$PWD/brick/core-src/prosystem-libretro-$PROSYSTEM"
+[ -d "$genesis_src" ] || tar --no-same-owner -xzf vendor/genesis_plus_gx-src.tar.gz -C brick/core-src
+[ -d "$fbneo_src" ] || tar --no-same-owner -xzf vendor/fbneo-src.tar.gz -C brick/core-src
+[ -d "$pce_src" ] || tar --no-same-owner -xzf vendor/mednafen_pce_fast-src.tar.gz -C brick/core-src
+[ -d "$stella_src" ] || tar --no-same-owner -xzf vendor/stella2014-src.tar.gz -C brick/core-src
+[ -d "$freeintv_src" ] || tar --no-same-owner -xzf vendor/freeintv-src.tar.gz -C brick/core-src
+[ -d "$handy_src" ] || tar --no-same-owner -xzf vendor/handy-src.tar.gz -C brick/core-src
+[ -d "$prosystem_src" ] || tar --no-same-owner -xzf vendor/prosystem-src.tar.gz -C brick/core-src
+# unix plus this aarch64 gcc: Genesis Plus GX's rpi3 target is 32-bit ARM.
+make -C "$genesis_src" -f Makefile.libretro platform=unix CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar -j8
+# rpi3_64 is FBNeo's Cortex-A53 aarch64 target, the same CPU the Brick uses.
+LDFLAGS="-static-libstdc++ -static-libgcc -pthread" \
+    make -C "$fbneo_src/src/burner/libretro" -f Makefile platform=rpi3_64 CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar -j8
+for src in "$pce_src" "$stella_src" "$freeintv_src" "$prosystem_src"; do
+    LDFLAGS="-static-libstdc++ -static-libgcc" \
+        make -C "$src" platform=unix CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ AR=aarch64-linux-gnu-ar -j8
+done
+# Handy's makefile links with g++ and ignores LDFLAGS, so the runtime has to be named on the compiler.
+make -C "$handy_src" platform=unix CC=aarch64-linux-gnu-gcc \
+    CXX="aarch64-linux-gnu-g++ -static-libstdc++ -static-libgcc" AR=aarch64-linux-gnu-ar -j8
+cp "$genesis_src/genesis_plus_gx_libretro.so" \
+    "$fbneo_src/src/burner/libretro/fbneo_libretro.so" \
+    "$pce_src/mednafen_pce_fast_libretro.so" \
+    "$stella_src/stella2014_libretro.so" \
+    "$freeintv_src/freeintv_libretro.so" \
+    "$handy_src/handy_libretro.so" \
+    "$prosystem_src/prosystem_libretro.so" vendor/
+for f in genesis_plus_gx fbneo mednafen_pce_fast stella2014 freeintv handy prosystem; do
+    aarch64-linux-gnu-strip --strip-unneeded "vendor/${f}_libretro.so"
+done

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 /// Every platform in Platform::ALL has its four folders here (tests/dist.rs checks).
-pub const DIRS: [&str; 40] = [
+pub const DIRS: [&str; 85] = [
     "BIOS",
     "Config",
     "Fonts",
@@ -12,6 +12,15 @@ pub const DIRS: [&str; 40] = [
     "Games/NES",
     "Games/SNES",
     "Games/PS1",
+    "Games/MD",
+    "Games/SMS",
+    "Games/GG",
+    "Games/ARCADE",
+    "Games/PCE",
+    "Games/A2600",
+    "Games/INTV",
+    "Games/LYNX",
+    "Games/A7800",
     "Labels",
     "Labels/GBA",
     "Labels/GB",
@@ -19,6 +28,15 @@ pub const DIRS: [&str; 40] = [
     "Labels/NES",
     "Labels/SNES",
     "Labels/PS1",
+    "Labels/MD",
+    "Labels/SMS",
+    "Labels/GG",
+    "Labels/ARCADE",
+    "Labels/PCE",
+    "Labels/A2600",
+    "Labels/INTV",
+    "Labels/LYNX",
+    "Labels/A7800",
     "Overlays",
     "Overlays/GBA",
     "Overlays/GB",
@@ -26,6 +44,15 @@ pub const DIRS: [&str; 40] = [
     "Overlays/NES",
     "Overlays/SNES",
     "Overlays/PS1",
+    "Overlays/MD",
+    "Overlays/SMS",
+    "Overlays/GG",
+    "Overlays/ARCADE",
+    "Overlays/PCE",
+    "Overlays/A2600",
+    "Overlays/INTV",
+    "Overlays/LYNX",
+    "Overlays/A7800",
     "Saves",
     "Saves/GBA",
     "Saves/GB",
@@ -33,6 +60,15 @@ pub const DIRS: [&str; 40] = [
     "Saves/NES",
     "Saves/SNES",
     "Saves/PS1",
+    "Saves/MD",
+    "Saves/SMS",
+    "Saves/GG",
+    "Saves/ARCADE",
+    "Saves/PCE",
+    "Saves/A2600",
+    "Saves/INTV",
+    "Saves/LYNX",
+    "Saves/A7800",
     "States",
     "States/GBA",
     "States/GB",
@@ -40,6 +76,15 @@ pub const DIRS: [&str; 40] = [
     "States/NES",
     "States/SNES",
     "States/PS1",
+    "States/MD",
+    "States/SMS",
+    "States/GG",
+    "States/ARCADE",
+    "States/PCE",
+    "States/A2600",
+    "States/INTV",
+    "States/LYNX",
+    "States/A7800",
     "System",
     "Wallpapers",
 ];
@@ -88,5 +133,8 @@ pub fn card_space(path: &Path) -> Option<(u64, u64)> {
         return None;
     }
     let block = st.f_frsize as u64;
-    Some(((st.f_bavail as u64).saturating_mul(block), (st.f_blocks as u64).saturating_mul(block)))
+    Some((
+        (st.f_bavail as u64).saturating_mul(block),
+        (st.f_blocks as u64).saturating_mul(block),
+    ))
 }
