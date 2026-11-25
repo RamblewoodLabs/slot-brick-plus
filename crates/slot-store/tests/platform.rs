@@ -7,7 +7,7 @@ fn every_platform_has_a_directory() {
         names,
         vec![
             "GBA", "GB", "GBC", "NES", "SNES", "PS1", "MD", "SMS", "GG", "ARCADE", "PCE", "A2600",
-            "INTV", "LYNX", "A7800",
+            "INTV", "LYNX", "A7800", "GW",
         ]
     );
 }
@@ -32,6 +32,7 @@ fn every_platform_is_a_shelf_of_its_own() {
             Platform::Intv,
             Platform::Lynx,
             Platform::A7800,
+            Platform::Gw,
         ]
     );
     for (i, p) in Platform::ALL.iter().enumerate() {

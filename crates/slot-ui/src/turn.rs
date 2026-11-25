@@ -1,6 +1,7 @@
 //! A cart turning to face the slot before it goes in. The shell is pre-rendered per platform
 //! (`assets/carts/<sys>/insert/`); the game's own label is laid onto each frame here through
-//! the frame's label map, lit as the shelf face is. See `docs/cart-shells.md`.
+//! the frame's label map, lit as the shelf face is. A Game & Watch has no shell: its frames
+//! are its own, rendered for each game (`gw_faces`). See `docs/cart-shells.md`.
 use slot_store::{Cart, Platform};
 
 use crate::cart::CartFace;
@@ -15,7 +16,54 @@ pub fn of(platform: Platform) -> Option<&'static Turn> {
 
 /// How long a platform's cart takes to turn; 0 when it goes straight in.
 pub fn seconds(platform: Platform) -> f32 {
+    if platform == Platform::Gw {
+        return GW_FRAMES as f32 / GW_FPS;
+    }
     of(platform).map_or(0.0, Turn::seconds)
+}
+
+/// Whether a platform's carts turn (or, a Game & Watch, open) before they go in.
+pub fn turns(platform: Platform) -> bool {
+    platform == Platform::Gw || of(platform).is_some()
+}
+
+/// A Game & Watch opens (a clamshell) or lights its screen (the rest) in this many frames,
+/// rendered for each game by brick/gw-art and kept beside its label as one strip,
+/// `Labels/GW/open/<stem>.png`: the frames side by side, each the shelf face's size.
+pub const GW_FRAMES: usize = 18;
+pub const GW_FPS: f32 = 30.0;
+pub const GW_OPEN_DIR: &str = "open";
+
+/// The frames of a Game & Watch's strip, each placed over the shelf face; it goes in open
+/// (the last frame). None when the strip is not whole frames of the face's size.
+pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
+    let shell = shell_png::of(Platform::Gw)?;
+    let (w, h) = (shell.w, shell.h);
+    let (rgba, sw, sh) = decode8(strip)?;
+    if sh != h || sw < w || sw % w != 0 {
+        return None;
+    }
+    let n = sw / w;
+    let frames: Vec<TurnFace> = (0..n)
+        .map(|i| {
+            let mut px = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h {
+                let at = ((y * sw + i * w) * 4) as usize;
+                px.extend_from_slice(&rgba[at..at + (w * 4) as usize]);
+            }
+            TurnFace {
+                face: CartFace { rgba: px, w, h },
+                x: 0,
+                y: 0,
+            }
+        })
+        .collect();
+    let seated = frames.last().map(|f| CartFace {
+        rgba: f.face.rgba.clone(),
+        w,
+        h,
+    });
+    Some(TurnFaces { frames, seated })
 }
 
 impl Turn {
@@ -183,6 +231,32 @@ fn decode8(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 mod tests {
     use super::*;
     use slot_store::Platform;
+
+    #[test]
+    fn a_game_and_watch_strip_becomes_its_frames_and_goes_in_open() {
+        let shell = shell_png::of(Platform::Gw).unwrap();
+        let (w, h, n) = (shell.w, shell.h, 3u32);
+        let mut strip = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut strip, w * n, h);
+            enc.set_color(png::ColorType::Rgba);
+            let mut px = vec![0u8; (w * n * h * 4) as usize];
+            for (i, p) in px.chunks_exact_mut(4).enumerate() {
+                let frame = (i as u32 % (w * n)) / w;
+                p.copy_from_slice(&[frame as u8 * 100, 0, 0, 255]);
+            }
+            enc.write_header().unwrap().write_image_data(&px).unwrap();
+        }
+        let faces = gw_faces(&strip).unwrap();
+        assert_eq!(faces.frames.len(), 3);
+        for (i, f) in faces.frames.iter().enumerate() {
+            assert_eq!((f.face.w, f.face.h, f.x, f.y), (w, h, 0, 0));
+            assert!(f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100), "frame {i}");
+        }
+        assert_eq!(faces.seated.unwrap().rgba[0], 200, "it goes in as the last frame shows it");
+        assert!(gw_faces(&strip[..strip.len() / 2]).is_none(), "a broken strip");
+        assert!(turns(Platform::Gw) && seconds(Platform::Gw) > 0.5);
+    }
 
     #[test]
     fn only_the_new_shells_turn_on_the_way_in() {

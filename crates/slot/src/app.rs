@@ -1528,7 +1528,8 @@ impl App {
             | QuickRow::ShowA2600
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
-            | QuickRow::ShowA7800 => row
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
@@ -2970,6 +2971,7 @@ impl App {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
+            | QuickRow::ShowGw
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -3229,7 +3231,8 @@ impl App {
             | QuickRow::ShowA2600
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
-            | QuickRow::ShowA7800 => {
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };
@@ -4107,7 +4110,7 @@ impl App {
             Phase::Shelf => self.shelf().carts.get(self.shelf().index),
             _ => None,
         }?;
-        slot_ui::turn::of(cart.platform).map(|_| cart.clone())
+        slot_ui::turn::turns(cart.platform).then(|| cart.clone())
     }
 
     /// The turn being shown needs its frames now.

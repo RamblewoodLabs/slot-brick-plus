@@ -24,6 +24,7 @@ pub enum Platform {
     Intv,
     Lynx,
     A7800,
+    Gw,
 }
 
 /// Which saved shader a system follows. New television systems share the NES one.
@@ -112,6 +113,9 @@ pub struct PlatformDef {
     pub rewind: bool,
     /// Every frame is stretched over the canvas.
     pub fill: bool,
+    /// Every frame is scaled whole to fit the canvas, keeping its shape: a Game & Watch
+    /// draws its own handheld, at whatever size that artwork is.
+    pub fit: bool,
     /// L2 and R2 are the game's.
     pub triggers: bool,
     pub dualshock: bool,
@@ -166,8 +170,11 @@ const PAD_LYNX: PadMap =
     pad("A and B are the face buttons. L is Option 1, R is Option 2. Start pauses.");
 const PAD_7800: PadMap =
     pad("B is fire. Select is Select, Start is Pause. L and R are the difficulty switches.");
+const PAD_GW: PadMap = pad(
+    "The d-pad and A and B are the handheld's own buttons. Select steps through Game A, Game B and Time; Start presses it.",
+);
 
-const DEFS: [PlatformDef; 15] = [
+const DEFS: [PlatformDef; 16] = [
     PlatformDef {
         id: Platform::Gba,
         name: "Game Boy Advance",
@@ -189,6 +196,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -215,6 +223,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: true,
@@ -241,6 +250,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: true,
@@ -267,6 +277,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -293,6 +304,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: true,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -319,6 +331,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: true,
         rewind: false,
         fill: true,
+        fit: false,
         triggers: true,
         dualshock: true,
         gb_palette: false,
@@ -345,6 +358,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: true,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -371,6 +385,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -397,6 +412,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -423,6 +439,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: true,
         rewind: false,
         fill: true,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -449,6 +466,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -475,6 +493,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: true,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -501,6 +520,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: true,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: true,
         dualshock: false,
         gb_palette: false,
@@ -527,6 +547,7 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
@@ -553,15 +574,43 @@ const DEFS: [PlatformDef; 15] = [
         native_xy: false,
         rewind: true,
         fill: false,
+        fit: false,
         triggers: false,
         dualshock: false,
         gb_palette: false,
         ra: 51,
     },
+    PlatformDef {
+        id: Platform::Gw,
+        name: "Game & Watch",
+        dir: "GW",
+        extensions: &["mgw"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (640, 480),
+        canvas: (640, 480),
+        core: "gw",
+        options: &[],
+        bios: &[],
+        pad: PAD_GW,
+        shell: Some("gw"),
+        label_with: &[],
+        shader: ShaderFamily::Gb,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: true,
+        native_xy: true,
+        rewind: false,
+        fill: false,
+        fit: true,
+        triggers: false,
+        dualshock: false,
+        gb_palette: false,
+        ra: 0,
+    },
 ];
 
 impl Platform {
-    pub const ALL: [Platform; 15] = [
+    pub const ALL: [Platform; 16] = [
         Platform::Gba,
         Platform::Gb,
         Platform::Gbc,
@@ -577,6 +626,7 @@ impl Platform {
         Platform::Intv,
         Platform::Lynx,
         Platform::A7800,
+        Platform::Gw,
     ];
 
     pub fn def(self) -> &'static PlatformDef {

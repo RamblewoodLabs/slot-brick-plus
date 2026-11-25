@@ -126,6 +126,7 @@ fn open_named(
                 let (w, h) = platform.canvas();
                 opened.set_canvas(w, h);
                 opened.set_fill(platform.def().fill);
+                opened.set_fit(platform.def().fit);
                 // A DualShock: what DualShock games want, what plain ones run on as well, and
                 // what carries rumble.
                 if platform.def().dualshock {

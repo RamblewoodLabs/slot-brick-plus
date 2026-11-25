@@ -9,7 +9,7 @@ use slot_gfx::{Compositor, TexId};
 use slot_store::{Cart, Platform};
 
 type Key = (Platform, String);
-use slot_ui::turn::{faces, TurnFaces};
+use slot_ui::turn::{faces, gw_faces, TurnFaces, GW_OPEN_DIR};
 
 use crate::app::{App, TurnTex};
 use crate::label_cache::label_art;
@@ -21,6 +21,9 @@ pub struct CartTurns {
     jobs: Option<Sender<Cart>>,
     built: Receiver<(Key, Option<TurnFaces>)>,
     asked: Option<Key>,
+    /// The last cart that came back with no frames (a Game & Watch with no strip), so it
+    /// is not asked for again every frame while it stays selected.
+    none: Option<Key>,
     free: Vec<TexId>,
 }
 
@@ -42,6 +45,7 @@ impl CartTurns {
             jobs,
             built,
             asked: None,
+            none: None,
             free: Vec::new(),
         }
     }
@@ -57,6 +61,9 @@ impl CartTurns {
             return;
         }
         let key = (cart.platform, cart.stem.clone());
+        if self.none.as_ref() == Some(&key) {
+            return;
+        }
         if self.asked.as_ref() != Some(&key) {
             let stem = key;
             if let Some(jobs) = &self.jobs {
@@ -90,8 +97,12 @@ impl CartTurns {
             self.asked = None;
         }
         let Some(built) = built else {
+            self.none = Some(stem);
             return;
         };
+        if self.none.as_ref() == Some(&stem) {
+            self.none = None;
+        }
         let mut up = |face: &slot_ui::CartFace| match self.free.pop() {
             Some(tex) => {
                 compositor.update_texture(tex, face.w, face.h, &face.rgba);
@@ -128,7 +139,11 @@ fn work(inbox: &Receiver<Cart>, outbox: &Sender<(Key, Option<TurnFaces>)>, root:
             cart = newer;
         }
         cart.read_header();
-        let built = faces(&cart, label_art(root, &cart));
+        let built = if cart.platform == Platform::Gw {
+            gw_strip(root, &cart)
+        } else {
+            faces(&cart, label_art(root, &cart))
+        };
         if outbox
             .send(((cart.platform, cart.stem.clone()), built))
             .is_err()
@@ -136,4 +151,19 @@ fn work(inbox: &Receiver<Cart>, outbox: &Sender<(Key, Option<TurnFaces>)>, root:
             return;
         }
     }
+}
+
+/// A Game & Watch's own frames, `Labels/GW/open/<stem>.png`; none when it has no strip.
+fn gw_strip(root: &Path, cart: &Cart) -> Option<TurnFaces> {
+    let path = root
+        .join("Labels")
+        .join(cart.platform.dir_name())
+        .join(GW_OPEN_DIR)
+        .join(format!("{}.png", cart.stem));
+    let bytes = std::fs::read(&path).ok()?;
+    let built = gw_faces(&bytes);
+    if built.is_none() {
+        eprintln!("slot: {}: not {} frames of the shelf face's size", path.display(), slot_ui::turn::GW_FRAMES);
+    }
+    built
 }

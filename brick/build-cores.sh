@@ -125,3 +125,14 @@ cp "$genesis_src/genesis_plus_gx_libretro.so" \
 for f in genesis_plus_gx fbneo mednafen_pce_fast stella2014 freeintv handy prosystem; do
     aarch64-linux-gnu-strip --strip-unneeded "vendor/${f}_libretro.so"
 done
+
+# Game & Watch: gw-libretro runs the MADrigal simulators (.mgw). Plain C (its own Lua),
+# zlib-licensed. Its makefile sets its own flags, so only the compiler is named.
+GW=91d599b951e7bfe7e040347f58667cba20074adc
+[ -f vendor/gw-libretro-src.tar.gz ] || curl -fL "https://github.com/libretro/gw-libretro/archive/$GW.tar.gz" -o vendor/gw-libretro-src.tar.gz
+echo "88f47e3fe2ce7a5cdf42a087386a6cff5379dd2fe7901761c80a9f8d0d2185ad  vendor/gw-libretro-src.tar.gz" | sha256sum -c -
+gw_src="$PWD/brick/core-src/gw-libretro-$GW"
+[ -d "$gw_src" ] || tar --no-same-owner -xzf vendor/gw-libretro-src.tar.gz -C brick/core-src
+make -C "$gw_src" platform=unix CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar -j8
+cp "$gw_src/gw_libretro.so" vendor/
+aarch64-linux-gnu-strip --strip-unneeded vendor/gw_libretro.so

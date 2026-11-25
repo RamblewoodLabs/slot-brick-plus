@@ -109,13 +109,14 @@ pub enum QuickRow {
     ShowIntv,
     ShowLynx,
     ShowA7800,
+    ShowGw,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 94] = [
+    pub const ALL: [QuickRow; 95] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -210,6 +211,7 @@ impl QuickRow {
         QuickRow::ShowIntv,
         QuickRow::ShowLynx,
         QuickRow::ShowA7800,
+        QuickRow::ShowGw,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -358,7 +360,7 @@ impl QuickRow {
         QuickRow::LibraryPlayTime,
     ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
-    pub const SYSTEMS: [QuickRow; 15] = [
+    pub const SYSTEMS: [QuickRow; 16] = [
         QuickRow::ShowGba,
         QuickRow::ShowGb,
         QuickRow::ShowGbc,
@@ -374,6 +376,7 @@ impl QuickRow {
         QuickRow::ShowIntv,
         QuickRow::ShowLynx,
         QuickRow::ShowA7800,
+        QuickRow::ShowGw,
     ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
@@ -476,6 +479,7 @@ impl QuickRow {
             QuickRow::ShowIntv => Platform::Intv,
             QuickRow::ShowLynx => Platform::Lynx,
             QuickRow::ShowA7800 => Platform::A7800,
+            QuickRow::ShowGw => Platform::Gw,
             _ => return None,
         })
     }
@@ -576,7 +580,8 @@ impl QuickRow {
             | QuickRow::ShowA2600
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
-            | QuickRow::ShowA7800 => &QuickRow::SYSTEMS,
+            | QuickRow::ShowA7800
+            | QuickRow::ShowGw => &QuickRow::SYSTEMS,
             QuickRow::SoundVolume
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
@@ -699,6 +704,7 @@ impl QuickRow {
             QuickRow::ShowIntv => "Intellivision",
             QuickRow::ShowLynx => "Atari Lynx",
             QuickRow::ShowA7800 => "Atari 7800",
+            QuickRow::ShowGw => "Game & Watch",
             QuickRow::ResetSettings => "Reset Settings",
             QuickRow::AboutVersion => "Version",
             QuickRow::AboutBuild => "Build",

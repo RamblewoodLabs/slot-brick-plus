@@ -20,10 +20,11 @@ pub enum Core {
     FreeIntv,
     Handy,
     Prosystem,
+    Gw,
 }
 
 impl Core {
-    pub const ALL: [Core; 12] = [
+    pub const ALL: [Core; 13] = [
         Core::Mgba,
         Core::Gpsp,
         Core::Fceumm,
@@ -36,6 +37,7 @@ impl Core {
         Core::FreeIntv,
         Core::Handy,
         Core::Prosystem,
+        Core::Gw,
     ];
     /// The GBA's choice of cores, the picker board's two sockets (in Core::index order).
     pub const PICKER: [Core; 2] = [Core::Mgba, Core::Gpsp];
@@ -54,6 +56,7 @@ impl Core {
             Core::FreeIntv => "freeintv",
             Core::Handy => "handy",
             Core::Prosystem => "prosystem",
+            Core::Gw => "gw",
         }
     }
 
@@ -75,6 +78,7 @@ impl Core {
             Core::FreeIntv => "Intv",
             Core::Handy => "Handy",
             Core::Prosystem => "7800",
+            Core::Gw => "G&W",
         }
     }
 
@@ -92,6 +96,7 @@ impl Core {
             "freeintv" => Some(Core::FreeIntv),
             "handy" => Some(Core::Handy),
             "prosystem" => Some(Core::Prosystem),
+            "gw" => Some(Core::Gw),
             _ => None,
         }
     }

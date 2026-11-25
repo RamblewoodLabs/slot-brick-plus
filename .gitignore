@@ -18,5 +18,7 @@ target-sim/
 
 # Overlays kept on this machine only: not ours to publish (see brick/overlays-local/README.md).
 /brick/overlays-local/
+# Labels rendered from someone's own media (brick/gw-art): theirs, not ours to publish.
+/brick/labels-local/
 # Slot OS card images (brick/os/build.sh).
 dist-os/
