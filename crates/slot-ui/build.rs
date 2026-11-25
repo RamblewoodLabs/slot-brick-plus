@@ -90,6 +90,104 @@ fn main() {
     ));
     let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("shells.rs");
     fs::write(dest, out).unwrap();
+    turns(&dirs);
+}
+
+/// `assets/carts/<sys>/insert/`: the frames a cart turns through on its way into the slot
+/// (see `docs/cart-shells.md`). Each frame is the shell with the label window clear
+/// (`NN.png`), the light and cover of the label on it (`NN-map.png`, grey + alpha), and
+/// `uv`: the projective map from a frame pixel to the flat label's u, v.
+fn turns(dirs: &[std::path::PathBuf]) {
+    let mut out = String::from(
+        "pub struct TurnFrame {\n    pub x: i32,\n    pub y: i32,\n    pub w: u32,\n    pub h: u32,\n    \
+         pub uv: [f32; 9],\n    pub shell: &'static [u8],\n    pub map: &'static [u8],\n}\n\
+         pub struct Turn {\n    pub dir: &'static str,\n    pub fps: f32,\n    pub flip: bool,\n    \
+         pub frames: &'static [TurnFrame],\n}\n",
+    );
+    let mut arms = String::new();
+    for dir in dirs {
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let toml = dir.join("insert/insert.toml");
+        println!("cargo:rerun-if-changed={}", dir.join("insert").display());
+        let Ok(text) = fs::read_to_string(&toml) else {
+            continue;
+        };
+        println!("cargo:rerun-if-changed={}", toml.display());
+        let ident = format!("{}_TURN", name.replace('-', "_").to_ascii_uppercase());
+        let mut fps = 30.0f32;
+        let flip = meta_flag(&text, "flip");
+        let mut frames = String::new();
+        let mut n = 0;
+        let mut uv: Option<String> = None;
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap().trim();
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match key.trim() {
+                "fps" => {
+                    fps = value
+                        .parse()
+                        .unwrap_or_else(|_| panic!("{name}: insert fps"))
+                }
+                "uv" => {
+                    let v: Vec<f64> = value
+                        .split(',')
+                        .map(|n| {
+                            n.trim()
+                                .parse()
+                                .unwrap_or_else(|_| panic!("{name}: insert uv"))
+                        })
+                        .collect();
+                    assert!(v.len() == 9, "{name}: insert uv needs 9 numbers");
+                    uv = Some(
+                        v.iter()
+                            .map(|n| format!("{n:?}f32"))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    );
+                }
+                "frame" => {
+                    let v: Vec<i64> = value
+                        .split(',')
+                        .map(|n| {
+                            n.trim()
+                                .parse()
+                                .unwrap_or_else(|_| panic!("{name}: insert frame"))
+                        })
+                        .collect();
+                    assert!(v.len() == 4, "{name}: insert frame needs x, y, w, h");
+                    for part in ["", "-map"] {
+                        let f = dir.join(format!("insert/{n:02}{part}.png"));
+                        assert!(f.is_file(), "{name}: missing {}", f.display());
+                        println!("cargo:rerun-if-changed={}", f.display());
+                    }
+                    let inc = |part: &str| {
+                        format!("include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/insert/{n:02}{part}.png\"))")
+                    };
+                    frames.push_str(&format!(
+                        "    TurnFrame {{ x: {}, y: {}, w: {}, h: {}, uv: [{}], shell: {}, map: {} }},\n",
+                        v[0], v[1], v[2], v[3],
+                        uv.take().unwrap_or_else(|| panic!("{name}: frame {n} needs a uv line before it")),
+                        inc(""), inc("-map")
+                    ));
+                    n += 1;
+                }
+                _ => {}
+            }
+        }
+        assert!(n > 0, "{name}: insert.toml lists no frames");
+        out.push_str(&format!(
+            "pub static {ident}: Turn = Turn {{\n    dir: \"{name}\",\n    fps: {fps}f32,\n    flip: {flip},\n    frames: &[\n{frames}    ],\n}};\n"
+        ));
+        arms.push_str(&format!("\"{name}\" => Some(&{ident}),\n"));
+    }
+    out.push_str(&format!(
+        "pub fn turn_by_dir(dir: &str) -> Option<&'static Turn> {{\n    match dir {{\n        {arms}        _ => None,\n    }}\n}}\n"
+    ));
+    let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("turns.rs");
+    fs::write(dest, out).unwrap();
 }
 
 fn parse_meta(text: &str, name: &str) -> (u32, u32, u32, u32, f32, f32, Option<String>) {

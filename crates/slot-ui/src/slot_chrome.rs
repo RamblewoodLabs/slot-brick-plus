@@ -99,6 +99,9 @@ pub struct SlotChrome<'a> {
     pub dim: f32,
     pub screen: f32,
     pub game: bool,
+    /// A cart that turns before it goes in, mid-turn: the frame, and where it sits relative
+    /// to the shelf face's top-left corner (x, y, w, h in shelf pixels). Drawn in its place.
+    pub turn: Option<(TexId, [f32; 4])>,
 }
 
 impl SlotChrome<'_> {
@@ -135,41 +138,54 @@ impl SlotChrome<'_> {
         let x = centre + (CX - centre) * k - cw / 2.0;
         let y = foot0 + (seated_foot - foot0) * travel - ch;
         let cart_alpha = if seat >= 1.0 { chrome } else { 1.0 };
-        out.push(match self.face {
-            // A disc spins up as it goes in, and down as it comes out.
-            Some(tex) if self.cart.platform == slot_store::Platform::Ps1 => Draw::Turned {
-                x,
-                y,
-                w: cw,
-                h: ch,
+        let turning = self.turn.filter(|_| seat <= 0.0);
+        let drawn = if let Some((tex, [fx, fy, fw, fh])) = turning {
+            Draw::Tex {
+                x: x + fx * scale,
+                y: y + fy * scale,
+                w: fw * scale,
+                h: fh * scale,
                 tex,
-                alpha: cart_alpha,
-                turn: DISC_TURNS * std::f32::consts::TAU * seat * seat,
-            },
-            Some(tex) => Draw::Tex {
-                x,
-                y,
-                w: cw,
-                h: ch,
-                tex,
-                alpha: cart_alpha,
-            },
-            None => {
-                let c = label_colour(&label_text(self.cart));
-                Draw::Rect {
+                alpha: 1.0,
+            }
+        } else {
+            match self.face {
+                // A disc spins up as it goes in, and down as it comes out.
+                Some(tex) if self.cart.platform == slot_store::Platform::Ps1 => Draw::Turned {
                     x,
                     y,
                     w: cw,
                     h: ch,
-                    colour: [
-                        c[0] as f32 / 255.0,
-                        c[1] as f32 / 255.0,
-                        c[2] as f32 / 255.0,
-                        cart_alpha,
-                    ],
+                    tex,
+                    alpha: cart_alpha,
+                    turn: DISC_TURNS * std::f32::consts::TAU * seat * seat,
+                },
+                Some(tex) => Draw::Tex {
+                    x,
+                    y,
+                    w: cw,
+                    h: ch,
+                    tex,
+                    alpha: cart_alpha,
+                },
+                None => {
+                    let c = label_colour(&label_text(self.cart));
+                    Draw::Rect {
+                        x,
+                        y,
+                        w: cw,
+                        h: ch,
+                        colour: [
+                            c[0] as f32 / 255.0,
+                            c[1] as f32 / 255.0,
+                            c[2] as f32 / 255.0,
+                            cart_alpha,
+                        ],
+                    }
                 }
             }
-        });
+        };
+        out.push(drawn);
 
         if let Some((tex, alpha)) = self.alert {
             let (w, h) = icon_box(ALERT_PX);

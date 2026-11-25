@@ -33,6 +33,7 @@ mod sticker;
 pub mod text;
 mod title_card;
 mod toast;
+pub mod turn;
 
 pub use backdrop::{bezel_face, draw_backdrop, wallpaper_face};
 pub use banner::{banner_face, BADGE_PX, BANNER_H, BANNER_W, BANNER_X, BANNER_Y};

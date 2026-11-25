@@ -109,3 +109,25 @@ With Pillow installed, each label is then cut to its window ahead of time
   Nothing is squeezed and no bars are added.
 
 Labels are kept at twice the window size.
+
+## Insert turn
+
+A shell may carry `insert/`: the frames its cart turns through, on the shelf, before it slides
+into the slot. The slide itself is the same as every other cart's (`INSERT_S`), so the turn
+only adds its own length (18 frames at 30 fps, 0.6 s) in front of it. Systems without
+`insert/` go straight in, as before. An eject plays the turn backwards once the cart is out,
+and a cart refused mid-turn turns back from where it got to.
+
+- `insert/NN.png`: frame NN of the shell, label window clear, cropped to what it covers.
+- `insert/NN-map.png`: grey + alpha, the light the label takes (white = as printed) and how
+  much of each pixel it covers.
+- `insert/insert.toml`: `fps`, `flip = true` for a cart that ends the turn the other way up,
+  and per frame a `uv` line (nine numbers: the projective map from a frame pixel to the flat
+  label's u, v, v up) then a `frame = x, y, w, h` line (where the crop sits relative to
+  `shell.png`'s top-left).
+
+The label laid on is the shelf face's own fitted label, so every game turns with its own art.
+A cart that turns over end to end (the Intellivision cart and the HuCard: their contacts are
+at the top on the shelf) uses the label turned round while its back faces the screen, so it
+goes in with the label upright; `flip` makes the last frame its face for the slide. The frames
+come from `scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.

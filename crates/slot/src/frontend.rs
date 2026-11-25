@@ -19,6 +19,7 @@ use slot_ui::{
 use crate::app::{App, LinkRow, Phase};
 use crate::build_info::Build;
 use crate::cart_faces::CartFaces;
+use crate::cart_turns::CartTurns;
 use crate::face_builder::FaceBuilder;
 use crate::label_cache::{self, Rebuild};
 use crate::link_art_builder::LinkArtBuilder;
@@ -58,6 +59,7 @@ pub struct Frontend {
     label_adjust_tex: LabelAdjustTex,
     peel_tex: PeelTex,
     cart_faces: CartFaces,
+    cart_turns: CartTurns,
     rebuild: Option<Rebuild>,
     rebuild_faces: RebuildFaces,
     link_art: LinkArtBuilder,
@@ -351,6 +353,7 @@ impl Frontend {
     pub fn boot(platform: Box<dyn Platform>) -> Self {
         let now = Instant::now();
         let cart_faces = CartFaces::spawn(platform.root().to_path_buf());
+        let cart_turns = CartTurns::spawn(platform.root().to_path_buf());
         #[cfg(feature = "brick")]
         let session_root = platform.root().to_path_buf();
         let mut session = Session::boot(platform.root().to_path_buf());
@@ -381,6 +384,7 @@ impl Frontend {
             label_adjust_tex: LabelAdjustTex::default(),
             peel_tex: PeelTex::default(),
             cart_faces,
+            cart_turns,
             rebuild,
             rebuild_faces: RebuildFaces::default(),
             link_art: LinkArtBuilder::spawn(),
@@ -803,6 +807,7 @@ impl Frontend {
             crate::latency::taken();
         }
         self.cart_faces.sync(self.session.app_mut(), compositor);
+        self.cart_turns.sync(self.session.app_mut(), compositor);
         #[cfg(feature = "brick")]
         if let Some(wifi)=&mut self.session.app_mut().wifi {
             if wifi.dirty {

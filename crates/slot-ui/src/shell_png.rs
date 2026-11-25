@@ -74,6 +74,16 @@ pub fn shadow(platform: Platform) -> Option<CartFace> {
     Some(CartFace { rgba: out, w, h })
 }
 
+/// The label a cart with no art gets: its title on its own colour.
+pub(crate) fn plain_label_for(cart: &Cart, w: u32, h: u32) -> Vec<u8> {
+    plain_label(w, h, &label_text(cart))
+}
+
+/// One label pixel lit as `lit` does (for the turn frames).
+pub(crate) fn lit_px(px: [u8; 4], shade: u8, backlit: bool) -> [u8; 4] {
+    lit(px, shade, backlit)
+}
+
 fn plain_label(w: u32, h: u32, title: &str) -> Vec<u8> {
     let bg = label_colour(title);
     let mut rgba = Vec::with_capacity((w * h * 4) as usize);
