@@ -39,6 +39,7 @@ run_preview() {
     done
     python3 -I brick/sim/make-rom.py "$run/card/Slot/Games/GB/Pocket Test.gb" 2>/dev/null || true
     sh brick/sim/scenarios/favorites.card.sh "$run/card/Slot"
+    sh brick/sim/favorites-preview-labels.sh "$run/card/Slot"
     echo "running $panel into $rel ..."
     if docker_run \
         -e SLOT_ROOT="/src/$run/card/Slot" \

@@ -54,6 +54,16 @@ On the box: `/workspace/cart-renders/favorites-preview/{brick,sp}/`
 - GBA and SNES games in the sim card use Slot title-card labels because fitted label PNGs for those systems were not on the Mac mini (dist Labels were empty). New-system labels came from `~/Projects/slot-cart-renders/fitted` and Game & Watch art was read-only from `~/sbp-pr25/brick/labels-local/GW`. On the device, real cart labels will show when they are already on the card.
 - SP previews still log “running on a TrimUI Brick”; only the panel size is overridden (`SLOT_SIM_PANEL`), not the `rg35xxsp` feature. Same method as earlier PR #25 previews.
 
+### CI (PR #26)
+Pushed as `cursor/favorites-shelf`, stacked on PR #25. First CI: unit passed; changelog missed an Unreleased line; scenarios failed on missing Favorites goldens, the Systems menu (now scrolling), and a few goldens that assumed the old cramped menu or a single shelf.
+
+Fixes in the follow-up commit:
+- Changelog line under Unreleased.
+- Systems list still scrolls when rows would overlap; short pages such as System keep every row on screen.
+- Slot name is rebuilt when arrange clears its face but the words stay the same (Y to star).
+- `library.sim` hides GBA (under Favorites) and R1-skips it; goldens updated for the Systems menu, the Favorites scenario, and a slot that now says A–Z when two shelves are in reach.
+- `favorites.card.sh` no longer copies machine-local labels, so CI and a local `sim.sh test` match. The preview script still adds those labels when they are on the Mac mini.
+
 ### Not done
 - No push, no PR, no merge. Wait for Jeff to approve the look.
 - Did not touch `~/sbp-pr25`, the EVO, any card, or E:.

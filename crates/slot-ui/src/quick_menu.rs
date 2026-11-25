@@ -1242,8 +1242,10 @@ fn page_layout(selected: QuickRow) -> PageLayout {
     if top < STATUS_H {
         top = STATUS_H;
     }
-    // When squeezing would stack the type, scroll at the usual pitch instead.
-    if n > 0 && pitch + 0.5 < QUICK_PITCH && room >= QUICK_PITCH {
+    // When squeezing would stack the type (pitch below the row's type height),
+    // scroll at the usual pitch instead. A short page, such as System, still
+    // tightens slightly so every row stays on screen.
+    if n > 0 && pitch + 0.5 < MENU_H as f32 && room >= QUICK_PITCH {
         pitch = QUICK_PITCH;
         let visible = ((room / pitch).floor() as usize).max(1).min(n);
         let pos = selected.position();
@@ -1297,6 +1299,24 @@ mod layout_tests {
             "Game & Watch {gw_bottom} runs into the legend at {LEGEND_Y}"
         );
         assert!(gw.row_top(QuickRow::ShowGw) >= STATUS_H);
+    }
+
+    #[test]
+    fn a_short_page_keeps_every_row_on_screen() {
+        let leds = page_layout(QuickRow::SYSTEM[0]);
+        assert_eq!(leds.start, 0);
+        assert_eq!(leds.visible, QuickRow::SYSTEM.len());
+        assert!(leds.shows(QuickRow::About), "About should stay on a short System page");
+        assert!(
+            leds.pitch + 0.5 >= MENU_H as f32,
+            "short pages should not drop below the type height, got {}",
+            leds.pitch
+        );
+        let bottom = leds.row_top(QuickRow::About) + TYPE_DROP + MENU_H as f32;
+        assert!(
+            bottom <= LEGEND_Y,
+            "About {bottom} runs into the legend at {LEGEND_Y}"
+        );
     }
 }
 

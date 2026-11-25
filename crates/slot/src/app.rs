@@ -1776,6 +1776,12 @@ impl App {
         self.shelf_platform = slot_ui::Printed::default();
     }
 
+    /// True when the slot should show a name but its face was cleared (arrange
+    /// does that even when the words stay the same, e.g. after starring a game).
+    pub fn slot_name_needs_face(&self) -> bool {
+        self.slot_text().is_some() && self.shelf_platform.face.is_none()
+    }
+
     pub fn slot_text(&self) -> Option<String> {
         if let Some(word) = self.slot_word {
             return Some(word.to_string());

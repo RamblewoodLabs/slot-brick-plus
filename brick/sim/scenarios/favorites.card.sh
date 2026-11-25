@@ -1,32 +1,22 @@
-# Mixed favorites for the combined Favorites shelf preview: real labels where we have
-# them (Genesis, Intellivision, arcade, Game & Watch), named stubs for GBA and SNES
-# so each still wears its own shell.
+# Mixed favorites for the combined Favorites shelf: a stub game on each of
+# several systems, already starred, so the shelf can be screenshotted in CI.
+# Real labels are optional and added by brick/sim/run-favorites-preview.sh
+# when those files are on the machine; they are not required here.
 set -eu
-fitted="$HOME/Projects/slot-cart-renders/fitted"
-gw="$HOME/sbp-pr25/brick/labels-local/GW"
-
 root="$1"
 
 put() {
-    platform="$1"; ext="$2"; stem="$3"; label="$4"
-    mkdir -p "$root/Games/$platform" "$root/Labels/$platform"
+    platform="$1"; ext="$2"; stem="$3"
+    mkdir -p "$root/Games/$platform"
     printf 'stand-in\n' > "$root/Games/$platform/$stem.$ext"
-    if [ -f "$label" ]; then
-        cp "$label" "$root/Labels/$platform/$stem.png"
-    fi
 }
 
-put GBA gba "Metroid Fusion" ""
-put SNES sfc "Super Metroid" ""
-put MD md "Gunstar Heroes (USA)" "$fitted/MD/Gunstar Heroes (USA).png"
-put INTV int "Astrosmash (1981) (Mattel)" "$fitted/INTV/Astrosmash (1981) (Mattel).png"
-put ARCADE zip "mslug" "$fitted/ARCADE/mslug.png"
-stem="Donkey Kong II (Nintendo, Multi Screen)"
-put GW mgw "$stem" "$gw/$stem.png"
-if [ -f "$gw/open/$stem.png" ]; then
-    mkdir -p "$root/Labels/GW/open"
-    cp "$gw/open/$stem.png" "$root/Labels/GW/open/$stem.png"
-fi
+put GBA gba "Metroid Fusion"
+put SNES sfc "Super Metroid"
+put MD md "Gunstar Heroes (USA)"
+put INTV int "Astrosmash (1981) (Mattel)"
+put ARCADE zip "mslug"
+put GW mgw "Donkey Kong II (Nintendo, Multi Screen)"
 
 mkdir -p "$root/Config"
 # Newest star first on ADDED: Intellivision, then Genesis, SNES, arcade, GBA, G&W.
