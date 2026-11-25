@@ -19,7 +19,7 @@ use std::time::Duration;
 use slot_input::RawEvent;
 
 use super::fixture::{json_escape, report, set};
-use super::{image, parse_btn, phase_name, Shared, PANEL};
+use super::{image, parse_btn, phase_name, Shared, panel};
 
 const PAGE: &str = include_str!("page.html");
 const MAX_HEAD: usize = 8192;
@@ -149,8 +149,8 @@ fn state(shared: &Shared) -> String {
         json_escape(&s.phase),
         json_escape(phase_name(&s.phase)),
         s.sleeping,
-        PANEL.0,
-        PANEL.1,
+        panel().0,
+        panel().1,
         report()
     )
 }
@@ -183,7 +183,7 @@ fn serve(mut stream: TcpStream, shared: &Shared) {
                 &mut stream,
                 "200 OK",
                 "image/png",
-                &image::encode(PANEL.0, PANEL.1, &rgba),
+                &image::encode(panel().0, panel().1, &rgba),
             ),
             None => error(&mut stream, "503 Service Unavailable", "no frame"),
         },

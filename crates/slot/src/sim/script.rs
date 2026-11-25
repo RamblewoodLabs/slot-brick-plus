@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use slot_input::RawEvent;
 
-use super::{image, parse_btn, phase_name, Shared, PANEL};
+use super::{image, parse_btn, phase_name, Shared, panel};
 
 const SETTLE: Duration = Duration::from_millis(400);
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -193,7 +193,7 @@ impl Step<'_> {
             .screenshot(Duration::from_secs(5))
             .ok_or("no screenshot came back")?;
         let shot = self.out.join(format!("{name}.png"));
-        std::fs::write(&shot, image::encode(PANEL.0, PANEL.1, &rgba)).map_err(|e| format!("{}: {e}", shot.display()))
+        std::fs::write(&shot, image::encode(panel().0, panel().1, &rgba)).map_err(|e| format!("{}: {e}", shot.display()))
     }
 
     fn snap(&self, name: &str) -> Result<Option<String>, String> {
@@ -207,7 +207,7 @@ impl Step<'_> {
             .shared
             .screenshot(Duration::from_secs(5))
             .ok_or("no screenshot came back")?;
-        let png = image::encode(PANEL.0, PANEL.1, &rgba);
+        let png = image::encode(panel().0, panel().1, &rgba);
         let shot = self.out.join(format!("{name}.png"));
         std::fs::write(&shot, &png).map_err(|e| format!("{}: {e}", shot.display()))?;
         let golden = self.golden.join(format!("{name}.png"));
@@ -225,10 +225,10 @@ impl Step<'_> {
             )));
         }
         let (w, h, want) = image::decode(&golden)?;
-        if (w, h) != PANEL {
+        if (w, h) != panel() {
             return Ok(Some(format!(
                 "{name}: golden is {w}x{h}, the screen is {}x{}",
-                PANEL.0, PANEL.1
+                panel().0, panel().1
             )));
         }
         let diff = image::compare(&rgba, &want);
@@ -236,7 +236,7 @@ impl Step<'_> {
             return Ok(None);
         }
         let marked = self.out.join(format!("{name}.diff.png"));
-        let _ = std::fs::write(&marked, image::encode(PANEL.0, PANEL.1, &diff.marked));
+        let _ = std::fs::write(&marked, image::encode(panel().0, panel().1, &diff.marked));
         Ok(Some(format!(
             "{name}: {} of {} pixels differ from the golden; see {}",
             diff.pixels,

@@ -110,13 +110,14 @@ pub enum QuickRow {
     ShowLynx,
     ShowA7800,
     ShowGw,
+    ShowFavorites,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 95] = [
+    pub const ALL: [QuickRow; 96] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -212,6 +213,7 @@ impl QuickRow {
         QuickRow::ShowLynx,
         QuickRow::ShowA7800,
         QuickRow::ShowGw,
+        QuickRow::ShowFavorites,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -360,7 +362,8 @@ impl QuickRow {
         QuickRow::LibraryPlayTime,
     ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
-    pub const SYSTEMS: [QuickRow; 16] = [
+    pub const SYSTEMS: [QuickRow; 17] = [
+        QuickRow::ShowFavorites,
         QuickRow::ShowGba,
         QuickRow::ShowGb,
         QuickRow::ShowGbc,
@@ -566,7 +569,8 @@ impl QuickRow {
             | QuickRow::About => &Self::SYSTEM,
             #[cfg(feature = "brick")]
             QuickRow::UpdateCheck => &Self::SYSTEM,
-            QuickRow::ShowGba
+            QuickRow::ShowFavorites
+            | QuickRow::ShowGba
             | QuickRow::ShowGb
             | QuickRow::ShowGbc
             | QuickRow::ShowNes
@@ -617,7 +621,7 @@ impl QuickRow {
             QuickRow::Ps1Shader => Some(QuickRow::ScreenPs1),
             QuickRow::FastForward => Some(QuickRow::Game),
             QuickRow::LibrarySort => Some(QuickRow::Library),
-            QuickRow::ShowGba => Some(QuickRow::LibrarySystems),
+            QuickRow::ShowFavorites => Some(QuickRow::LibrarySystems),
             QuickRow::AboutVersion => Some(QuickRow::About),
             QuickRow::SoundVolume => Some(QuickRow::SystemSounds),
             QuickRow::Wifi => Some(QuickRow::Online),
@@ -689,6 +693,7 @@ impl QuickRow {
             QuickRow::LibraryPlayTime => "Play Time",
             QuickRow::LibraryTitleCard => "Title Card",
             QuickRow::LibrarySystems => "Systems",
+            QuickRow::ShowFavorites => "Favorites",
             QuickRow::ShowGba => "Game Boy Advance",
             QuickRow::ShowGb => "Game Boy",
             QuickRow::ShowGbc => "Game Boy Color",
@@ -1130,11 +1135,12 @@ impl QuickMenu<'_> {
             h: OUT_H as f32,
             colour: opening(),
         });
+        let layout = page_layout(self.row);
         out.push(Draw::Rect {
             x: 0.0,
-            y: row_top(self.row) + BAR_INSET,
+            y: layout.row_top(self.row) + BAR_INSET,
             w: OUT_W as f32,
-            h: quick_pitch(self.row.page().len()) - 2.0 * BAR_INSET,
+            h: layout.pitch - 2.0 * BAR_INSET,
             colour: edge(),
         });
         let Some(faces) = self.faces else {
@@ -1142,7 +1148,10 @@ impl QuickMenu<'_> {
         };
         let (right, pad) = (OUT_W as f32 - QUICK_EDGE, MENU_PAD as f32);
         for &row in self.row.page() {
-            let y = row_top(row) + TYPE_DROP;
+            if !layout.shows(row) {
+                continue;
+            }
+            let y = layout.row_top(row) + TYPE_DROP;
             let lit = row == self.row;
             if let Some(&(tex, w, h)) = faces.labels.get(row.index()) {
                 let alpha = if self.disabled[row.index()] {
@@ -1195,17 +1204,37 @@ const STATUS_H: f32 = 40.0;
 /// Room kept between the top of the last row and the legend (row type is ~32px).
 const LAST_ROW_CLEAR: f32 = 29.0;
 
-fn row_top(row: QuickRow) -> f32 {
-    let n = row.page().len();
-    let mut pitch = quick_pitch(n);
+/// How a page is laid out: short pages are centred; a long one (Library → Systems) scrolls
+/// so each row keeps the usual pitch and stays clear of the legend.
+#[derive(Clone, Copy)]
+struct PageLayout {
+    pitch: f32,
+    top: f32,
+    start: usize,
+    visible: usize,
+}
+
+impl PageLayout {
+    fn shows(self, row: QuickRow) -> bool {
+        let pos = row.position();
+        pos >= self.start && pos < self.start + self.visible
+    }
+
+    fn row_top(self, row: QuickRow) -> f32 {
+        self.top + self.pitch * (row.position() - self.start) as f32
+    }
+}
+
+fn page_layout(selected: QuickRow) -> PageLayout {
+    let n = selected.page().len();
     let room = QUICK_SPLIT - STATUS_H;
+    let mut pitch = quick_pitch(n);
     if n > 0 && pitch * n as f32 > room {
         pitch = room / n as f32;
     }
     let block = pitch * n as f32;
     let mut top = (OUT_H as f32 - block) / 2.0;
-    // A long page (the sixteen systems) would centre its last row onto the legend:
-    // lift it so the last row's type ends where the fifteen-row page's did.
+    // A page that would centre its last row onto the legend is lifted so the type stays clear.
     let last = QUICK_SPLIT - LAST_ROW_CLEAR - pitch * (n.max(1) - 1) as f32;
     if top > last {
         top = last;
@@ -1213,7 +1242,82 @@ fn row_top(row: QuickRow) -> f32 {
     if top < STATUS_H {
         top = STATUS_H;
     }
-    top + pitch * row.position() as f32
+    // When squeezing would stack the type (pitch below the row's type height),
+    // scroll at the usual pitch instead. A short page, such as System, still
+    // tightens slightly so every row stays on screen.
+    if n > 0 && pitch + 0.5 < MENU_H as f32 && room >= QUICK_PITCH {
+        pitch = QUICK_PITCH;
+        let visible = ((room / pitch).floor() as usize).max(1).min(n);
+        let pos = selected.position();
+        let max_start = n.saturating_sub(visible);
+        let mut start = pos.saturating_sub(visible / 3);
+        if pos >= start + visible {
+            start = pos + 1 - visible;
+        }
+        start = start.min(max_start);
+        return PageLayout {
+            pitch,
+            top: STATUS_H,
+            start,
+            visible,
+        };
+    }
+    PageLayout {
+        pitch,
+        top,
+        start: 0,
+        visible: n,
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn the_systems_list_scrolls_so_rows_stay_clear_of_the_legend() {
+        let fav = page_layout(QuickRow::ShowFavorites);
+        assert_eq!(fav.start, 0);
+        assert!(fav.visible < QuickRow::SYSTEMS.len());
+        assert!(fav.pitch >= QUICK_PITCH - 0.5);
+        let y0 = fav.row_top(QuickRow::ShowFavorites);
+        let y1 = fav.row_top(QuickRow::ShowGba);
+        assert!((y1 - y0 - fav.pitch).abs() < 0.1, "rows should sit a pitch apart");
+        let last_visible = QuickRow::SYSTEMS[fav.visible - 1];
+        let bottom = fav.row_top(last_visible) + TYPE_DROP + MENU_H as f32;
+        assert!(
+            bottom <= LEGEND_Y,
+            "last visible row {bottom} runs into the legend at {LEGEND_Y}"
+        );
+
+        let gw = page_layout(QuickRow::ShowGw);
+        assert!(gw.shows(QuickRow::ShowGw));
+        assert!(!gw.shows(QuickRow::ShowFavorites), "the first row should have scrolled off");
+        let gw_bottom = gw.row_top(QuickRow::ShowGw) + TYPE_DROP + MENU_H as f32;
+        assert!(
+            gw_bottom <= LEGEND_Y,
+            "Game & Watch {gw_bottom} runs into the legend at {LEGEND_Y}"
+        );
+        assert!(gw.row_top(QuickRow::ShowGw) >= STATUS_H);
+    }
+
+    #[test]
+    fn a_short_page_keeps_every_row_on_screen() {
+        let leds = page_layout(QuickRow::SYSTEM[0]);
+        assert_eq!(leds.start, 0);
+        assert_eq!(leds.visible, QuickRow::SYSTEM.len());
+        assert!(leds.shows(QuickRow::About), "About should stay on a short System page");
+        assert!(
+            leds.pitch + 0.5 >= MENU_H as f32,
+            "short pages should not drop below the type height, got {}",
+            leds.pitch
+        );
+        let bottom = leds.row_top(QuickRow::About) + TYPE_DROP + MENU_H as f32;
+        assert!(
+            bottom <= LEGEND_Y,
+            "About {bottom} runs into the legend at {LEGEND_Y}"
+        );
+    }
 }
 
 const DISABLED_ALPHA: f32 = 0.35;

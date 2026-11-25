@@ -15,8 +15,9 @@
 //! - SLOT_SIM_GOLDEN: where the expected screenshots live (default brick/sim/golden)
 //! - SLOT_SIM_UPDATE=1: write the screenshots as the new goldens instead of comparing
 //! - SLOT_SIM_MODEL=pro: be a Brick Pro (its MainUI, its LED zones, its left stick)
+//! - SLOT_SIM_PANEL=640x480: the panel size (default 1024x768, the Brick's). The SP is 640x480.
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use slot_input::{Btn, RawEvent};
@@ -28,8 +29,23 @@ mod server;
 
 pub use fixture::populate;
 
-/// The Brick panel the simulator draws.
+/// The Brick panel the simulator draws when SLOT_SIM_PANEL is not set.
 pub const PANEL: (u32, u32) = (1024, 768);
+
+/// The panel used this run: SLOT_SIM_PANEL=`WxH`, or the Brick's 1024x768.
+pub fn panel() -> (u32, u32) {
+    static SIZE: OnceLock<(u32, u32)> = OnceLock::new();
+    *SIZE.get_or_init(|| {
+        std::env::var("SLOT_SIM_PANEL")
+            .ok()
+            .and_then(|v| {
+                let (w, h) = v.split_once('x')?;
+                Some((w.parse().ok()?, h.parse().ok()?))
+            })
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .unwrap_or(PANEL)
+    })
+}
 
 /// What the device loop reports each pass, for drivers to wait on.
 #[derive(Clone, Default)]

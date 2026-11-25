@@ -33,10 +33,12 @@ press down
 press down     # Systems
 press a
 snap menu-systems
+press down     # Game Boy Advance, under Favorites
 press right    # Game Boy Advance: hidden
 press b
 press b
 press b
 phase Shelf
+press r1       # off Favorites, skipping the hidden GBA shelf
 wait 2500      # the title card gone
 snap shelf-gba-hidden

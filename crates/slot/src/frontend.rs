@@ -1147,7 +1147,7 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
         app.set_shelf_clock_face(id, w);
     }
     let platform_shown = app.slot_text().unwrap_or_default();
-    if platform_shown != clocks.platform {
+    if platform_shown != clocks.platform || app.slot_name_needs_face() {
         clocks.platform = platform_shown.clone();
         if platform_shown.is_empty() {
             app.clear_shelf_platform();
