@@ -1,8 +1,10 @@
-# md placeholder. Replace shell.png with the Blender render.
-# Shell is 360x200 RGBA. Label rect is in those pixels, origin top-left, y down.
-x = 40
-y = 28
-w = 280
-h = 128
+# md: Blender render of the genesis shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 360x247 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 108.0x72.5 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 60
+y = 9
+w = 240
+h = 197
 rotation = 0.0
-aspect = 2.1875
+aspect = 1.2183

@@ -1,8 +1,10 @@
-# lynx placeholder. Replace shell.png with the Blender render.
-# Shell is 280x160 RGBA. Label rect is in those pixels, origin top-left, y down.
-x = 24
-y = 22
-w = 232
-h = 108
+# lynx: Blender render of the atarilynx shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 316x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 58.0x61.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 15
+y = 53
+w = 286
+h = 263
 rotation = 0.0
-aspect = 2.1481
+aspect = 1.0875

@@ -1,8 +1,10 @@
-# pce placeholder. Replace shell.png with the Blender render.
-# Shell is 320x180 RGBA. Label rect is in those pixels, origin top-left, y down.
-x = 28
-y = 22
-w = 264
-h = 124
+# pce: Blender render of the tg16 shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 213x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 53.0x84.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 16
+y = 77
+w = 181
+h = 237
 rotation = 0.0
-aspect = 2.129
+aspect = 0.7637

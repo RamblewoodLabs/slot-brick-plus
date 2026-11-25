@@ -1,6 +1,8 @@
 //! A cartridge drawn from a pre-rendered shell. The label from `Labels/<sys>/<stem>.png`
-//! is scaled into the rectangle in `meta.toml`, rotated if asked, and (when `mask.png`
-//! is there) clipped to that mask. See `docs/cart-shells.md`.
+//! is scaled into the rectangle in `meta.toml`, rotated if asked, (when `mask.png`
+//! is there) clipped to that mask, and lit: multiplied by `shade.png` (the light a paper
+//! label catches on that cart), or brightened when the shell is a `backlit` marquee.
+//! See `docs/cart-shells.md`.
 use slot_store::{Cart, Platform};
 
 use crate::art;
@@ -26,6 +28,11 @@ pub fn cart_face(cart: &Cart, art: Option<Vec<u8>>) -> Option<CartFace> {
     };
     let label = rotate_label(&label, shell.lw, shell.lh, shell.rotation);
     let mask = shell.mask.and_then(|bytes| decode(bytes));
+    let shade = shell.shade.and_then(|bytes| decode(bytes));
+    let light = Light {
+        shade: shade.as_ref(),
+        backlit: shell.backlit,
+    };
     if let Some(quad) = shell.quad {
         paste_quad(
             &mut rgba,
@@ -36,9 +43,10 @@ pub fn cart_face(cart: &Cart, art: Option<Vec<u8>>) -> Option<CartFace> {
             shell.lh,
             quad,
             mask.as_ref(),
+            light,
         );
     } else {
-        paste_rect(&mut rgba, w, h, &label, shell, mask.as_ref());
+        paste_rect(&mut rgba, w, h, &label, shell, mask.as_ref(), light);
     }
     Some(CartFace { rgba, w, h })
 }
@@ -120,6 +128,7 @@ fn paste_rect(
     label: &[u8],
     shell: &ShellPng,
     mask: Option<&(Vec<u8>, u32, u32)>,
+    light: Light,
 ) {
     for y in 0..shell.lh {
         for x in 0..shell.lw {
@@ -129,7 +138,9 @@ fn paste_rect(
                 continue;
             }
             let cover = mask_at(mask, px, py);
-            blit(dst, dw, px, py, label, shell.lw, x, y, cover);
+            if let Some(src) = label_px(label, shell.lw, x, y) {
+                blit(dst, dw, px, py, light.on(src, px, py), cover);
+            }
         }
     }
 }
@@ -143,6 +154,7 @@ fn paste_quad(
     lh: u32,
     quad: [[f32; 2]; 4],
     mask: Option<&(Vec<u8>, u32, u32)>,
+    light: Light,
 ) {
     let (min_x, min_y, max_x, max_y) = bounds(quad, dw, dh);
     for py in min_y..max_y {
@@ -156,7 +168,9 @@ fn paste_quad(
             let x = (u * lw as f32).clamp(0.0, lw.saturating_sub(1) as f32) as u32;
             let y = (v * lh as f32).clamp(0.0, lh.saturating_sub(1) as f32) as u32;
             let cover = mask_at(mask, px, py);
-            blit(dst, dw, px, py, label, lw, x, y, cover);
+            if let Some(src) = label_px(label, lw, x, y) {
+                blit(dst, dw, px, py, light.on(src, px, py), cover);
+            }
         }
     }
 }
@@ -227,28 +241,51 @@ fn mask_at(mask: Option<&(Vec<u8>, u32, u32)>, x: u32, y: u32) -> u32 {
     rgba.get(i).copied().unwrap_or(0) as u32
 }
 
-fn blit(
-    dst: &mut [u8],
-    dw: u32,
-    dx: u32,
-    dy: u32,
-    src: &[u8],
-    sw: u32,
-    sx: u32,
-    sy: u32,
-    cover: u32,
-) {
-    let s = ((sy * sw + sx) * 4) as usize;
-    if s + 3 >= src.len() {
-        return;
+/// How the label is lit on the shell: by the light a paper label catches there (`shade.png`,
+/// white where the paper faces the light), or from behind (`backlit`, a marquee).
+#[derive(Clone, Copy)]
+struct Light<'a> {
+    shade: Option<&'a (Vec<u8>, u32, u32)>,
+    backlit: bool,
+}
+
+impl Light<'_> {
+    fn on(self, px: [u8; 4], x: u32, y: u32) -> [u8; 4] {
+        let shade = match self.shade {
+            Some((rgba, w, _)) => rgba.get(((y * w + x) * 4) as usize).copied().unwrap_or(255),
+            None => 255,
+        };
+        lit(px, shade, self.backlit)
     }
-    let a = src[s + 3] as u32 * cover / 255;
+}
+
+/// One label pixel under the shell's light. `shade` is 0..255 (255 leaves it as printed).
+/// A backlit marquee ignores the shade: the light comes through it, lifting every colour.
+fn lit(px: [u8; 4], shade: u8, backlit: bool) -> [u8; 4] {
+    let mut out = px;
+    for c in 0..3 {
+        out[c] = if backlit {
+            (px[c] as u32 * 110 / 100 + 12).min(255) as u8
+        } else {
+            ((px[c] as u32 * shade as u32 + 127) / 255) as u8
+        };
+    }
+    out
+}
+
+fn label_px(src: &[u8], sw: u32, sx: u32, sy: u32) -> Option<[u8; 4]> {
+    let s = ((sy * sw + sx) * 4) as usize;
+    src.get(s..s + 4).map(|p| [p[0], p[1], p[2], p[3]])
+}
+
+fn blit(dst: &mut [u8], dw: u32, dx: u32, dy: u32, src: [u8; 4], cover: u32) {
+    let a = src[3] as u32 * cover / 255;
     if a == 0 {
         return;
     }
     let d = ((dy * dw + dx) * 4) as usize;
     for c in 0..3 {
-        dst[d + c] = ((src[s + c] as u32 * a + dst[d + c] as u32 * (255 - a) + 127) / 255) as u8;
+        dst[d + c] = ((src[c] as u32 * a + dst[d + c] as u32 * (255 - a) + 127) / 255) as u8;
     }
     dst[d + 3] = dst[d + 3].max(a as u8);
 }
@@ -298,6 +335,17 @@ mod tests {
     }
 
     #[test]
+    fn no_shell_stands_taller_than_the_nes_cart_on_the_shelf_or_seated() {
+        let nes_seated = crate::cart::seated_box(Platform::Nes).1;
+        for platform in Platform::ALL {
+            let Some(shell) = of(platform) else { continue };
+            assert!(shell.h <= crate::cart::NES_CART_H, "{platform:?} is {} tall", shell.h);
+            let (sw, sh) = crate::cart::seated_box(platform);
+            assert!(sh <= nes_seated && sw <= crate::cart::SEATED_W, "{platform:?} seats {sw}x{sh}");
+        }
+    }
+
+    #[test]
     fn every_shell_asset_is_inside_its_png_and_keeps_its_aspect() {
         for platform in Platform::ALL {
             let Some(shell) = of(platform) else {
@@ -336,30 +384,84 @@ mod tests {
             [face.rgba[i], face.rgba[i + 1], face.rgba[i + 2]]
         };
         let mid = at(shell.x + shell.lw / 2, shell.y + shell.lh / 2);
-        assert!(mid[0] > 180 && mid[1] < 80, "label centre {mid:?}");
+        // Red, under the cart's light: darker than printed where the paper turns away.
+        assert!(mid[0] > 150 && mid[1] < 80, "label centre {mid:?}");
         let outside = at(4, 4);
         assert!(outside[0] < 80, "shell corner took the label {outside:?}");
 
-        let arcade = of(Platform::Arcade).unwrap();
-        let mut gold = vec![0u8; (arcade.lw * arcade.lh * 4) as usize];
-        for px in gold.chunks_exact_mut(4) {
-            px.copy_from_slice(&[240, 200, 40, 255]);
+        // Wherever a mask is clear inside the window (rounded label corners, the marquee's
+        // retainers), the shell is left exactly as rendered.
+        let mut hidden = 0;
+        for platform in Platform::ALL {
+            let Some(shell) = of(platform) else { continue };
+            let Some(mask) = shell.mask else { continue };
+            let (bare, _, _) = decode(shell.shell).unwrap();
+            let (mask, mw, _) = decode(mask).unwrap();
+            let mut gold = vec![0u8; (shell.lw * shell.lh * 4) as usize];
+            for px in gold.chunks_exact_mut(4) {
+                px.copy_from_slice(&[240, 200, 40, 255]);
+            }
+            let face = cart_face(&cart(platform), Some(gold)).unwrap();
+            for y in shell.y..shell.y + shell.lh {
+                for x in shell.x..shell.x + shell.lw {
+                    let i = ((y * mw + x) * 4) as usize;
+                    if mask[i + 3] == 0 {
+                        hidden += 1;
+                        assert_eq!(
+                            &face.rgba[i..i + 4],
+                            &bare[i..i + 4],
+                            "{platform:?}: masked pixel {x},{y} took the label"
+                        );
+                    }
+                }
+            }
         }
-        let face = cart_face(&cart(Platform::Arcade), Some(gold)).unwrap();
-        let corner = {
-            let i = (((arcade.y) * face.w + arcade.x) * 4) as usize;
-            face.rgba[i + 3]
-        };
-        assert_eq!(
-            corner,
-            face.rgba[((arcade.y * face.w + arcade.x) * 4) as usize + 3]
-        );
-        let i = ((arcade.y * face.w + arcade.x) * 4) as usize;
-        assert!(
-            face.rgba[i] < 80,
-            "mask should hide the marquee corner, saw {:?}",
-            &face.rgba[i..i + 4]
-        );
+        assert!(hidden > 0, "no mask clears any corner of its window");
+    }
+
+    #[test]
+    fn shade_multiplies_the_label_and_a_backlit_marquee_glows() {
+        assert_eq!(lit([200, 100, 50, 255], 255, false), [200, 100, 50, 255]);
+        assert_eq!(lit([200, 100, 50, 255], 128, false), [100, 50, 25, 255]);
+        assert_eq!(lit([200, 100, 50, 77], 0, false), [0, 0, 0, 77]);
+        let glow = lit([100, 100, 250, 255], 0, true);
+        assert!(glow[0] > 100 && glow[2] == 255, "backlit ignores the shade and lifts: {glow:?}");
+    }
+
+    #[test]
+    fn every_shade_and_mask_matches_its_shell_and_the_marquee_is_backlit() {
+        for platform in Platform::ALL {
+            let Some(shell) = of(platform) else { continue };
+            for (what, png) in [("mask", shell.mask), ("shade", shell.shade)] {
+                if let Some(bytes) = png {
+                    let (_, w, h) = decode(bytes).unwrap_or_else(|| panic!("{platform:?} {what}.png"));
+                    assert_eq!((w, h), (shell.w, shell.h), "{platform:?} {what}.png size");
+                }
+            }
+            assert_eq!(shell.backlit, platform == Platform::Arcade, "{platform:?}");
+        }
+    }
+
+    #[test]
+    fn a_white_label_takes_the_shade_and_a_marquee_lights_up() {
+        let md = of(Platform::Md).unwrap();
+        let (shade, sw, _) = decode(md.shade.expect("md ships a shade")).unwrap();
+        let white = vec![255u8; (md.lw * md.lh * 4) as usize];
+        let face = cart_face(&cart(Platform::Md), Some(white)).unwrap();
+        let (x, y) = (md.x + md.lw / 2, md.y + md.lh / 2);
+        let got = face.rgba[((y * face.w + x) * 4) as usize];
+        let want = shade[((y * sw + x) * 4) as usize];
+        assert!(got.abs_diff(want) <= 2, "white label at the centre {got}, shade {want}");
+
+        let arcade = of(Platform::Arcade).unwrap();
+        let grey = vec![128u8; (arcade.lw * arcade.lh * 4) as usize]
+            .chunks_exact(4)
+            .flat_map(|_| [128u8, 128, 128, 255])
+            .collect::<Vec<_>>();
+        let face = cart_face(&cart(Platform::Arcade), Some(grey)).unwrap();
+        let (x, y) = (arcade.x + arcade.lw / 2, arcade.y + arcade.lh / 2);
+        let lit_centre = face.rgba[((y * face.w + x) * 4) as usize];
+        assert!(lit_centre > 140, "the marquee should glow, centre {lit_centre}");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Reads `assets/carts/<sys>/meta.toml` and the shell PNG's size, and emits
 //! `shells.rs` for the compositor. Dropping in a new render is a new directory
-//! plus a rebuild: shell.png, optional mask.png, meta.toml.
+//! plus a rebuild: shell.png, optional mask.png and shade.png, meta.toml.
 use std::fs;
 use std::path::Path;
 
@@ -22,6 +22,8 @@ fn main() {
          pub h: u32,\n    \
          pub shell: &'static [u8],\n    \
          pub mask: Option<&'static [u8]>,\n    \
+         pub shade: Option<&'static [u8]>,\n    \
+         pub backlit: bool,\n    \
          pub x: u32,\n    \
          pub y: u32,\n    \
          pub lw: u32,\n    \
@@ -36,11 +38,18 @@ fn main() {
         let ident = name.replace('-', "_").to_ascii_uppercase();
         let meta = fs::read_to_string(dir.join("meta.toml")).unwrap();
         let (x, y, lw, lh, rotation, aspect, quad) = parse_meta(&meta, &name);
+        let backlit = meta_flag(&meta, "backlit");
         let (w, h) = png_size(&fs::read(dir.join("shell.png")).unwrap(), &name);
         let shell = dir.join("shell.png");
         let mask = dir.join("mask.png");
         let mask_expr = if mask.is_file() {
             format!("Some(include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/mask.png\")))")
+        } else {
+            "None".to_string()
+        };
+        let shade = dir.join("shade.png");
+        let shade_expr = if shade.is_file() {
+            format!("Some(include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/shade.png\")))")
         } else {
             "None".to_string()
         };
@@ -55,6 +64,8 @@ fn main() {
              h: {h},\n    \
              shell: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/shell.png\")),\n    \
              mask: {mask_expr},\n    \
+             shade: {shade_expr},\n    \
+             backlit: {backlit},\n    \
              x: {x},\n    \
              y: {y},\n    \
              lw: {lw},\n    \
@@ -69,6 +80,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", dir.join("meta.toml").display());
         if mask.is_file() {
             println!("cargo:rerun-if-changed={}", mask.display());
+        }
+        if shade.is_file() {
+            println!("cargo:rerun-if-changed={}", shade.display());
         }
     }
     out.push_str(&format!(
@@ -126,6 +140,15 @@ fn parse_meta(text: &str, name: &str) -> (u32, u32, u32, u32, f32, f32, Option<S
     );
     let aspect = aspect.unwrap_or(w as f32 / h as f32);
     (x, y, w, h, rotation, aspect, quad)
+}
+
+/// `key = true` in meta.toml (anything else, or no key, is false).
+fn meta_flag(text: &str, key: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.split('#').next().unwrap().trim();
+        line.split_once('=')
+            .is_some_and(|(k, v)| k.trim() == key && v.trim() == "true")
+    })
 }
 
 fn png_size(bytes: &[u8], name: &str) -> (u32, u32) {

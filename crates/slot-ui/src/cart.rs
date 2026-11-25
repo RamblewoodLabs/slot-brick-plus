@@ -362,6 +362,11 @@ const SNES_SEATED_H: u32 = 157;
 pub fn seated_box(platform: Platform) -> (u32, u32) {
     if let Some(shell) = crate::shell_png::of(platform) {
         let sh = (SEATED_W * shell.h + shell.w / 2) / shell.w;
+        if sh > NES_SEATED_H {
+            // A tall cart (a Sega Card, a HuCard) is seated narrower: no taller than the NES cart.
+            let sw = (NES_SEATED_H * shell.w + shell.h / 2) / shell.h;
+            return (sw.max(1), NES_SEATED_H);
+        }
         return (SEATED_W, sh.max(1));
     }
     match platform {

@@ -1,9 +1,10 @@
-# a2600 placeholder. Replace shell.png with the Blender render.
-# Shell is 220x340 RGBA. Label rect is in those pixels, origin top-left, y down.
-x = 36
-y = 70
-w = 148
-h = 180
+# a2600: Blender render of the atari2600 shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 279x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 82.0x98.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 26
+y = 31
+w = 227
+h = 279
 rotation = 0.0
-aspect = 0.8222
-# mask.png: label alpha. 0 hides the label (the shell shows through).
+aspect = 0.8136
