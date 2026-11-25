@@ -1192,6 +1192,8 @@ impl QuickMenu<'_> {
 
 /// Room kept at the top for the battery and Wi-Fi, so a long page does not cover them.
 const STATUS_H: f32 = 40.0;
+/// Room kept between the top of the last row and the legend (row type is ~32px).
+const LAST_ROW_CLEAR: f32 = 29.0;
 
 fn row_top(row: QuickRow) -> f32 {
     let n = row.page().len();
@@ -1202,6 +1204,12 @@ fn row_top(row: QuickRow) -> f32 {
     }
     let block = pitch * n as f32;
     let mut top = (OUT_H as f32 - block) / 2.0;
+    // A long page (the sixteen systems) would centre its last row onto the legend:
+    // lift it so the last row's type ends where the fifteen-row page's did.
+    let last = QUICK_SPLIT - LAST_ROW_CLEAR - pitch * (n.max(1) - 1) as f32;
+    if top > last {
+        top = last;
+    }
     if top < STATUS_H {
         top = STATUS_H;
     }
