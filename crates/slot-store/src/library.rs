@@ -16,6 +16,8 @@ pub struct GameRecord {
     /// UTC seconds when it was last started; 0 for never.
     pub last_played: i64,
     pub favorite: bool,
+    /// UTC seconds when it was starred; 0 if unknown or it is not a favorite.
+    pub favorited_at: i64,
 }
 
 /// How each shelf is ordered.
@@ -45,6 +47,31 @@ impl LibrarySort {
     }
 }
 
+/// How the combined Favorites shelf is ordered.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum FavoritesSort {
+    /// The game starred last first; untimed stars after, by last played, then A–Z.
+    #[default]
+    Added,
+    /// The game played last first; games never played after, A–Z.
+    Recent,
+}
+
+impl FavoritesSort {
+    pub const ALL: [FavoritesSort; 2] = [FavoritesSort::Added, FavoritesSort::Recent];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            FavoritesSort::Added => "added",
+            FavoritesSort::Recent => "recent",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<FavoritesSort> {
+        FavoritesSort::ALL.into_iter().find(|s| s.name() == value)
+    }
+}
+
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct Library {
     games: HashMap<(Platform, String), GameRecord>,
@@ -65,6 +92,20 @@ impl Library {
         let mut games = HashMap::new();
         for line in text.lines() {
             let fields: Vec<&str> = line.split('\t').collect();
+            // FAVADD\tPLATFORM\tSTEM\tunix: when the game was starred. Older builds skip
+            // these lines (FAVADD is not a platform), so the five-field rows still load.
+            if fields.len() == 4 && fields[0] == "FAVADD" {
+                let Some(platform) = Platform::ALL.into_iter().find(|p| p.dir_name() == fields[1]) else {
+                    continue;
+                };
+                let Ok(favorited_at) = fields[3].parse() else {
+                    continue;
+                };
+                let record: &mut GameRecord = games.entry((platform, fields[2].to_string())).or_default();
+                record.favorite = true;
+                record.favorited_at = favorited_at;
+                continue;
+            }
             let [platform, stem, secs, last, favorite] = fields[..] else {
                 continue;
             };
@@ -74,13 +115,16 @@ impl Library {
             let (Ok(played_secs), Ok(last_played)) = (secs.parse(), last.parse()) else {
                 continue;
             };
-            let record = GameRecord { played_secs, last_played, favorite: favorite == "1" };
-            games.insert((platform, stem.to_string()), record);
+            let record: &mut GameRecord = games.entry((platform, stem.to_string())).or_default();
+            record.played_secs = played_secs;
+            record.last_played = last_played;
+            record.favorite = favorite == "1";
         }
         Library { games }
     }
 
-    /// One line a game that has anything to keep, in a steady order.
+    /// One line a game that has anything to keep, in a steady order. When a star has a
+    /// time, a FAVADD line follows the five-field rows, so older builds still read them.
     pub fn text(&self) -> String {
         let mut lines: Vec<String> = self
             .games
@@ -91,6 +135,16 @@ impl Library {
             })
             .collect();
         lines.sort();
+        let mut added: Vec<String> = self
+            .games
+            .iter()
+            .filter(|(_, r)| r.favorite && r.favorited_at != 0)
+            .map(|((platform, stem), r)| {
+                format!("FAVADD\t{}\t{stem}\t{}", platform.dir_name(), r.favorited_at)
+            })
+            .collect();
+        added.sort();
+        lines.extend(added);
         lines.into_iter().map(|l| l + "\n").collect()
     }
 
@@ -123,6 +177,29 @@ pub fn arrange(carts: &mut Vec<Cart>, sort: LibrarySort, favorites_only: bool, l
         LibrarySort::Az => {}
         LibrarySort::Recent => carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played)),
         LibrarySort::MostPlayed => carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).played_secs)),
+    }
+}
+
+/// Favorites for the combined shelf, in `sort`'s order. Games already only the favorites.
+pub fn arrange_favorites(carts: &mut Vec<Cart>, sort: FavoritesSort, library: &Library) {
+    carts.retain(|c| library.get(c.platform, &c.stem).favorite);
+    match sort {
+        FavoritesSort::Added => carts.sort_by(|a, b| {
+            added_order(library.get(a.platform, &a.stem), library.get(b.platform, &b.stem))
+        }),
+        FavoritesSort::Recent => {
+            carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played))
+        }
+    }
+}
+
+/// Newer stars first; stars with no added time come after, by last played (then A–Z, stable).
+fn added_order(a: GameRecord, b: GameRecord) -> std::cmp::Ordering {
+    match (a.favorited_at, b.favorited_at) {
+        (0, 0) => b.last_played.cmp(&a.last_played),
+        (0, _) => std::cmp::Ordering::Greater,
+        (_, 0) => std::cmp::Ordering::Less,
+        (ta, tb) => tb.cmp(&ta),
     }
 }
 
@@ -161,7 +238,7 @@ mod tests {
     #[test]
     fn records_round_trip_and_bad_lines_are_skipped() {
         let mut lib = Library::default();
-        *lib.get_mut(Platform::Gba, "Pixel Racer") = GameRecord { played_secs: 3700, last_played: 1_800_000_000, favorite: true };
+        *lib.get_mut(Platform::Gba, "Pixel Racer") = GameRecord { played_secs: 3700, last_played: 1_800_000_000, favorite: true, favorited_at: 0 };
         lib.get_mut(Platform::Gb, "Untouched");
         let text = lib.text();
         assert_eq!(text, "GBA\tPixel Racer\t3700\t1800000000\t1\n");
@@ -208,5 +285,61 @@ mod tests {
         for sort in LibrarySort::ALL {
             assert_eq!(LibrarySort::parse(sort.name()), Some(sort));
         }
+        for sort in FavoritesSort::ALL {
+            assert_eq!(FavoritesSort::parse(sort.name()), Some(sort));
+        }
+    }
+
+    #[test]
+    fn favadd_lines_round_trip_and_old_five_field_rows_still_load() {
+        let mut lib = Library::default();
+        *lib.get_mut(Platform::Gba, "Pixel Racer") = GameRecord {
+            played_secs: 3700,
+            last_played: 1_800_000_000,
+            favorite: true,
+            favorited_at: 1_700_000_000,
+        };
+        let text = lib.text();
+        assert!(text.starts_with("GBA\tPixel Racer\t3700\t1800000000\t1\n"));
+        assert!(text.contains("FAVADD\tGBA\tPixel Racer\t1700000000\n"));
+        let again = Library::parse(&text);
+        assert_eq!(again.get(Platform::Gba, "Pixel Racer"), lib.get(Platform::Gba, "Pixel Racer"));
+        // An older file with no FAVADD still loads the star.
+        let old = Library::parse("GBA\tPixel Racer\t3700\t1800000000\t1\n");
+        let rec = old.get(Platform::Gba, "Pixel Racer");
+        assert!(rec.favorite && rec.favorited_at == 0 && rec.played_secs == 3700);
+        // A FAVADD-only line still marks the game a favorite (and is how a just-starred,
+        // never-played game is kept).
+        let starred = Library::parse("FAVADD\tMD\tSonic\t42\n");
+        let rec = starred.get(Platform::Md, "Sonic");
+        assert!(rec.favorite && rec.favorited_at == 42);
+        assert_eq!(starred.text(), "MD\tSonic\t0\t0\t1\nFAVADD\tMD\tSonic\t42\n");
+    }
+
+    #[test]
+    fn favorites_shelf_orders_by_when_starred_or_last_played() {
+        let all = [
+            cart(Platform::Gba, "Alpha"),
+            cart(Platform::Md, "Sonic"),
+            cart(Platform::Snes, "Zelda"),
+            cart(Platform::Intv, "Astrosmash"),
+        ];
+        let mut lib = Library::default();
+        lib.get_mut(Platform::Gba, "Alpha").favorite = true;
+        lib.get_mut(Platform::Gba, "Alpha").favorited_at = 10;
+        lib.get_mut(Platform::Md, "Sonic").favorite = true;
+        lib.get_mut(Platform::Md, "Sonic").favorited_at = 30;
+        lib.get_mut(Platform::Snes, "Zelda").favorite = true;
+        lib.get_mut(Platform::Snes, "Zelda").favorited_at = 20;
+        lib.get_mut(Platform::Snes, "Zelda").last_played = 100;
+        lib.get_mut(Platform::Intv, "Astrosmash").favorite = true;
+        lib.get_mut(Platform::Intv, "Astrosmash").last_played = 50; // no added time
+        let order = |sort| {
+            let mut carts = all.to_vec();
+            arrange_favorites(&mut carts, sort, &lib);
+            stems(&carts).join(" ")
+        };
+        assert_eq!(order(FavoritesSort::Added), "Sonic Zelda Alpha Astrosmash");
+        assert_eq!(order(FavoritesSort::Recent), "Zelda Astrosmash Alpha Sonic");
     }
 }

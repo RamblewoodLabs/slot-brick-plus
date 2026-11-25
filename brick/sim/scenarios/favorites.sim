@@ -1,0 +1,47 @@
+# Combined Favorites shelf: starred games of every system, each in its own shell.
+phase SetClock
+wait 2000
+press a
+phase Shelf
+# The first system shelf is in front at boot; L1 steps back onto Favorites (the top shelf).
+press l1
+wait 2500
+snap shelf
+press right
+wait 600
+snap next1
+press right
+wait 600
+snap next2
+press right
+wait 600
+snap next3
+press right
+wait 600
+snap next4
+press right
+wait 600
+snap next5
+# Back to the first favorite, then show last-played order.
+press left
+press left
+press left
+press left
+press left
+wait 400
+press select
+wait 800
+snap sort-last-played
+press select
+wait 800
+snap sort-added
+# HOME → Library → Systems: Favorites is the top row.
+press menu
+phase QuickMenu
+press down
+press down
+press a
+press down
+press down
+press a
+snap menu-systems

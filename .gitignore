@@ -22,3 +22,7 @@ target-sim/
 /brick/labels-local/
 # Slot OS card images (brick/os/build.sh).
 dist-os/
+
+# Local Favorites-shelf cargo target and sim screenshots.
+target-favs/
+preview/

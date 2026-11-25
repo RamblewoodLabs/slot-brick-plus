@@ -205,7 +205,7 @@ pub fn run() {
     let sim = slot::sim::start();
     wait_for_gpu();
     #[cfg(feature = "sim")]
-    let surface = FbdevSurface::offscreen(slot::sim::PANEL);
+    let surface = FbdevSurface::offscreen(slot::sim::panel());
     #[cfg(not(feature = "sim"))]
     let surface = FbdevSurface::new();
     let mut surface = match surface {

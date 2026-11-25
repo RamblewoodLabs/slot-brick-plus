@@ -107,7 +107,8 @@ run_one() {
         -e SLOT_SIM_TIME="$SIM_TIME" -e SLOT_SIM_SCRIPT="/src/$script" \
         -e SLOT_UPDATE_URL="file:///src/$run/releases" -e SLOT_NTP_SERVER= -e SLOT_SIM_VERSION=v0.1 -e SLOT_SIM_CARD="12.3/63.9 GB free" \
         -e SLOT_SIM_OUT="/src/$SIM/out" -e SLOT_SIM_GOLDEN=/src/brick/sim/golden \
-        -e SLOT_SIM_UPDATE="$update" "$IMAGE" timeout 300 "$BIN" > "$SIM/out/$name.log" 2>&1
+        -e SLOT_SIM_UPDATE="$update" -e SLOT_SIM_PANEL="${SLOT_SIM_PANEL:-}" \
+        "$IMAGE" timeout 300 "$BIN" > "$SIM/out/$name.log" 2>&1
     then
         echo "PASS $name" > "$SIM/out/$name.result"
     else

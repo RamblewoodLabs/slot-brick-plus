@@ -1,5 +1,5 @@
 use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
-use slot_store::Cart;
+use slot_store::{Cart, Platform};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::cart::{
@@ -82,7 +82,8 @@ pub struct Shelf {
     snes_shadow: Option<TexId>,
     snes_pal_shadow: Option<TexId>,
     disc_shadow: Option<TexId>,
-    png_shadow: Option<TexId>,
+    /// One PNG-shell shadow a platform, so a mixed Favorites shelf can wear each cart's own.
+    png_shadows: [Option<TexId>; Platform::ALL.len()],
     /// Each cart's shadow shape: reading it needs the ROM, so it is read once, not per frame.
     shells: Vec<Backing>,
     /// Which carts are favorites, starred on the shelf, and the star.
@@ -114,7 +115,7 @@ impl Shelf {
             snes_shadow: None,
             snes_pal_shadow: None,
             disc_shadow: None,
-            png_shadow: None,
+            png_shadows: [None; Platform::ALL.len()],
             ride: 0.0,
             vel: 0.0,
             held: None,
@@ -205,8 +206,8 @@ impl Shelf {
         self.disc_shadow = Some(face);
     }
 
-    pub fn set_png_shadow(&mut self, face: TexId) {
-        self.png_shadow = Some(face);
+    pub fn set_png_shadow(&mut self, platform: Platform, face: TexId) {
+        self.png_shadows[platform.index()] = Some(face);
     }
 
     pub fn set_faces(&mut self, faces: Vec<TexId>) {
@@ -439,6 +440,17 @@ impl Shelf {
         Some(foot_y(cart_box(cart.platform).1 as f32))
     }
 
+    /// Horizontal spacing between carts. Mixed shells (the Favorites shelf) share the
+    /// widest cart's pitch so they neither overlap nor leave uneven gaps; a one-system
+    /// shelf keeps that system's own width.
+    fn slot_pitch(&self) -> f32 {
+        self.carts
+            .iter()
+            .map(|c| cart_box(c.platform).0)
+            .max()
+            .unwrap_or(CART_W) as f32
+    }
+
     pub fn draw(&self, shake: f32, out: &mut Vec<Draw>) {
         self.draw_row(None, shake, 0.0, 1.0, out);
         draw_empty_slot(out);
@@ -468,9 +480,10 @@ impl Shelf {
             let scale = shrink(offset);
             let alpha = (1.0 + (SIDE_ALPHA - 1.0) * t) * (1.0 - recede);
             let (cw, ch) = cart_box(cart.platform);
+            let pitch = self.slot_pitch();
             let (w, h) = (cw as f32 * scale, ch as f32 * scale);
             let away = offset.signum() * (1.0 + offset.abs());
-            let x = OUT_W as f32 / 2.0 + offset * cw as f32 - w / 2.0 + away * PART * recede;
+            let x = OUT_W as f32 / 2.0 + offset * pitch - w / 2.0 + away * PART * recede;
             if x + w <= 0.0 || x >= OUT_W as f32 || alpha <= 0.0 {
                 continue;
             }
@@ -485,7 +498,7 @@ impl Shelf {
                     Some(Backing::Snes(SnesShell::Us)) => self.snes_shadow,
                     Some(Backing::Snes(SnesShell::Pal)) => self.snes_pal_shadow,
                     Some(Backing::Disc) => self.disc_shadow,
-                    Some(Backing::Png) => self.png_shadow,
+                    Some(Backing::Png) => self.png_shadows[cart.platform.index()],
                     Some(Backing::Gba) | None => self.shadow,
                 };
                 if let Some(tex) = backing {
