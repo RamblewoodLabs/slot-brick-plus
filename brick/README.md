@@ -138,6 +138,12 @@ switches. On Intellivision, hold L or R for the keypad. Intellivision needs `Slo
 `Slot/Labels/<folder>/<game>.png` is the cartridge label. Library → Systems shows or hides a shelf.
 How the cartridge art is drawn is in `docs/cart-shells.md`.
 
+**Game & Watch:** put `.mgw` games (the MADrigal simulators gw-libretro runs) in
+`Slot/Games/GW`. The D-pad, A and B are the handheld's buttons; Select steps through Game A,
+Game B and Time, and Start presses it. Each handheld drawn on the shelf, and the frames of it
+opening or lighting up, are `Slot/Labels/GW/<game>.png` and `Slot/Labels/GW/open/<game>.png`,
+made from ES-DE media by `brick/gw-art`. The core has no save states, so there is no rewind.
+
 **Zipped games:** GB, GBC, GBA, NES and SNES ROMs can be zipped (`.zip`) or 7z'd (`.7z`), one
 ROM in each. The cart takes the archive's name, so `Tetris.gb` zipped as `Tetris.zip` keeps its
 saves, states, label and play time. Starting one unpacks its ROM into `Slot/System/Cache/Unpacked`,

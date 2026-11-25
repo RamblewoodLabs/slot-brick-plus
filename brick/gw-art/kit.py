@@ -32,6 +32,7 @@ for i,r in enumerate(rows):
     outline=[[round(float(x)/W,5),round(float(y)/H,5)] for x,y in c]
     data=np.array(im);border=np.concatenate([data[int(H*.03),:,:],data[-max(1,int(H*.03)),:,:],data[:,int(W*.03),:],data[:,-max(1,int(W*.03)),:]],axis=0)
     rgb=np.median(border[border[:,3]>128,:3],axis=0).astype(int).tolist()
+    if r.get('body'):rgb=list(map(int,r['body'].split()))
     info=dict(kind=r['kind'],size=[W,H],hinge=float(r['hinge']) if r['hinge'] else None,body=rgb,outline=outline)
     shots=list((MEDIA/'screenshots').glob(stem+'.*'));shot=Image.open(shots[0]).convert('RGBA')
     blank=im.copy();lit=im.copy();rs=[tuple(map(float,part.split())) for part in r['rects'].split(';')]

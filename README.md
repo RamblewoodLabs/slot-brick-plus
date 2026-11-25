@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>GB · GBC · GBA · NES · SNES · MD · SMS · GG · Arcade · TG16 · 2600 · Intellivision · Lynx · 7800</strong> &nbsp;|&nbsp; Stock firmware or Slot OS &nbsp;|&nbsp; Work in progress
+  <strong>GB · GBC · GBA · NES · SNES · MD · SMS · GG · Arcade · TG16 · 2600 · Intellivision · Lynx · 7800 · Game &amp; Watch</strong> &nbsp;|&nbsp; Stock firmware or Slot OS &nbsp;|&nbsp; Work in progress
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ The same Slot also builds for the **Anbernic RG35XX SP** (640×480, BaseOS on TF
 | Feature | Details |
 | :--- | :--- |
 | **NES and SNES** | Their own shelves of NES and SNES cartridges, running on FCEUmm and Snes9x. No BIOS needed. |
-| **More systems** | Genesis / Mega Drive, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx and Atari 7800, each on its own shelf. Folders, cores and BIOS files are in the changelog. |
+| **More systems** | Genesis / Mega Drive, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx, Atari 7800 and Game & Watch, each on its own shelf. Folders, cores and BIOS files are in the changelog. |
 | **Zipped games** | `.zip` and `.7z` ROMs on the GB, GBC, GBA, NES and SNES shelves, and the new cart shelves except Arcade, one ROM in each, under the archive's name. Each unpacks when you start it. An arcade `.zip` is the game itself. |
 | **PlayStation** | A shelf of discs that spin into a disc slot, on PCSX ReARMed: `.cue`/`.bin`, `.chd`, `.pbp`, `.iso` and `.m3u`, with a disc picker for games of several discs. |
 | **Custom cartridges** | Change any cart's colour, finish, and shape from the shelf. |

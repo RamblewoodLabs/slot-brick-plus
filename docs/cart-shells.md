@@ -35,6 +35,24 @@ likewise no taller than the NES cart.
 | `Games/INTV` | `intv` | Intellivision, end label on the sloped end | 300 × 331 | 25, 251, 250, 59 |
 | `Games/LYNX` | `lynx` | Lynx card | 316 × 331 | 15, 53, 286, 263 |
 | `Games/A7800` | `a7800` | Atari 7800 | 279 × 331 | 26, 31, 227, 279 |
+| `Games/GW` | `gw` | none: each game's own handheld (below) | 360 × 331 | 0, 0, 360, 331 |
+
+### Game & Watch
+
+A Game & Watch is not a cart, so `assets/carts/gw/shell.png` is clear and its label
+window is the whole box: the label *is* the shelf face. Each game's handheld is rendered
+from its owner's ES-DE media by `brick/gw-art` (Blender) and kept on the card:
+
+- `Labels/GW/<game>.png`, 360 × 331: the handheld on the shelf, a clamshell closed, any
+  other with its screen unlit.
+- `Labels/GW/open/<game>.png`, 18 frames of 360 × 331 side by side: picking the game plays
+  them (a clamshell opens and its screens light; the rest light up) before it goes into the
+  slot, open. Ejecting plays them backwards. With no strip, the handheld goes in as it is.
+
+Each state is fitted to the box on its own and stands on the box's bottom edge, so a
+clamshell grows as it opens. `brick/gw-art/devices.csv` says which games fold, where, and
+where their screens are; `kit.py`, `render.py` and `pack.py` (or `pack-all.py`) make the
+files. A card built on this machine takes them from `brick/labels-local/GW` (not in git).
 
 `assets/carts/sms/cart-variant/` holds the Master System cartridge (title strip
 label) in the same format. It is not built in; swap it with the files above it to
