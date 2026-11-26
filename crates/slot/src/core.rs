@@ -132,7 +132,7 @@ fn open_named(
                 opened.set_canvas(w, h);
                 opened.set_fill(platform.def().fill);
                 opened.set_fit(platform.def().fit);
-                opened.set_dpad_stick(platform.def().dpad_stick);
+                opened.set_dpad_stick(platform.def().dpad_stick, platform.dpad_hold());
                 // A DualShock: what DualShock games want, what plain ones run on as well, and
                 // what carries rumble.
                 if platform.def().dualshock {

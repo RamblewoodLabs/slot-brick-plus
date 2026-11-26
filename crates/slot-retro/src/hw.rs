@@ -10,9 +10,9 @@ use std::sync::OnceLock;
 use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_NOW};
 
 /// retro_hw_context_type values Slot can give: GLES 2, GLES 3, and "GLES of this version".
-pub const CONTEXT_OPENGLES2: c_uint = 3;
-pub const CONTEXT_OPENGLES3: c_uint = 5;
-pub const CONTEXT_OPENGLES_VERSION: c_uint = 7;
+pub const CONTEXT_OPENGLES2: c_uint = 2;
+pub const CONTEXT_OPENGLES3: c_uint = 4;
+pub const CONTEXT_OPENGLES_VERSION: c_uint = 5;
 
 pub type ProcAddress = Option<unsafe extern "C" fn()>;
 
@@ -527,8 +527,11 @@ mod tests {
         cb.context_type = CONTEXT_OPENGLES_VERSION;
         cb.version_major = 3;
         assert!(Request::from_callback(&cb).is_some_and(|r| r.gles3));
-        for desktop in [1, 4, 6] {
-            cb.context_type = desktop; // OpenGL, OpenGL core, Vulkan
+        // libretro.h's numbers: NONE 0, OPENGL 1, OPENGLES2 2, OPENGL_CORE 3, OPENGLES3 4,
+        // OPENGLES_VERSION 5, VULKAN 6, D3D11 7.
+        assert_eq!((CONTEXT_OPENGLES2, CONTEXT_OPENGLES3, CONTEXT_OPENGLES_VERSION), (2, 4, 5));
+        for desktop in [0, 1, 3, 6, 7] {
+            cb.context_type = desktop; // none, OpenGL, OpenGL core, Vulkan, D3D11
             assert!(Request::from_callback(&cb).is_none());
         }
     }

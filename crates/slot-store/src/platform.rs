@@ -279,7 +279,7 @@ const PAD_NDS: PadMap = pad(
     "A B X Y L R Start Select are the DS's own. The touch screen cannot be reached, so the games on the card play on buttons.",
 );
 const PAD_PSP: PadMap = pad(
-    "The d-pad is the stick. A is circle, B cross, X triangle, Y square. L and R are the shoulders.",
+    "The d-pad is the stick; hold L2 for the d-pad itself. A is circle, B cross, X triangle, Y square. L and R are the shoulders.",
 );
 
 const DEFS: [PlatformDef; 24] = [
@@ -982,6 +982,15 @@ const DEFS: [PlatformDef; 24] = [
 ];
 
 impl Platform {
+    /// The RetroPad button that, held, gives back the d-pad on a system whose d-pad is the
+    /// stick: L2 on the PSP, which has no L2 of its own. The N64 uses all of its buttons.
+    pub fn dpad_hold(self) -> Option<u8> {
+        match self {
+            Platform::Psp => Some(12),
+            _ => None,
+        }
+    }
+
     pub const ALL: [Platform; 24] = [
         Platform::Gba,
         Platform::Gb,

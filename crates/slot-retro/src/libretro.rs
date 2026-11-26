@@ -67,6 +67,8 @@ struct Host {
     /// The d-pad steers the left analog stick and is not sent as a d-pad: an N64 or PSP game
     /// on a handheld without sticks.
     dpad_stick: bool,
+    /// The button (a bit of the RetroPad mask) that, held, makes the d-pad the d-pad again.
+    dpad_hold: u16,
     /// The stick last frame was the d-pad's, so letting go of the d-pad centres it.
     stick_from_dpad: bool,
 }
@@ -421,7 +423,11 @@ unsafe extern "C" fn hw_proc_address(name: *const c_char) -> hw::ProcAddress {
 }
 
 /// A pad with its d-pad taken off, and the left stick it pushes, all the way (diagonals too).
-fn dpad_to_stick(pad: u16) -> (u16, (i16, i16)) {
+fn dpad_to_stick(pad: u16, hold: u16) -> (u16, (i16, i16)) {
+    // Held, the hold button gives the d-pad back as itself (and is not passed on).
+    if hold != 0 && pad & hold != 0 {
+        return (pad & !hold, (0, 0));
+    }
     const UP: u16 = 1 << 4;
     const DOWN: u16 = 1 << 5;
     const LEFT: u16 = 1 << 6;
@@ -750,8 +756,10 @@ impl LibretroCore {
     }
 
     /// The d-pad drives the left stick (see `Host::dpad_stick`).
-    pub fn set_dpad_stick(&mut self, on: bool) {
+    /// `hold`, a RetroPad button id, turns it back into the d-pad while held.
+    pub fn set_dpad_stick(&mut self, on: bool, hold: Option<u8>) {
         self.host.dpad_stick = on;
+        self.host.dpad_hold = hold.map_or(0, |b| 1 << b);
     }
 
     pub fn set_option(&mut self, key: &str, value: &str) {
@@ -826,6 +834,7 @@ impl LibretroCore {
             gl: None,
             hw_max: (0, 0),
             dpad_stick: false,
+            dpad_hold: 0,
             stick_from_dpad: false,
         });
         unsafe {
@@ -984,7 +993,7 @@ impl RetroCore for LibretroCore {
         }
         self.host.inputs = [p1.0, p2.0];
         if self.host.dpad_stick {
-            let (pad, stick) = dpad_to_stick(p1.0);
+            let (pad, stick) = dpad_to_stick(p1.0, self.host.dpad_hold);
             self.host.inputs[0] = pad;
             if stick != (0, 0) {
                 self.host.stick = stick;
@@ -1156,6 +1165,23 @@ impl RetroCore for LibretroCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dpad_drives_the_stick_unless_the_hold_button_is_down() {
+        let (up, right, l2, a) = (1u16 << 4, 1u16 << 7, 1u16 << 12, 1u16 << 8);
+        assert_eq!(dpad_to_stick(up | right | a, 0), (a, (0x7fff, -0x7fff)));
+        assert_eq!(
+            dpad_to_stick(up | a, l2),
+            (a, (0, -0x7fff)),
+            "hold not down"
+        );
+        assert_eq!(
+            dpad_to_stick(up | l2 | a, l2),
+            (up | a, (0, 0)),
+            "held: the d-pad, no L2"
+        );
+        assert_eq!(dpad_to_stick(a, 0), (a, (0, 0)));
+    }
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ffi::CStr;
@@ -1189,6 +1215,7 @@ mod tests {
             gl: None,
             hw_max: (0, 0),
             dpad_stick: false,
+            dpad_hold: 0,
             stick_from_dpad: false,
         })
     }

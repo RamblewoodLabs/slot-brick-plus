@@ -18,7 +18,9 @@ from PIL import Image, ImageChops, ImageFilter, ImageStat
 
 CARTS = pathlib.Path(__file__).resolve().parent.parent / "assets" / "carts"
 SHELLS = {"MD": "md", "SMS": "sms", "GG": "gg", "ARCADE": "arcade", "PCE": "pce",
-          "A2600": "a2600", "INTV": "intv", "LYNX": "lynx", "A7800": "a7800"}
+          "A2600": "a2600", "INTV": "intv", "LYNX": "lynx", "A7800": "a7800", "COLECO": "coleco",
+          "A5200": "a5200", "A800": "a800", "VECTREX": "vectrex", "32X": "s32x", "N64": "n64",
+          "NDS": "nds", "PSP": "psp"}
 
 # ScreenScraper's cart scans (ES-DE physicalmedia) are drawn alike for a system: where the
 # label sits in one (fractions of the picture), the picture's shape, and how much taller
