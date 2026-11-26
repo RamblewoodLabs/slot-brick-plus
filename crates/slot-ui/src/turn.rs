@@ -17,9 +17,41 @@ pub fn of(platform: Platform) -> Option<&'static Turn> {
 /// How long a platform's cart takes to turn; 0 when it goes straight in.
 pub fn seconds(platform: Platform) -> f32 {
     if platform == Platform::Gw {
-        return GW_FRAMES as f32 / GW_FPS;
+        return GW_OPEN_S + GW_HOLD_S;
     }
     of(platform).map_or(0.0, Turn::seconds)
+}
+
+/// Which of `n` frames shows `u` (0..1) of the way through a platform's turn. A rendered turn
+/// plays its frames at their own rate (they carry their own easing) and then rests on the
+/// last one for its `hold`; a Game & Watch strip is eased across `GW_OPEN_S`, then rests.
+pub fn frame_index(platform: Platform, u: f32, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let total = seconds(platform);
+    let (motion, eased) = if platform == Platform::Gw {
+        (GW_OPEN_S, true)
+    } else {
+        match of(platform) {
+            Some(t) => (t.frames.len() as f32 / t.fps, false),
+            None => return n - 1,
+        }
+    };
+    if total <= 0.0 || motion <= 0.0 {
+        return n - 1;
+    }
+    let mut v = (u.clamp(0.0, 1.0) * total / motion).min(1.0);
+    if eased {
+        v = ease(v);
+    }
+    ((v * n as f32) as usize).min(n - 1)
+}
+
+/// Ease in and out with no overshoot: slow at both ends, never past either.
+pub fn ease(u: f32) -> f32 {
+    let u = u.clamp(0.0, 1.0);
+    u * u * (3.0 - 2.0 * u)
 }
 
 /// Whether a platform's carts turn (or, a Game & Watch, open) before they go in.
@@ -31,7 +63,12 @@ pub fn turns(platform: Platform) -> bool {
 /// rendered for each game by brick/gw-art and kept beside its label as one strip,
 /// `Labels/GW/open/<stem>.png`: the frames side by side, each the shelf face's size.
 pub const GW_FRAMES: usize = 18;
+/// How the strip was authored: 18 frames at 30 fps (0.6 s).
 pub const GW_FPS: f32 = 30.0;
+/// Played eased over this long, then held open, so a Game & Watch takes about as long as
+/// every other shelf's cart turn (2.6-2.7 s) before it goes in.
+pub const GW_OPEN_S: f32 = 2.13;
+pub const GW_HOLD_S: f32 = 0.5;
 pub const GW_OPEN_DIR: &str = "open";
 
 /// The frames of a Game & Watch's strip, each placed over the shelf face; it goes in open
@@ -67,14 +104,17 @@ pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
 }
 
 impl Turn {
+    /// The frames at their own rate, then the still hold before the cart drops.
     pub fn seconds(&self) -> f32 {
-        self.frames.len() as f32 / self.fps
+        self.frames.len() as f32 / self.fps + self.hold
     }
 
-    /// The frame shown `u` (0..1) of the way through the turn.
+    /// The frame shown `u` (0..1) of the way through the turn, hold included.
     pub fn frame_at(&self, u: f32) -> usize {
         let n = self.frames.len();
-        ((u.clamp(0.0, 1.0) * n as f32) as usize).min(n.saturating_sub(1))
+        let motion = n as f32 / self.fps;
+        let v = (u.clamp(0.0, 1.0) * self.seconds() / motion).min(1.0);
+        ((v * n as f32) as usize).min(n.saturating_sub(1))
     }
 }
 
@@ -255,7 +295,23 @@ mod tests {
         }
         assert_eq!(faces.seated.unwrap().rgba[0], 200, "it goes in as the last frame shows it");
         assert!(gw_faces(&strip[..strip.len() / 2]).is_none(), "a broken strip");
-        assert!(turns(Platform::Gw) && seconds(Platform::Gw) > 0.5);
+        assert!(turns(Platform::Gw));
+        let gw = seconds(Platform::Gw);
+        assert!(gw > 2.4 && gw < 3.0, "{gw}");
+        assert_eq!(frame_index(Platform::Gw, 0.0, GW_FRAMES), 0);
+        assert_eq!(frame_index(Platform::Gw, 1.0, GW_FRAMES), GW_FRAMES - 1);
+        assert_eq!(
+            frame_index(Platform::Gw, GW_OPEN_S / gw + 0.01, GW_FRAMES),
+            GW_FRAMES - 1,
+            "open before the hold"
+        );
+        let mut last = 0;
+        for k in 0..=100 {
+            let i = frame_index(Platform::Gw, k as f32 / 100.0, GW_FRAMES);
+            assert!(i >= last, "never steps back");
+            last = i;
+        }
+        assert!(ease(0.25) < 0.25 && ease(0.75) > 0.75 && ease(0.0) == 0.0 && ease(1.0) == 1.0);
     }
 
     #[test]
@@ -380,12 +436,25 @@ mod tests {
     fn every_turn_frame_decodes_at_its_listed_size() {
         for p in Platform::ALL {
             let Some(turn) = of(p) else { continue };
-            // The UMD's disc spins up in its shell before the shell turns over twice: longer.
-            let most = if p == Platform::Psp { 3.0 } else { 1.0 };
+            // Every shelf's cart takes about as long to turn, the UMD's spin and two turns
+            // included: 2.4-3.0 s, hold and all.
             assert!(
-                turn.seconds() > 0.3 && turn.seconds() < most,
-                "{p:?} turn length"
+                turn.seconds() > 2.4 && turn.seconds() < 3.0,
+                "{p:?} turn length {}",
+                turn.seconds()
             );
+            // Whatever the hold, the last frame shows at the end and the first at the start.
+            assert_eq!(turn.frame_at(0.0), 0, "{p:?}");
+            assert_eq!(turn.frame_at(1.0), turn.frames.len() - 1, "{p:?}");
+            assert_eq!(frame_index(p, 1.0, turn.frames.len()), turn.frames.len() - 1);
+            if turn.hold > 0.0 {
+                let rest = 1.0 - turn.hold / turn.seconds();
+                assert_eq!(
+                    turn.frame_at(rest + 0.01),
+                    turn.frames.len() - 1,
+                    "{p:?} is still turning in its hold"
+                );
+            }
             for (i, f) in turn.frames.iter().enumerate() {
                 let (_, w, h) = decode8(f.shell).unwrap_or_else(|| panic!("{p:?} frame {i}"));
                 assert_eq!((w, h), (f.w, f.h), "{p:?} frame {i}");

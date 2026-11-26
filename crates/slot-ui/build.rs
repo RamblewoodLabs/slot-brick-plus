@@ -102,7 +102,7 @@ fn turns(dirs: &[std::path::PathBuf]) {
         "pub struct TurnFrame {\n    pub x: i32,\n    pub y: i32,\n    pub w: u32,\n    pub h: u32,\n    \
          pub uv: [f32; 9],\n    pub shell: &'static [u8],\n    pub map: &'static [u8],\n}\n\
          pub struct Turn {\n    pub dir: &'static str,\n    pub fps: f32,\n    pub flip: bool,\n    \
-         pub frames: &'static [TurnFrame],\n}\n",
+         pub hold: f32,\n    pub frames: &'static [TurnFrame],\n}\n",
     );
     let mut arms = String::new();
     for dir in dirs {
@@ -115,6 +115,7 @@ fn turns(dirs: &[std::path::PathBuf]) {
         println!("cargo:rerun-if-changed={}", toml.display());
         let ident = format!("{}_TURN", name.replace('-', "_").to_ascii_uppercase());
         let mut fps = 30.0f32;
+        let mut hold = 0.0f32;
         let flip = meta_flag(&text, "flip");
         let mut frames = String::new();
         let mut n = 0;
@@ -130,6 +131,11 @@ fn turns(dirs: &[std::path::PathBuf]) {
                     fps = value
                         .parse()
                         .unwrap_or_else(|_| panic!("{name}: insert fps"))
+                }
+                "hold" => {
+                    hold = value
+                        .parse()
+                        .unwrap_or_else(|_| panic!("{name}: insert hold"))
                 }
                 "uv" => {
                     let v: Vec<f64> = value
@@ -179,7 +185,7 @@ fn turns(dirs: &[std::path::PathBuf]) {
         }
         assert!(n > 0, "{name}: insert.toml lists no frames");
         out.push_str(&format!(
-            "pub static {ident}: Turn = Turn {{\n    dir: \"{name}\",\n    fps: {fps}f32,\n    flip: {flip},\n    frames: &[\n{frames}    ],\n}};\n"
+            "pub static {ident}: Turn = Turn {{\n    dir: \"{name}\",\n    fps: {fps}f32,\n    flip: {flip},\n    hold: {hold}f32,\n    frames: &[\n{frames}    ],\n}};\n"
         ));
         arms.push_str(&format!("\"{name}\" => Some(&{ident}),\n"));
     }

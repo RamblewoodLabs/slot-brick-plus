@@ -162,14 +162,16 @@ Labels are kept at twice the window size.
 
 A shell may carry `insert/`: the frames its cart turns through, on the shelf, before it slides
 into the slot. The slide itself is the same as every other cart's (`INSERT_S`), so the turn
-only adds its own length (18 frames at 30 fps, 0.6 s) in front of it. Systems without
+only adds its own length in front of it: 64 frames at 30 fps plus a still `hold` of 0.5 s
+(2.6 s), and the UMD's 80 frames (2.7 s), so every shelf's cart takes about as long. Systems without
 `insert/` go straight in, as before. An eject plays the turn backwards once the cart is out,
 and a cart refused mid-turn turns back from where it got to.
 
 - `insert/NN.png`: frame NN of the shell, label window clear, cropped to what it covers.
 - `insert/NN-map.png`: grey + alpha, the light the label takes (white = as printed) and how
   much of each pixel it covers.
-- `insert/insert.toml`: `fps`, `flip = true` for a cart that ends the turn the other way up,
+- `insert/insert.toml`: `fps`, `hold` (seconds the cart rests, turned, before it drops),
+  `flip = true` for a cart that ends the turn the other way up,
   and per frame a `uv` line (nine numbers: the projective map from a frame pixel to the flat
   label's u, v, v up) then a `frame = x, y, w, h` line (where the crop sits relative to
   `shell.png`'s top-left).

@@ -4299,7 +4299,7 @@ impl App {
             return (None, tex.seated);
         }
         let n = tex.frames.len();
-        let i = ((u * n as f32) as usize).min(n - 1);
+        let i = slot_ui::turn::frame_index(tex.platform, u, n);
         (Some(tex.frames[i]), None)
     }
 
