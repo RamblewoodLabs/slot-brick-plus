@@ -1384,6 +1384,10 @@ impl App {
         self.state.shelf_views[platform.index()] = Some(next);
         self.persist();
         self.arrange();
+        // A filter starts at its first game (#1), not wherever the last order had the shelf.
+        if matches!(next, slot_store::ShelfView::FirstParty) || next.ranked() {
+            self.shelf_mut().select(0);
+        }
         self.slot_letter = None;
         self.slot_word = Some(next.label());
         self.shelf_named = None;

@@ -294,6 +294,10 @@ fn select_steps_a_shelf_through_the_filters_it_has_data_for_and_the_pill_names_e
             assert_eq!(snes_order(&a).split(" | ").count(), 3, "{}", snes_order(&a));
             assert!(!snes_order(&a).contains("Not A Real Game"));
             assert!(a.title_card_text().unwrap().starts_with("#1 "));
+            assert_eq!(a.selected_stem(), a.system_carts().find(|c| c.platform == Platform::Snes).map(|c| c.stem.as_str()));
+            press(&mut a, Btn::Right);
+            assert!(a.title_card_text().unwrap().starts_with("#2 "));
+            press(&mut a, Btn::Left);
         }
         if a.filter_text() == Some("BEST SELLING") {
             assert!(snes_order(&a).starts_with("Super Mario World"), "{}", snes_order(&a));
