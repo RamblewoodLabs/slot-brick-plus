@@ -102,6 +102,45 @@ unsafe fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
 
 unsafe extern "C" fn log_noop(_level: c_uint, _fmt: *const c_char) {}
 
+/// With SLOT_CORE_LOG set, a core's messages go to stderr. The callback is C-variadic; on
+/// the 64-bit targets Slot runs on (aarch64, and x86-64 for the simulator) the first
+/// arguments arrive in registers like fixed ones, so the first four integer or string
+/// arguments are read as such. Floats print as `?`. For finding where a core stops.
+unsafe extern "C" fn log_stderr(level: c_uint, fmt: *const c_char, a: usize, b: usize, c: usize, d: usize) {
+    if fmt.is_null() {
+        return;
+    }
+    let args = [a, b, c, d];
+    let mut next = args.iter();
+    let mut out = String::new();
+    let mut chars = std::ffi::CStr::from_ptr(fmt).to_string_lossy().into_owned().into_bytes().into_iter().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != b'%' {
+            out.push(ch as char);
+            continue;
+        }
+        let mut spec = String::new();
+        while let Some(&n) = chars.peek() {
+            chars.next();
+            spec.push(n as char);
+            if n.is_ascii_alphabetic() && !matches!(n, b'l' | b'z' | b'h' | b'j' | b't') || n == b'%' {
+                break;
+            }
+        }
+        match spec.chars().last() {
+            Some('%') => out.push('%'),
+            Some('s') => match next.next() {
+                Some(&p) if p != 0 => out.push_str(&std::ffi::CStr::from_ptr(p as *const c_char).to_string_lossy()),
+                _ => out.push_str("(null)"),
+            },
+            Some('d' | 'i') => out.push_str(&next.next().map_or(0, |&v| v as i64 as i32 as i64).to_string()),
+            Some('u' | 'x' | 'X' | 'p' | 'c') => out.push_str(&format!("{:#x}", next.next().copied().unwrap_or(0))),
+            _ => out.push('?'),
+        }
+    }
+    eprint!("core[{level}]: {out}");
+}
+
 unsafe extern "C" fn set_rumble_state(port: c_uint, effect: c_uint, strength: u16) -> bool {
     with_host(|h| h.rumble.set(port, effect, strength)).unwrap_or(false)
 }
@@ -224,7 +263,11 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             if data.is_null() {
                 return false;
             }
-            (*(data as *mut LogCallback)).log = log_noop as *const c_void;
+            (*(data as *mut LogCallback)).log = if std::env::var_os("SLOT_CORE_LOG").is_some() {
+                log_stderr as *const c_void
+            } else {
+                log_noop as *const c_void
+            };
             true
         }
         SET_AUDIO_BUFFER_STATUS_CALLBACK => {

@@ -37,7 +37,12 @@ fn main() {
         let press = if i % 120 > 100 { start } else { 0 };
         let t = Instant::now();
         core.run_frame(ButtonMask(press));
-        times.push(t.elapsed().as_secs_f64() * 1000.0);
+        let took = t.elapsed();
+        times.push(took.as_secs_f64() * 1000.0);
+        // At the device's pace, so a core that loads on a thread of its own gets the time.
+        if let Some(rest) = std::time::Duration::from_micros(16_667).checked_sub(took) {
+            std::thread::sleep(rest);
+        }
     }
     let (cw, ch) = core.canvas();
     let px = core.video_xrgb8888();
@@ -47,14 +52,16 @@ fn main() {
         ppm.extend_from_slice(&[p[2], p[1], p[0]]);
     }
     std::fs::write(&a[7], ppm).expect("write ppm");
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let tail = &times[times.len() / 4..];
-    let mean = tail.iter().sum::<f64>() / tail.len() as f64;
+    // The first quarter is boot and shader compiles; the rest is the game.
+    let mut tail = times[times.len() / 4..].to_vec();
+    let mean = tail.iter().sum::<f64>() / tail.len().max(1) as f64;
+    tail.sort_by(|a, b| a.total_cmp(b));
+    let p95 = tail.get(tail.len() * 95 / 100).copied().unwrap_or(0.0);
     println!(
         "loaded in {:.2}s; frames after the first quarter: mean {:.2} ms, p95 {:.2} ms; canvas {cw}x{ch}, {:.0}% lit",
         loaded.as_secs_f64(),
         mean,
-        times[times.len() * 95 / 100],
+        p95,
         100.0 * lit as f64 / (cw * ch) as f64
     );
 }

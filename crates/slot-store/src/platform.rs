@@ -218,6 +218,8 @@ const N64_OPT: &[(&str, &str)] = &[
     ("mupen64plus-MultiSampling", "0"),
     ("mupen64plus-FrameDuping", "True"),
     ("mupen64plus-alt-map", "True"),
+    // GLideN64 aborts in its texture cache with the 8000 default; 1500 is also kinder to 1 GB.
+    ("mupen64plus-MaxTxCacheSize", "1500"),
 ];
 /// The JIT, the software renderer on its own thread, the two screens one above the other.
 const NDS_OPT: &[(&str, &str)] = &[
