@@ -383,16 +383,26 @@ pub struct TurnFaces {
 }
 
 pub fn faces(cart: &Cart, art: Option<Vec<u8>>) -> Option<TurnFaces> {
-    let turn = of(cart.platform)?;
-    let shell = shell_png::of(cart.platform)?;
+    // The first six systems turn their modelled cart (or disc) for the cart's own shape, its
+    // plastic recoloured as the game's (model.rs); the rest their platform's rendered shell.
+    let (turn, shell, plastic) = match crate::cart::model_dir(cart) {
+        Some(dir) => (
+            turn_by_dir(dir)?,
+            shell_png::by_dir(dir)?,
+            (cart.platform != Platform::Ps1).then(|| crate::shell::shell_for(cart)),
+        ),
+        None => (of(cart.platform)?, shell_png::of(cart.platform)?, None),
+    };
     let (lw, lh) = (shell.lw, shell.lh);
     let label = match art {
         Some(px) if px.len() == (lw * lh * 4) as usize => px,
+        // a disc with no art of its own turns with Slot's printed disc
+        _ if cart.platform == Platform::Ps1 => crate::disc::disc_print(cart, None, None).rgba,
         _ => shell_png::plain_label_for(cart, lw, lh),
     };
     let mut frames = Vec::with_capacity(turn.frames.len());
     for f in turn.frames {
-        let face = frame(f, &label, lw, lh, shell.backlit)?;
+        let face = frame(f, &label, lw, lh, shell.backlit, plastic.as_ref())?;
         frames.push(TurnFace {
             face,
             x: f.x,
@@ -407,11 +417,25 @@ pub fn faces(cart: &Cart, art: Option<Vec<u8>>) -> Option<TurnFaces> {
     Some(TurnFaces { frames, seated })
 }
 
-fn frame(f: &TurnFrame, label: &[u8], lw: u32, lh: u32, backlit: bool) -> Option<CartFace> {
+fn frame(
+    f: &TurnFrame,
+    label: &[u8],
+    lw: u32,
+    lh: u32,
+    backlit: bool,
+    plastic: Option<&crate::shell::Shell>,
+) -> Option<CartFace> {
     let (mut rgba, w, h) = decode8(f.shell)?;
     let (map, mw, mh) = decode8(f.map)?;
     if (w, h) != (f.w, f.h) || (mw, mh) != (w, h) {
         return None;
+    }
+    if let (Some(plastic), Some(bytes)) = (plastic, f.tint) {
+        let (tint, tw, th) = decode8(bytes)?;
+        if (tw, th) != (w, h) {
+            return None;
+        }
+        crate::model::tint(&mut rgba, w, h, &tint, &crate::model::Plastic::Flat(plastic));
     }
     let m = &f.uv;
     for y in 0..h {
@@ -494,7 +518,7 @@ fn crop(last: &TurnFace, w: u32, h: u32) -> CartFace {
     CartFace { rgba, w, h }
 }
 
-fn decode8(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+pub(crate) fn decode8(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let mut dec = png::Decoder::new(bytes);
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().ok()?;

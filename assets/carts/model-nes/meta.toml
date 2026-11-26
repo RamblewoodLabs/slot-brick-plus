@@ -1,0 +1,12 @@
+# model-nes: Blender model nes (~/Projects/slot-cart-renders, scripts/carts_classic.py), v3.
+# Shell is 276x331 RGBA, the box cart.rs draws this cart in; real cart 120.6x133.0 mm.
+# Label window: the procedural label panel, so label fitting and layout are unchanged.
+x = 107
+y = 1
+w = 132
+h = 222
+rotation = 0.0
+aspect = 0.5946
+# tint.png: the plastic, recoloured per game (grey 128 = the light on a flat face).
+tint = true
+# tint_ref = 144.00 (the grey plastic's light on a flat face in the render; reused for the turn)

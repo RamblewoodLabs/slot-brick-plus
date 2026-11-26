@@ -16,10 +16,25 @@ pub fn of(platform: Platform) -> Option<&'static ShellPng> {
 }
 
 pub fn cart_face(cart: &Cart, art: Option<Vec<u8>>) -> Option<CartFace> {
-    let shell = of(cart.platform)?;
-    let (mut rgba, w, h) = decode(shell.shell)?;
+    face_on(of(cart.platform)?, cart, art, None)
+}
+
+/// A cart's face on `shell`, its grey plastic first recoloured as `plastic` when the shell is
+/// one of the models with a tint map (`model.rs`).
+pub(crate) fn face_on(
+    shell: &ShellPng,
+    cart: &Cart,
+    art: Option<Vec<u8>>,
+    plastic: Option<&crate::model::Plastic>,
+) -> Option<CartFace> {
+    let (mut rgba, w, h) = crate::turn::decode8(shell.shell)?;
     if rgba.len() != (w * h * 4) as usize || w != shell.w || h != shell.h {
         return None;
+    }
+    if let (Some(plastic), Some(bytes)) = (plastic, shell.tint) {
+        if let Some((map, _, _)) = crate::turn::decode8(bytes) {
+            crate::model::tint(&mut rgba, w, h, &map, plastic);
+        }
     }
     let label = match art {
         Some(pixels) if pixels.len() == (shell.lw * shell.lh * 4) as usize => pixels,
@@ -53,8 +68,20 @@ pub fn cart_face(cart: &Cart, art: Option<Vec<u8>>) -> Option<CartFace> {
 
 /// The shell with the label window clear, so a picture behind it shows through.
 pub fn cutout(cart: &Cart) -> Option<(CartFace, (u32, u32, u32, u32))> {
-    let shell = of(cart.platform)?;
-    let mut face = cart_face(cart, Some(vec![0; (shell.lw * shell.lh * 4) as usize]))?;
+    cutout_on(of(cart.platform)?, cart, None)
+}
+
+pub(crate) fn cutout_on(
+    shell: &ShellPng,
+    cart: &Cart,
+    plastic: Option<&crate::model::Plastic>,
+) -> Option<(CartFace, (u32, u32, u32, u32))> {
+    let mut face = face_on(
+        shell,
+        cart,
+        Some(vec![0; (shell.lw * shell.lh * 4) as usize]),
+        plastic,
+    )?;
     let (x, y, lw, lh) = (shell.x, shell.y, shell.lw, shell.lh);
     for py in y..(y + lh).min(face.h) {
         for px in x..(x + lw).min(face.w) {

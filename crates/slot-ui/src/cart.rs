@@ -249,6 +249,33 @@ pub fn nes_famicom_of(cart: &Cart) -> bool {
         }
 }
 
+/// The `assets/carts/model-*` directory a cart's shape is drawn from (see `model`).
+pub fn model_dir(cart: &Cart) -> Option<&'static str> {
+    Some(match cart.platform {
+        Platform::Ps1 => "model-ps1",
+        Platform::Gb | Platform::Gbc | Platform::Gba | Platform::Nes | Platform::Snes => {
+            match shape_of(cart) {
+                Shape::Gba => "model-gba",
+                Shape::Gb(GbShell::Notched) => "model-gb",
+                Shape::Gb(GbShell::Rounded) => "model-gbc",
+                Shape::Nes(NesShell::Nes) => "model-nes",
+                Shape::Nes(NesShell::Famicom) => "model-famicom",
+                Shape::Snes(SnesShell::Us) => "model-snes",
+                Shape::Snes(SnesShell::Pal) => "model-snes-pal",
+            }
+        }
+        _ => return None,
+    })
+}
+
+pub(crate) fn chrome_px(base: [u8; 3], y: u32, h: u32) -> [u8; 3] {
+    chrome(base, y, h)
+}
+
+pub(crate) fn fleck_at(x: u32, y: u32) -> bool {
+    fleck(x, y)
+}
+
 fn shape_of(cart: &Cart) -> Shape {
     match (cart.platform, gb_shell_of(cart)) {
         (Platform::Nes, _) if nes_famicom_of(cart) => Shape::Nes(NesShell::Famicom),
@@ -443,6 +470,13 @@ pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
     if cart.platform == Platform::Ps1 {
         return crate::disc::disc_face(cart, art, None);
     }
+    if crate::model::of(cart).is_some() {
+        return model_face(cart, art).unwrap_or(CartFace {
+            rgba: vec![0, 0, 0, 0],
+            w: 1,
+            h: 1,
+        });
+    }
     if cart.platform.def().shell.is_some() {
         return crate::shell_png::cart_face(cart, art).unwrap_or(CartFace {
             rgba: vec![0, 0, 0, 0],
@@ -464,12 +498,40 @@ pub fn cart_face_with(cart: &Cart, art: Option<Vec<u8>>) -> CartFace {
     face
 }
 
+/// The cart drawn from its Blender model (`model.rs`): the model's light and mouldings on the
+/// colours the flat drawing would give it, cut to the same silhouette.
+fn model_face(cart: &Cart, art: Option<Vec<u8>>) -> Option<CartFace> {
+    let model = crate::model::of(cart)?;
+    let s = spec(shape_of(cart));
+    if (model.w, model.h) != (s.w, s.h) {
+        return None;
+    }
+    let paint = shell_face(&s, &shell_for(cart));
+    let plastic = crate::model::Plastic::Face(&paint.rgba);
+    let art = art.unwrap_or_else(|| generated_label(&s, &label_text(cart)));
+    let mut face = crate::shell_png::face_on(model, cart, Some(art), Some(&plastic))?;
+    clip_to_silhouette(&s, &mut face);
+    Some(face)
+}
+
 /// The cart with nothing in its label slot: the slot is clear through to whatever lies behind
 /// it. Framing a label draws the picture behind this, so it is seen through the very window it
 /// will be worn in. Gives the slot's place on the face as well, to line the picture up with.
 pub fn cart_cutout_face(cart: &Cart) -> (CartFace, (u32, u32, u32, u32)) {
     if let Some(cut) = crate::shell_png::cutout(cart) {
         return cut;
+    }
+    if cart.platform != Platform::Ps1 {
+        if let Some(model) = crate::model::of(cart) {
+            let s = spec(shape_of(cart));
+            let paint = shell_face(&s, &shell_for(cart));
+            let plastic = crate::model::Plastic::Face(&paint.rgba);
+            if let Some((mut face, slot)) = crate::shell_png::cutout_on(model, cart, Some(&plastic))
+            {
+                clip_to_silhouette(&s, &mut face);
+                return (face, slot);
+            }
+        }
     }
     let s = spec(shape_of(cart));
     let shell = shell_for(cart);
@@ -834,4 +896,57 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [u8; 3] {
         ((g + m) * 255.0).round() as u8,
         ((b + m) * 255.0).round() as u8,
     ]
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    /// Each modelled cart covers the silhouette the flat drawing has, so its shadow, its seat
+    /// in the slot and the shelf's spacing are unchanged.
+    #[test]
+    fn every_model_fills_its_drawn_silhouette() {
+        for (shape, dir) in [
+            (Shape::Gba, "model-gba"),
+            (Shape::Gb(GbShell::Notched), "model-gb"),
+            (Shape::Gb(GbShell::Rounded), "model-gbc"),
+            (Shape::Nes(NesShell::Nes), "model-nes"),
+            (Shape::Nes(NesShell::Famicom), "model-famicom"),
+            (Shape::Snes(SnesShell::Us), "model-snes"),
+            (Shape::Snes(SnesShell::Pal), "model-snes-pal"),
+        ] {
+            let s = spec(shape);
+            let model = crate::shell_png::by_dir(dir).expect(dir);
+            assert_eq!((model.w, model.h), (s.w, s.h), "{dir} size");
+            let (rgba, _, _) = crate::turn::decode8(model.shell).expect(dir);
+            let (mut missing, mut extra, mut inside) = (0u32, 0u32, 0u32);
+            for (i, cover) in s.mask.iter().enumerate() {
+                let a = rgba[i * 4 + 3];
+                // the label window is clear in the shell: the label fills it
+                let (x, y) = (i as u32 % s.w, i as u32 / s.w);
+                let (lx, ly, lw, lh) = s.label;
+                if x >= lx && x < lx + lw && y >= ly && y < ly + lh {
+                    continue;
+                }
+                if *cover > 200 {
+                    inside += 1;
+                    if a < 100 {
+                        missing += 1;
+                    }
+                } else if *cover < 50 && a > 155 {
+                    extra += 1;
+                }
+            }
+            let (miss, over) = (
+                missing as f32 / inside as f32,
+                extra as f32 / inside as f32,
+            );
+            assert!(
+                miss < 0.005 && over < 0.005,
+                "{dir}: {:.2}% of the drawn cart is missing, {:.2}% beyond it",
+                miss * 100.0,
+                over * 100.0
+            );
+        }
+    }
 }

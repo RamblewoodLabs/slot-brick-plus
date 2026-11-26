@@ -16,6 +16,7 @@ mod hud;
 mod icon;
 mod label_adjust;
 mod label_grid;
+mod model;
 mod link_art;
 mod peel;
 mod plate;

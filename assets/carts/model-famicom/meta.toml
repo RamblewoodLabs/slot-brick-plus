@@ -1,0 +1,12 @@
+# model-famicom: Blender model famicom (~/Projects/slot-cart-renders, scripts/carts_classic.py), v3.
+# Shell is 276x331 RGBA, the box cart.rs draws this cart in; real cart 108.0x70.6 mm.
+# Label window: the procedural label panel, so label fitting and layout are unchanged.
+x = 31
+y = 185
+w = 214
+h = 110
+rotation = 0.0
+aspect = 1.9455
+# tint.png: the plastic, recoloured per game (grey 128 = the light on a flat face).
+tint = true
+# tint_ref = 144.00 (the grey plastic's light on a flat face in the render; reused for the turn)

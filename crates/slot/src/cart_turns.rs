@@ -142,8 +142,11 @@ fn work(inbox: &Receiver<Cart>, outbox: &Sender<(Key, Option<TurnFaces>)>, root:
         let built = if cart.platform == Platform::Gw {
             gw_strip(root, &cart)
         } else if slot_ui::turn::spins(cart.platform) {
-            let face = slot_ui::cart_face_with(&cart, label_art(root, &cart));
-            Some(slot_ui::turn::spin_faces(cart.platform, &face))
+            // the modelled turn of the cart's own shape, else one made from its shelf face
+            faces(&cart, label_art(root, &cart)).or_else(|| {
+                let face = slot_ui::cart_face_with(&cart, label_art(root, &cart));
+                Some(slot_ui::turn::spin_faces(cart.platform, &face))
+            })
         } else {
             faces(&cart, label_art(root, &cart))
         };

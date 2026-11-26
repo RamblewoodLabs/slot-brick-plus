@@ -23,6 +23,7 @@ fn main() {
          pub shell: &'static [u8],\n    \
          pub mask: Option<&'static [u8]>,\n    \
          pub shade: Option<&'static [u8]>,\n    \
+         pub tint: Option<&'static [u8]>,\n    \
          pub backlit: bool,\n    \
          pub x: u32,\n    \
          pub y: u32,\n    \
@@ -53,6 +54,14 @@ fn main() {
         } else {
             "None".to_string()
         };
+        // v3 models: the plastic's light and cover, recoloured per game (see model.rs)
+        let tint = dir.join("tint.png");
+        let tint_expr = if tint.is_file() {
+            println!("cargo:rerun-if-changed={}", tint.display());
+            format!("Some(include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/tint.png\")))")
+        } else {
+            "None".to_string()
+        };
         let quad_expr = match quad {
             Some(q) => format!("Some([{q}])"),
             None => "None".to_string(),
@@ -65,6 +74,7 @@ fn main() {
              shell: include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/shell.png\")),\n    \
              mask: {mask_expr},\n    \
              shade: {shade_expr},\n    \
+             tint: {tint_expr},\n    \
              backlit: {backlit},\n    \
              x: {x},\n    \
              y: {y},\n    \
@@ -100,7 +110,7 @@ fn main() {
 fn turns(dirs: &[std::path::PathBuf]) {
     let mut out = String::from(
         "pub struct TurnFrame {\n    pub x: i32,\n    pub y: i32,\n    pub w: u32,\n    pub h: u32,\n    \
-         pub uv: [f32; 9],\n    pub shell: &'static [u8],\n    pub map: &'static [u8],\n}\n\
+         pub uv: [f32; 9],\n    pub shell: &'static [u8],\n    pub map: &'static [u8],\n    pub tint: Option<&'static [u8]>,\n}\n\
          pub struct Turn {\n    pub dir: &'static str,\n    pub fps: f32,\n    pub flip: bool,\n    \
          pub hold: f32,\n    pub frames: &'static [TurnFrame],\n}\n",
     );
@@ -172,11 +182,18 @@ fn turns(dirs: &[std::path::PathBuf]) {
                     let inc = |part: &str| {
                         format!("include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../assets/carts/{name}/insert/{n:02}{part}.png\"))")
                     };
+                    let tint = dir.join(format!("insert/{n:02}-tint.png"));
+                    let tint_expr = if tint.is_file() {
+                        println!("cargo:rerun-if-changed={}", tint.display());
+                        format!("Some({})", inc("-tint"))
+                    } else {
+                        "None".to_string()
+                    };
                     frames.push_str(&format!(
-                        "    TurnFrame {{ x: {}, y: {}, w: {}, h: {}, uv: [{}], shell: {}, map: {} }},\n",
+                        "    TurnFrame {{ x: {}, y: {}, w: {}, h: {}, uv: [{}], shell: {}, map: {}, tint: {} }},\n",
                         v[0], v[1], v[2], v[3],
                         uv.take().unwrap_or_else(|| panic!("{name}: frame {n} needs a uv line before it")),
-                        inc(""), inc("-map")
+                        inc(""), inc("-map"), tint_expr
                     ));
                     n += 1;
                 }
