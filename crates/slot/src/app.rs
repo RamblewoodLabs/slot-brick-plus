@@ -1400,6 +1400,11 @@ impl App {
         })
     }
 
+    /// The pill shows while a shelf is on anything but its usual A–Z (or, on Favorites, ADDED).
+    pub fn filter_pill_text(&self) -> Option<&'static str> {
+        self.filter_text().filter(|t| !matches!(*t, "A–Z" | "ADDED"))
+    }
+
     pub fn set_filter_pill_face(&mut self, face: Option<(TexId, u32, u32)>) {
         self.filter_pill = face;
     }

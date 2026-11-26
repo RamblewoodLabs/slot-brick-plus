@@ -288,6 +288,7 @@ fn select_steps_a_shelf_through_the_filters_it_has_data_for_and_the_pill_names_e
         a.apply(Action::GbaDown(Btn::Select));
         seen.push(a.filter_text().unwrap());
         assert_eq!(a.slot_text().as_deref(), a.filter_text());
+        assert_eq!(a.filter_pill_text(), a.filter_text().filter(|t| *t != "A–Z"));
         if a.filter_text() == Some("TOP 100") {
             // Only the games the rankings know, best first, numbered on the title card.
             assert_eq!(snes_order(&a).split(" | ").count(), 3, "{}", snes_order(&a));

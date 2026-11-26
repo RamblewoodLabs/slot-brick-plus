@@ -1170,7 +1170,7 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
         });
         app.set_played_face(face);
     }
-    let filter = app.filter_text();
+    let filter = app.filter_pill_text();
     if filter != clocks.filter {
         clocks.filter = filter;
         let face = filter.map(slot_ui::filter_pill_face).filter(|f| f.w > 0).map(|face| {
