@@ -538,6 +538,11 @@ impl WifiMenu{
         };
     }
     fn poll_cache(&mut self){
+        if self.ra.as_ref().is_some_and(|r|r.cache.is_none()){
+            if let Some(line)=crate::offline_ra::cache_status(){
+                if self.status!=line{self.status=line;self.dirty=true;}
+            }
+        }
         loop{
             let event=match self.ra.as_ref().and_then(|r|r.cache.as_ref()).map(|c|c.try_recv()){
                 None=>return,
@@ -644,6 +649,10 @@ impl WifiMenu{
                 }
                 (Some(account),2)=>{
                     if !online(){self.status="Connect to Wi-Fi first".into();return false}
+                    if crate::offline_ra::cache_busy(){
+                        self.status=crate::offline_ra::cache_status().unwrap_or_else(||"Caching achievement sets...".into());
+                        return false
+                    }
                     let (root,user,token)=(card_root(),account.user.clone(),account.token.clone());
                     ra.cache=Some(crate::offline_ra::CacheRun::start(root,user,token));
                     self.status="Caching achievement sets...".into();

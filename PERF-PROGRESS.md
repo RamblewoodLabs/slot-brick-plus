@@ -104,3 +104,42 @@ On the SP, the bigger win is `persist()` no longer blocking the frame on two SD 
 - brick/card/Slot/System/slot-filecheck restored after the package step; crates/slot-cheevos/core left untracked and uncommitted.
 - No card writes. PR #27 remains open and unmerged.
 
+
+## Achievement-set cache + Encore (started 2026-11-25 7:10 PM Pacific)
+
+Jeff: cache only favorites and recently played (cap ~10–20), queue on star/launch,
+do not delete a cached set on unstar, keep work off the UI thread and resumable.
+Also: RetroAchievements Encore mode, Settings toggle, slot.state `ra_encore=1`,
+default ON, unlock popup on replay. Same PR #27 branch. No merge, no card writes.
+
+Plan:
+- Cache cap: last 20 played (`RECENT_SET_CACHE = 20`) plus every favorite.
+- `CacheRun` no longer scans/caches the whole library (~6,189 games).
+- Skip already-cached sets (resumable). Persist a small queue file for star/launch.
+- Unstar removes the game from the queue only; the set stays on the card.
+- `poke_cache` (with the existing unlock `poke`, when Wi-Fi is up) works the queue.
+- Encore: `rc_client_set_encore_mode_enabled` before `load_game`, `ra_encore` in
+  slot.state (default on), HOME → Online → Encore Mode toggle.
+
+
+## Achievement-set cache, Encore, unlock burst, GW timing (2026-11-25 7:28 PM Pacific)
+
+- Cache cap: last 20 played (`RECENT_SET_CACHE`) plus every favorite. `CacheRun` no longer
+  walks the whole library. Already-cached sets are skipped (resumable). Star/launch queues
+  a set; unstar dequeues only and leaves a saved set on the card. `poke_cache` runs off
+  the UI thread when Wi-Fi is up. RA menu status still shows Caching n/total: name.
+- Encore: `rc_client_set_encore_mode_enabled` before load_game. `ra_encore=1` in slot.state,
+  default ON. HOME → Online → Encore Mode toggle (placed before Update so the Update
+  scenario's Up path is unchanged).
+- Unlock toast: burst around the badge for 700 ms, unlocks stay up 5500 ms (was 4500).
+- Game & Watch open/light-up: 18 frames, playback 0.96 s (1.6× the authored 0.6 s at 30 fps) with ease-in-out, so it can be savored. (A first pass made this shorter; Jeff asked for slower.)
+- Previews: /Users/jeff/sbp-perf/previews and \\192.168.7.99\Shared-Space\pr27-previews
+- Unit tests so far: slot-ui lib, slot-store durability/config/volume, slot offline_ra.
+  Device builds and staging of a new sp-update-<sha> still to do. Do not merge; no card writes.
+
+## Correction: GW slower, not faster (2026-11-25 9:23 PM Pacific)
+
+Jeff wants the open/light-up slower so he can savor it. Reverted the 38%-shorter
+(48 fps, 0.375 s) change. Playback is now 0.96 s (1.6× the original 18 frames at
+30 fps / 0.6 s) with cubic ease-in-out (`ease_gw` in `slot-ui::turn`, applied in
+`App::turn_draw` for Game & Watch only). Changelog, tests, and preview GIFs updated.

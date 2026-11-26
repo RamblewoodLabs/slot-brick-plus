@@ -824,10 +824,10 @@ impl Frontend {
             self.pip_tex = Some(tex);
             self.session.app_mut().set_pip_face(tex);
         }
-        if let Some((id, title, detail, badge)) = self.session.app().banner_to_render() {
+        if let Some((id, title, detail, badge, burst)) = self.session.app().banner_to_render() {
             let px = slot_ui::BADGE_PX;
             let badge = badge.and_then(|p| slot_ui::cover(&p, px, px));
-            let f = slot_ui::banner_face(&title, &detail, badge.as_deref());
+            let f = slot_ui::banner_face_at(&title, &detail, badge.as_deref(), burst);
             let tex = match self.banner_tex {
                 Some(t) => {
                     compositor.update_texture(t, f.w, f.h, &f.rgba);

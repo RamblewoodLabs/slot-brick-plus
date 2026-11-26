@@ -325,9 +325,16 @@ pub struct App {
     turn: Option<TurnTex>,
     /// Two-line notices waiting their turn across the top of the screen (RetroAchievements).
     /// Title, detail, badge image, when it was queued.
-    banners: std::collections::VecDeque<(String, String, Option<std::path::PathBuf>, Millis)>,
+    banners: std::collections::VecDeque<(String, String, Option<std::path::PathBuf>, Millis, bool)>,
     /// The one showing: id, title, detail, badge image, when it came up.
-    banner: Option<(u64, String, String, Option<std::path::PathBuf>, Millis)>,
+    banner: Option<(
+        u64,
+        String,
+        String,
+        Option<std::path::PathBuf>,
+        Millis,
+        bool,
+    )>,
     banner_seq: u64,
     /// The rendered face, for the banner of that id.
     banner_face: Option<(u64, TexId)>,
@@ -528,7 +535,17 @@ pub struct FaceWant {
 
 /// How long a toast stays up, and how long it takes to slide in and out.
 const BANNER_MS: Millis = 4500;
+/// An unlock toast stays a second longer, so the burst can be enjoyed.
+const UNLOCK_BANNER_MS: Millis = 5500;
 const BANNER_SLIDE: Millis = 300;
+
+fn banner_hold(celebrate: bool) -> Millis {
+    if celebrate {
+        UNLOCK_BANNER_MS
+    } else {
+        BANNER_MS
+    }
+}
 /// The longest a toast waits for its badge to download.
 const BADGE_WAIT: Millis = 1500;
 
@@ -1017,6 +1034,11 @@ impl App {
             Sfx::Unpop(take)
         });
         self.save_library();
+        if favorite {
+            self.queue_achievement_set(cart.platform, &cart.stem);
+        } else {
+            self.unqueue_achievement_set(cart.platform, &cart.stem);
+        }
         // A new star makes the combined Favorites shelf appear; an un-star may remove it,
         // and a game that is no longer a favorite leaves a shelf of favorites.
         self.arrange();
@@ -1106,6 +1128,22 @@ impl App {
             self.picker_heard.1 = true;
             self.sound(Sfx::CartClose);
         }
+    }
+
+    /// Starred or just played: cache this game's achievement set when Wi-Fi is up.
+    fn queue_achievement_set(&self, platform: Platform, stem: &str) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        crate::offline_ra::queue_set(root, platform, stem);
+    }
+
+    /// Unstarred: stop prioritizing this set. A copy already on the card is left there.
+    fn unqueue_achievement_set(&self, platform: Platform, stem: &str) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        crate::offline_ra::unqueue_set(root, platform, stem);
     }
 
     /// The library written out, on a thread of its own: it is small, but the card may be slow.
@@ -1613,6 +1651,7 @@ impl App {
             QuickRow::SwapAb => Some(QuickValue::flag(self.state.swap_ab)),
             QuickRow::AutoClock => Some(QuickValue::flag(self.state.auto_clock)),
             QuickRow::UpdateCheck => Some(QuickValue::flag(self.state.update_check)),
+            QuickRow::RaEncore => Some(QuickValue::flag(self.state.ra_encore)),
             QuickRow::LibrarySort => Some(match self.state.library_sort {
                 slot_store::LibrarySort::Az => QuickValue::SortAz,
                 slot_store::LibrarySort::Recent => QuickValue::SortRecent,
@@ -2536,6 +2575,10 @@ impl App {
         self.state.ps1_dithering
     }
 
+    pub fn ra_encore(&self) -> bool {
+        self.state.ra_encore
+    }
+
     pub fn gb_palette(&self) -> Option<GbPalette> {
         self.state.gb_palettes.then_some(self.state.gb_palette)
     }
@@ -3099,6 +3142,7 @@ impl App {
             | QuickRow::GbPalettes
             | QuickRow::AutoClock
             | QuickRow::UpdateCheck
+            | QuickRow::RaEncore
             | QuickRow::LibrarySort
             | QuickRow::LibraryShow
             | QuickRow::LibraryPlayTime
@@ -3392,6 +3436,7 @@ impl App {
             QuickRow::LibraryPlayTime => s.play_time_hours = !s.play_time_hours,
             QuickRow::LibraryTitleCard => s.title_card = !s.title_card,
             QuickRow::UpdateCheck => s.update_check = !s.update_check,
+            QuickRow::RaEncore => s.ra_encore = !s.ra_encore,
             QuickRow::AutoClock => {
                 s.auto_clock = !s.auto_clock;
                 // Turned on: the clock is set as soon as Wi-Fi allows.
@@ -3820,6 +3865,7 @@ impl App {
                 if let Some(platform) = platform {
                     self.library.get_mut(platform, cart).last_played = self.utc_secs();
                     self.save_library();
+                    self.queue_achievement_set(platform, cart);
                 }
             }
             self.record_cart(seated);
@@ -3896,18 +3942,18 @@ impl App {
         if self
             .banner
             .as_ref()
-            .is_some_and(|b| now.saturating_sub(b.4) >= BANNER_MS)
+            .is_some_and(|b| now.saturating_sub(b.4) >= banner_hold(b.5))
         {
             self.banner = None;
         }
         // A toast whose badge is still downloading waits for it, but not for long.
-        let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
+        let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis, bool)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
         if self.banner.is_none() && self.banners.front().is_some_and(ready) {
-            if let Some((title, detail, badge, _)) = self.banners.pop_front() {
+            if let Some((title, detail, badge, _, celebrate)) = self.banners.pop_front() {
                 self.banner_seq += 1;
-                self.banner = Some((self.banner_seq, title, detail, badge, now));
+                self.banner = Some((self.banner_seq, title, detail, badge, now, celebrate));
             }
         }
         #[cfg(feature = "brick")]
@@ -3968,6 +4014,7 @@ impl App {
                 if let Some(root) = &self.root {
                     if let Some(account) = crate::ra::load(root) {
                         crate::offline_ra::poke(root, &account.user, &account.token);
+                        crate::offline_ra::poke_cache(root, &account.user, &account.token);
                     }
                 }
             }
@@ -4316,6 +4363,11 @@ impl App {
         if u >= 1.0 || tex.frames.is_empty() {
             return (None, tex.seated);
         }
+        let u = if platform == Some(Platform::Gw) {
+            slot_ui::turn::ease_gw(u)
+        } else {
+            u
+        };
         let n = tex.frames.len();
         let i = ((u * n as f32) as usize).min(n - 1);
         (Some(tex.frames[i]), None)
@@ -4358,8 +4410,23 @@ impl App {
 
     /// A toast with an image on its left (a badge, cached at `badge` or on its way there).
     pub fn announce_with(&mut self, title: &str, detail: &str, badge: Option<std::path::PathBuf>) {
-        self.banners
-            .push_back((title.to_string(), detail.to_string(), badge, self.now()));
+        self.push_banner(title, detail, badge, false);
+    }
+
+    fn push_banner(
+        &mut self,
+        title: &str,
+        detail: &str,
+        badge: Option<std::path::PathBuf>,
+        celebrate: bool,
+    ) {
+        self.banners.push_back((
+            title.to_string(),
+            detail.to_string(),
+            badge,
+            self.now(),
+            celebrate,
+        ));
     }
 
     /// What RetroAchievements said, as a toast (or nothing worth interrupting play for).
@@ -4386,11 +4453,16 @@ impl App {
                 ..
             } => {
                 self.companion.note_cheer();
-                self.announce_with(&title, &format!("{points} pts - {description}"), badge)
+                self.push_banner(
+                    &title,
+                    &format!("{points} pts - {description}"),
+                    badge,
+                    true,
+                )
             }
             Notice::GameCompleted { title, .. } => {
                 self.companion.note_cheer();
-                self.announce_with("Every achievement earned", &title, badge)
+                self.push_banner("Every achievement earned", &title, badge, true)
             }
             Notice::LeaderboardStarted { title, .. } => {
                 self.announce("Leaderboard attempt", &title)
@@ -4403,10 +4475,21 @@ impl App {
     }
 
     /// The toast showing, if its face still has to be rendered: (id, title, detail, badge).
-    pub fn banner_to_render(&self) -> Option<(u64, String, String, Option<std::path::PathBuf>)> {
-        let (id, title, detail, badge, _) = self.banner.as_ref()?;
-        (self.banner_face.map(|(f, _)| f) != Some(*id))
-            .then(|| (*id, title.clone(), detail.clone(), badge.clone()))
+    pub fn banner_to_render(
+        &self,
+    ) -> Option<(u64, String, String, Option<std::path::PathBuf>, Option<f32>)> {
+        let (id, title, detail, badge, since, celebrate) = self.banner.as_ref()?;
+        let age = self.now().saturating_sub(*since);
+        let burst_age = age.saturating_sub(BANNER_SLIDE);
+        let burst = if *celebrate {
+            Some((burst_age as f32 / slot_ui::BURST_MS as f32).clamp(0.0, 1.0))
+        } else {
+            None
+        };
+        // Include the frame at BURST_MS so the last update is the clean card.
+        let animating = *celebrate && burst_age <= slot_ui::BURST_MS as Millis;
+        let need = self.banner_face.map(|(f, _)| f) != Some(*id) || animating;
+        need.then(|| (*id, title.clone(), detail.clone(), badge.clone(), burst))
     }
 
     pub fn set_banner_face(&mut self, id: u64, tex: TexId) {
@@ -4419,7 +4502,8 @@ impl App {
     }
 
     fn draw_banner(&self, out: &mut Vec<Draw>) {
-        let (Some((id, _, _, _, since)), Some((face_id, tex))) = (&self.banner, self.banner_face)
+        let (Some((id, _, _, _, since, celebrate)), Some((face_id, tex))) =
+            (&self.banner, self.banner_face)
         else {
             return;
         };
@@ -4428,8 +4512,9 @@ impl App {
         }
         // Slides in from past the right edge, rests in the corner, slides back out.
         let age = self.now().saturating_sub(*since);
+        let hold = banner_hold(*celebrate);
         let shown = (age as f32 / BANNER_SLIDE as f32)
-            .min(BANNER_MS.saturating_sub(age) as f32 / BANNER_SLIDE as f32)
+            .min(hold.saturating_sub(age) as f32 / BANNER_SLIDE as f32)
             .clamp(0.0, 1.0);
         let eased = 1.0 - (1.0 - shown) * (1.0 - shown);
         let away = slot_gfx::OUT_W as f32 - slot_ui::BANNER_X;
