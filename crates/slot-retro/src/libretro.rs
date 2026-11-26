@@ -3,7 +3,7 @@ use std::ffi::{c_char, c_int, c_uint, c_void, CString};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use libloading::Library;
 
@@ -16,6 +16,9 @@ use crate::rumble::Rumble;
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
+/// The GPU core's framebuffer, for a core that asks for it from a thread of its own (PPSSPP
+/// does, from its emulation thread, where no host is bound). One core is live at a time.
+static HW_FBO: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum PixelFormat {
@@ -452,10 +455,14 @@ unsafe fn report_audio_status(skip: bool) {
 unsafe extern "C" fn hw_current_framebuffer() -> usize {
     with_host(|h| {
         let (w, hgt) = h.hw_max;
-        h.gl.as_mut()
-            .map_or(0, |gl| gl.framebuffer(w, hgt) as usize)
+        let fbo = h
+            .gl
+            .as_mut()
+            .map_or(0, |gl| gl.framebuffer(w, hgt) as usize);
+        HW_FBO.store(fbo, Ordering::Release);
+        fbo
     })
-    .unwrap_or(0)
+    .unwrap_or_else(|| HW_FBO.load(Ordering::Acquire))
 }
 
 unsafe extern "C" fn hw_proc_address(name: *const c_char) -> hw::ProcAddress {
@@ -915,7 +922,7 @@ impl LibretroCore {
         {
             unsafe { (*gl).destroy() };
         }
-        unsafe { (self.api.unload_game)() };
+        unsafe { crate::ffi::guard::call0(self.api.unload_game) };
         self.loaded = false;
     }
 
@@ -991,7 +998,7 @@ impl RetroCore for LibretroCore {
         }
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.load_game)(&info) }
+            unsafe { crate::ffi::guard::call_ptr(self.api.load_game, &info) }
         };
         if !ok {
             self.rom = Vec::new();
@@ -1010,7 +1017,7 @@ impl RetroCore for LibretroCore {
             self.host.hw_max = (av.geometry.max_width.max(1), av.geometry.max_height.max(1));
             let (w, h) = self.host.hw_max;
             let reset = self.host.gl.as_mut().map(|gl| {
-                gl.framebuffer(w, h);
+                HW_FBO.store(gl.framebuffer(w, h) as usize, Ordering::Release);
                 gl.request.context_reset
             });
             if let Some(Some(reset)) = reset {
@@ -1046,7 +1053,7 @@ impl RetroCore for LibretroCore {
             self.host.stick_from_dpad = stick != (0, 0);
         }
         let _a = Active::bind(&mut self.host);
-        unsafe { (self.api.run)() };
+        unsafe { crate::ffi::guard::call0(self.api.run) };
     }
 
     fn reset(&mut self) {
@@ -1054,7 +1061,7 @@ impl RetroCore for LibretroCore {
             return;
         }
         let _a = Active::bind(&mut self.host);
-        unsafe { (self.api.reset)() };
+        unsafe { crate::ffi::guard::call0(self.api.reset) };
     }
 
     fn set_frame_skip(&mut self, skip: bool) {
@@ -1082,7 +1089,7 @@ impl RetroCore for LibretroCore {
         let mut buf = vec![0u8; size];
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+            unsafe { crate::ffi::guard::call_buf_mut(self.api.serialize, buf.as_mut_ptr() as *mut c_void, size) }
         };
         if ok {
             Ok(buf)
@@ -1094,7 +1101,7 @@ impl RetroCore for LibretroCore {
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
+            unsafe { crate::ffi::guard::call_buf(self.api.unserialize, data.as_ptr() as *const c_void, data.len()) }
         };
         if ok {
             Ok(())

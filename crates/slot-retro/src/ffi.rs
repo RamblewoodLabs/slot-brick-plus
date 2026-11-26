@@ -265,3 +265,92 @@ impl Api {
         })
     }
 }
+
+/// Calls into a core that keep the caller's floating-point registers. AAPCS64 says a callee
+/// keeps d8-d15, but some cores' coroutine switches (libco, under mupen64plus-next) do not
+/// save them, and Slot's own floats held there across the call came back as garbage (frame
+/// times read infinite). On aarch64 these name d8-d15 as clobbered, so the compiler saves
+/// them around the call; elsewhere they are plain calls.
+pub mod guard {
+    use std::ffi::c_void;
+
+    #[cfg(target_arch = "aarch64")]
+    unsafe fn raw(f: usize, a0: usize, a1: usize) -> usize {
+        let r: usize;
+        std::arch::asm!(
+            "blr {f}",
+            f = in(reg) f,
+            inlateout("x0") a0 => r,
+            in("x1") a1,
+            clobber_abi("C"),
+            out("d8") _, out("d9") _, out("d10") _, out("d11") _,
+            out("d12") _, out("d13") _, out("d14") _, out("d15") _,
+        );
+        r
+    }
+
+    /// `f()`.
+    pub unsafe fn call0(f: unsafe extern "C" fn()) {
+        #[cfg(target_arch = "aarch64")]
+        raw(f as usize, 0, 0);
+        #[cfg(not(target_arch = "aarch64"))]
+        f();
+    }
+
+    /// `f(p)` for a core entry point that answers yes or no.
+    pub unsafe fn call_ptr<T>(f: unsafe extern "C" fn(*const T) -> bool, p: *const T) -> bool {
+        #[cfg(target_arch = "aarch64")]
+        return raw(f as usize, p as usize, 0) & 0xff != 0;
+        #[cfg(not(target_arch = "aarch64"))]
+        f(p)
+    }
+
+    /// `f(buf, len)` for serialize.
+    pub unsafe fn call_buf_mut(f: unsafe extern "C" fn(*mut c_void, usize) -> bool, p: *mut c_void, n: usize) -> bool {
+        #[cfg(target_arch = "aarch64")]
+        return raw(f as usize, p as usize, n) & 0xff != 0;
+        #[cfg(not(target_arch = "aarch64"))]
+        f(p, n)
+    }
+
+    /// `f(buf, len)` for unserialize.
+    pub unsafe fn call_buf(f: unsafe extern "C" fn(*const c_void, usize) -> bool, p: *const c_void, n: usize) -> bool {
+        #[cfg(target_arch = "aarch64")]
+        return raw(f as usize, p as usize, n) & 0xff != 0;
+        #[cfg(not(target_arch = "aarch64"))]
+        f(p, n)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        static mut SEEN: usize = 0;
+        unsafe extern "C" fn nothing() {}
+        unsafe extern "C" fn yes(p: *const u8) -> bool {
+            SEEN = p as usize;
+            true
+        }
+        unsafe extern "C" fn sum(p: *const c_void, n: usize) -> bool {
+            SEEN = p as usize + n;
+            n % 2 == 0
+        }
+        unsafe extern "C" fn sum_mut(p: *mut c_void, n: usize) -> bool {
+            sum(p, n)
+        }
+
+        #[test]
+        fn guarded_calls_pass_their_arguments_and_answers_through() {
+            unsafe {
+                call0(nothing);
+                assert!(call_ptr(yes, 40 as *const u8));
+                assert_eq!(SEEN, 40);
+                assert!(call_buf(sum, 8 as *const c_void, 2));
+                assert_eq!(SEEN, 10);
+                assert!(!call_buf_mut(sum_mut, 8 as *mut c_void, 3));
+                let x = std::hint::black_box(1.5f64);
+                call0(nothing);
+                assert_eq!(x * 2.0, 3.0);
+            }
+        }
+    }
+}

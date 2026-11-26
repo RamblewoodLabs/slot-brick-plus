@@ -150,6 +150,12 @@ const GL_TEXTURE_MIN_FILTER: c_uint = 0x2801;
 const GL_TEXTURE_MAG_FILTER: c_uint = 0x2800;
 const GL_NEAREST: c_int = 0x2600;
 const GL_PACK_ALIGNMENT: c_uint = 0x0D05;
+const GL_PACK_ROW_LENGTH: c_uint = 0x0D02;
+const GL_PACK_SKIP_ROWS: c_uint = 0x0D03;
+const GL_PACK_SKIP_PIXELS: c_uint = 0x0D04;
+const GL_PIXEL_PACK_BUFFER: c_uint = 0x88EB;
+const GL_PIXEL_PACK_BUFFER_BINDING: c_uint = 0x88ED;
+const GL_MAJOR_VERSION: c_uint = 0x821B;
 
 macro_rules! fns {
     ($($name:ident: fn($($arg:ty),*) $(-> $ret:ty)?;)*) => {
@@ -191,6 +197,7 @@ fns! {
     glReadPixels: fn(c_int, c_int, c_int, c_int, c_uint, c_uint, *mut c_void);
     glGetIntegerv: fn(c_uint, *mut c_int);
     glPixelStorei: fn(c_uint, c_int);
+    glBindBuffer: fn(c_uint, c_uint);
     glDeleteFramebuffers: fn(c_int, *const c_uint);
     glDeleteTextures: fn(c_int, *const c_uint);
     glDeleteRenderbuffers: fn(c_int, *const c_uint);
@@ -199,6 +206,9 @@ fns! {
 /// The core's context, current on the emulation thread, and the framebuffer it draws into.
 pub struct Gl {
     f: Fns,
+    /// GLES 3's glReadBuffer, when the context is 3: a core may leave the read buffer elsewhere.
+    read_buffer: Option<unsafe extern "C" fn(c_uint)>,
+    gles3: bool,
     display: EglDisplay,
     surface: EglSurface,
     context: EglContext,
@@ -295,8 +305,20 @@ impl Gl {
                 (f.eglDestroySurface)(display, surface);
                 return None;
             }
+            let mut major = 0;
+            (f.glGetIntegerv)(GL_MAJOR_VERSION, &mut major);
+            let gles3 = major >= 3;
+            let read_buffer = if gles3 {
+                proc_address(c"glReadBuffer").map(|p| {
+                    std::mem::transmute::<unsafe extern "C" fn(), unsafe extern "C" fn(c_uint)>(p)
+                })
+            } else {
+                None
+            };
             Some(Gl {
                 f,
+                read_buffer,
+                gles3,
                 display,
                 surface,
                 context,
@@ -419,7 +441,30 @@ impl Gl {
             let mut bound = 0;
             (f.glGetIntegerv)(GL_FRAMEBUFFER_BINDING, &mut bound);
             (f.glBindFramebuffer)(GL_FRAMEBUFFER, self.fbo);
+            // The core's pack state is its own: PPSSPP leaves a pixel-pack buffer bound (its
+            // readbacks), and glReadPixels would then write into that instead of here.
+            let mut pack = [0; 5];
+            let names = [
+                GL_PACK_ALIGNMENT,
+                GL_PACK_ROW_LENGTH,
+                GL_PACK_SKIP_ROWS,
+                GL_PACK_SKIP_PIXELS,
+                GL_PIXEL_PACK_BUFFER_BINDING,
+            ];
+            let n = if self.gles3 { 5 } else { 1 };
+            for (v, name) in pack.iter_mut().zip(names).take(n) {
+                (f.glGetIntegerv)(name, v);
+            }
             (f.glPixelStorei)(GL_PACK_ALIGNMENT, 4);
+            if self.gles3 {
+                (f.glPixelStorei)(GL_PACK_ROW_LENGTH, 0);
+                (f.glPixelStorei)(GL_PACK_SKIP_ROWS, 0);
+                (f.glPixelStorei)(GL_PACK_SKIP_PIXELS, 0);
+                (f.glBindBuffer)(GL_PIXEL_PACK_BUFFER, 0);
+                if let Some(rb) = self.read_buffer {
+                    rb(GL_COLOR_ATTACHMENT0);
+                }
+            }
             (f.glReadPixels)(
                 0,
                 0,
@@ -429,6 +474,14 @@ impl Gl {
                 GL_UNSIGNED_BYTE,
                 self.rgba.as_mut_ptr() as *mut c_void,
             );
+            (f.glPixelStorei)(GL_PACK_ALIGNMENT, pack[0]);
+            if self.gles3 {
+                (f.glPixelStorei)(GL_PACK_ROW_LENGTH, pack[1]);
+                (f.glPixelStorei)(GL_PACK_SKIP_ROWS, pack[2]);
+                (f.glPixelStorei)(GL_PACK_SKIP_PIXELS, pack[3]);
+                (f.glBindBuffer)(GL_PIXEL_PACK_BUFFER, pack[4] as c_uint);
+            }
+            // The read buffer set above is our framebuffer's own state, so it stays.
             (f.glBindFramebuffer)(GL_FRAMEBUFFER, bound as c_uint);
         }
         rgba_to_xrgb(
