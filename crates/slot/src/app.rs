@@ -7969,3 +7969,33 @@ impl CartMenu {
         self.shape = 0;
     }
 }
+
+
+#[cfg(test)]
+impl App {
+    pub(crate) fn test_set_library(&mut self, library: slot_store::Library) {
+        self.library = library;
+    }
+
+    pub(crate) fn test_set_state(&mut self, state: SlotState) {
+        self.state = state;
+    }
+
+    pub(crate) fn test_arrange(&mut self) {
+        self.arrange();
+    }
+
+    pub(crate) fn test_favorites_only(&self) -> bool {
+        self.state.favorites_only
+    }
+
+    pub(crate) fn test_toggle_favorites_only(&mut self) {
+        self.state.favorites_only = !self.state.favorites_only;
+        self.arrange();
+    }
+
+    pub(crate) fn test_toggle_favorites_shelf(&mut self) {
+        self.state.show_favorites = !self.state.show_favorites;
+        self.arrange();
+    }
+}
