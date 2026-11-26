@@ -26,7 +26,7 @@ likewise no taller than the NES cart.
 
 | Card folder | `<sys>` | Cart | Shell pixels | Label window `x, y, w, h` |
 |---|---|---|---|---|
-| `Games/MD` | `md` | Genesis (US Sega shell: plain front, smooth side bulges) | 360 × 247 | 60, 9, 240, 197 |
+| `Games/MD` | `md` | Genesis (US Sega shell: recessed label well between raised, rounded side bulges with ridged grips; seen 8° from above) | 360 × 251 | 60, 9, 240, 196 |
 | `Games/SMS` | `sms` | Sega Card (US) | 213 × 331 | 16, 15, 181, 198 |
 | `Games/GG` | `gg` | Game Gear | 322 × 331 | 26, 40, 270, 207 |
 | `Games/ARCADE` | `arcade` | backlit marquee | 360 × 122 | 15, 16, 330, 90 |
@@ -39,9 +39,9 @@ likewise no taller than the NES cart.
 | `Games/COLECO` | `coleco` | ColecoVision cart | 288 × 331 | 17, 14, 254, 268 |
 | `Games/A5200` | `a5200` | Atari 5200 cart | 358 × 331 | 71, 44, 216, 181 |
 | `Games/A800` | `a800` | 5.25" floppy (every Atari 800 game, disk or not; below) | 331 × 331 | 28, 19, 261, 86 |
-| `Games/VECTREX` | `vectrex` | Vectrex cart | 321 × 331 | 21, 62, 279, 244 |
+| `Games/VECTREX` | `vectrex` | Vectrex console, switched off (the screen is the label window) | 224 × 331 | 27, 25, 170, 192 |
 | `Games/32X` | `s32x` | Sega 32X cart (Genesis shape, its own top) | 360 × 247 | 60, 9, 240, 197 |
-| `Games/N64` | `n64` | Nintendo 64 cart | 360 × 239 | 98, 25, 164, 176 |
+| `Games/N64` | `n64` | Nintendo 64 Game Pak (rectangular, straight sides and connector edge, ridged rounded top) | 360 × 239 | 98, 40, 164, 167 |
 | `Games/NDS` | `nds` | DS game card | 350 × 331 | 19, 44, 312, 270 |
 | `Games/PSP` | `psp` | UMD (the disc's whole face is the label) | 336 × 331 | 25, 22, 286, 287 |
 
@@ -71,7 +71,14 @@ all as a 5.25" floppy with its paper label at the top. The label window is that 
 
 ### Vectrex
 
-The Vectrex has no overlays. Each Vectrex game came with a coloured plastic sheet laid over
+The Vectrex shelf shows the console itself, switched off: the game's art sits on its screen,
+dim, as a coloured overlay does on a dark tube. On the way in the console turns once round
+(48 frames), stands still while its screen comes on (16 frames: the art's light eases up to
+full and a soft glow spreads onto the bezel), rests, and goes into the slot lit (`flip`, so
+the lit last frame is the face it goes in with). `scripts/vectrex_light.py` in
+slot-cart-renders lays the light-up onto the packed frames.
+
+The core has no overlays. Each Vectrex game came with a coloured plastic sheet laid over
 the screen, and vecx draws only the white vectors underneath. Scans of those sheets are the
 publisher's artwork, and each one has to be lined up with its own game, so Slot ships none;
 the player's own `Overlays/<system>` pictures are offered only for Game Boy, Game Boy Color, GBA, NES and SNES.
@@ -163,8 +170,15 @@ Labels are kept at twice the window size.
 A shell may carry `insert/`: the frames its cart turns through, on the shelf, before it slides
 into the slot. The slide itself is the same as every other cart's (`INSERT_S`), so the turn
 only adds its own length in front of it: 64 frames at 30 fps plus a still `hold` of 0.5 s
-(2.6 s), and the UMD's 80 frames (2.7 s), so every shelf's cart takes about as long. Systems without
-`insert/` go straight in, as before. An eject plays the turn backwards once the cart is out,
+(2.6 s), and the UMD's 80 frames (2.7 s), so every shelf's cart takes about as long.
+
+GB, GBC, GBA, NES, SNES and PlayStation have no rendered shell (their shelf face is drawn by
+`cart.rs`/`disc.rs`), so `turn::spin_faces` makes their turn at run time from that same face,
+at the same pace (64 eased frames at 30 fps, then 0.5 s): a cart goes once round on its
+upright axis, its edge (the cart's depth from Nintendo's sizes) and plain back showing on the
+way and its face shaded as it turns from the light; a PlayStation disc spins twice in its own
+plane, as the disc in a UMD does. Both lift a little mid-turn and end exactly on the shelf
+face, so nothing turns while the cart goes down. An eject plays the turn backwards once the cart is out,
 and a cart refused mid-turn turns back from where it got to.
 
 - `insert/NN.png`: frame NN of the shell, label window clear, cropped to what it covers.

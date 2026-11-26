@@ -1,10 +1,10 @@
-# vectrex: Blender render of the vectrex shell (~/Projects/slot-cart-renders, scripts/carts.py).
-# Shell is 321x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 90.0x93.0 mm.
+# vectrex: Blender render of the vectrex_console shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 224x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 240.0x360.0 mm.
 # Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
 # shade.png (when present) multiplies the label with the light it would catch on the cart.
-x = 21
-y = 62
-w = 279
-h = 244
+x = 27
+y = 25
+w = 170
+h = 192
 rotation = 0.0
-aspect = 1.1434
+aspect = 0.8854
