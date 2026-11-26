@@ -1,4 +1,5 @@
 pub mod archive;
+mod arcade_names;
 mod atomic;
 pub mod cart_shell;
 mod companion;
@@ -21,6 +22,7 @@ mod stamp;
 mod theme;
 mod thumbs;
 
+pub use arcade_names::arcade_title;
 pub use atomic::{atomic_write, free_space};
 pub use cart_shell::{Outline, ShellChoice, ShellFinish, CART_SHELL_FILE, LABELS_SHELL_FILE};
 pub use config::{move_config, CONFIG_DIR};

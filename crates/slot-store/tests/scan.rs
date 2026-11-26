@@ -176,3 +176,30 @@ fn nes_roms_fill_their_own_shelf_and_read_no_game_boy_title() {
     zelda.read_header();
     assert_eq!((zelda.title.as_str(), zelda.code.as_str()), ("", ""));
 }
+
+#[test]
+fn an_arcade_zip_keeps_its_short_name_but_shows_and_sorts_by_its_title() {
+    let d = tmp_root();
+    let dir = d.path().join("Games/ARCADE");
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["sf2.zip", "mslug.zip", "aburner2.zip", "notinadat.zip"] {
+        std::fs::write(dir.join(name), b"zip").unwrap();
+    }
+    let carts: Vec<_> = scan(d.path()).unwrap().into_iter().filter(|c| c.platform == Platform::Arcade).collect();
+    let shown: Vec<String> = carts.iter().map(|c| c.shown_name().into_owned()).collect();
+    assert_eq!(
+        shown,
+        ["After Burner II", "Metal Slug - Super Vehicle-001", "notinadat", "Street Fighter II - The World Warrior"]
+    );
+    // The zip itself is untouched: the core needs the short name.
+    assert_eq!(carts[1].stem, "mslug");
+    assert_eq!(carts[1].rom.file_name().unwrap(), "mslug.zip");
+}
+
+#[test]
+fn other_systems_show_the_file_name() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/mslug.gba", "MSLUG");
+    let cart = &scan(d.path()).unwrap()[0];
+    assert_eq!(cart.shown_name(), "mslug");
+}

@@ -33,6 +33,18 @@ pub struct Cart {
 }
 
 impl Cart {
+    /// The name the shelf shows and sorts by: an arcade set's title (its zip keeps the short
+    /// name the core needs), any other game's file name.
+    pub fn shown_name(&self) -> std::borrow::Cow<'_, str> {
+        match self.platform {
+            Platform::Arcade => match crate::arcade_names::arcade_title(&self.stem) {
+                Some(title) => title.into(),
+                None => self.stem.as_str().into(),
+            },
+            _ => self.stem.as_str().into(),
+        }
+    }
+
     pub fn read_header(&mut self) {
         match self.platform {
             Platform::Gba => {
@@ -130,7 +142,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
         }
     }
     carts.sort_by(|a, b| {
-        (a.platform as u8, sort_key(&a.stem)).cmp(&(b.platform as u8, sort_key(&b.stem)))
+        (a.platform as u8, sort_key(&a.shown_name())).cmp(&(b.platform as u8, sort_key(&b.shown_name())))
     });
     Ok(carts)
 }
