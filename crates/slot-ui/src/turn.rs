@@ -435,7 +435,13 @@ fn frame(
         if (tw, th) != (w, h) {
             return None;
         }
-        crate::model::tint(&mut rgba, w, h, &tint, &crate::model::Plastic::Flat(plastic));
+        crate::model::tint(
+            &mut rgba,
+            w,
+            h,
+            &tint,
+            &crate::model::Plastic::Flat(plastic),
+        );
     }
     let m = &f.uv;
     for y in 0..h {

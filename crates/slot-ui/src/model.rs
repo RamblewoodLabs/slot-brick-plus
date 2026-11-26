@@ -80,7 +80,8 @@ pub(crate) fn tint(rgba: &mut [u8], w: u32, h: u32, map: &[u8], plastic: &Plasti
             let a = rgba[i + 3].max(1) as u32;
             let t = (cover * 255 / a).min(255);
             for k in 0..3 {
-                rgba[i + k] = ((c[k] as u32 * t + rgba[i + k] as u32 * (255 - t) + 127) / 255) as u8;
+                rgba[i + k] =
+                    ((c[k] as u32 * t + rgba[i + k] as u32 * (255 - t) + 127) / 255) as u8;
             }
         }
     }
@@ -93,9 +94,13 @@ pub(crate) fn plastic_px(plastic: &Shell, light: u8, x: u32, y: u32, h: u32) -> 
         Finish::Solid => plastic.colour,
         Finish::Sheen => cart::chrome_px(plastic.colour, y, h),
         // clear plastic: lighter, as the light comes through it
-        Finish::Translucent => plastic.colour.map(|c| c + ((255 - c as u32) * 40 / 255) as u8),
+        Finish::Translucent => plastic
+            .colour
+            .map(|c| c + ((255 - c as u32) * 40 / 255) as u8),
         Finish::Glitter if cart::fleck_at(x, y) => [0xff; 3],
-        Finish::Glitter => plastic.colour.map(|c| c + ((255 - c as u32) * 24 / 255) as u8),
+        Finish::Glitter => plastic
+            .colour
+            .map(|c| c + ((255 - c as u32) * 24 / 255) as u8),
     };
     light_px(base, light)
 }
@@ -105,7 +110,11 @@ fn light_px(base: [u8; 3], light: u8) -> [u8; 3] {
     let s = light as f32 / 128.0;
     base.map(|c| {
         let c = c as f32;
-        let v = if s <= 1.0 { c * s } else { c + (255.0 - c) * (s - 1.0) };
+        let v = if s <= 1.0 {
+            c * s
+        } else {
+            c + (255.0 - c) * (s - 1.0)
+        };
         v.round().clamp(0.0, 255.0) as u8
     })
 }

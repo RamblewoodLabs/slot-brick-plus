@@ -937,10 +937,7 @@ mod model_tests {
                     extra += 1;
                 }
             }
-            let (miss, over) = (
-                missing as f32 / inside as f32,
-                extra as f32 / inside as f32,
-            );
+            let (miss, over) = (missing as f32 / inside as f32, extra as f32 / inside as f32);
             assert!(
                 miss < 0.005 && over < 0.005,
                 "{dir}: {:.2}% of the drawn cart is missing, {:.2}% beyond it",
