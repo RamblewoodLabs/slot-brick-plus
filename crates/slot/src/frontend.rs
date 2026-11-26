@@ -341,6 +341,8 @@ struct Clocks {
     discs: Vec<Option<TexId>>,
     title_card: Option<String>,
     title_card_tex: Option<TexId>,
+    filter: Option<&'static str>,
+    filter_tex: Option<TexId>,
 }
 
 #[derive(Default)]
@@ -1167,6 +1169,15 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
             (upload(compositor, &mut clocks.played_tex, face), w)
         });
         app.set_played_face(face);
+    }
+    let filter = app.filter_text();
+    if filter != clocks.filter {
+        clocks.filter = filter;
+        let face = filter.map(slot_ui::filter_pill_face).filter(|f| f.w > 0).map(|face| {
+            let (w, h) = (face.w, face.h);
+            (upload(compositor, &mut clocks.filter_tex, face), w, h)
+        });
+        app.set_filter_pill_face(face);
     }
     let title_card = app.title_card_text();
     if title_card != clocks.title_card {

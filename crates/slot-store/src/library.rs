@@ -472,6 +472,8 @@ mod tests {
         lib.get_mut(Platform::Snes, "Zelda").last_played = 100;
         lib.get_mut(Platform::Intv, "Astrosmash").favorite = true;
         lib.get_mut(Platform::Intv, "Astrosmash").last_played = 50; // no added time
+        lib.get_mut(Platform::Md, "Sonic").played_secs = 90;
+        lib.get_mut(Platform::Gba, "Alpha").played_secs = 30;
         let order = |sort| {
             let mut carts = all.to_vec();
             arrange_favorites(&mut carts, sort, &lib);
@@ -479,8 +481,6 @@ mod tests {
         };
         assert_eq!(order(FavoritesSort::Added), "Sonic Zelda Alpha Astrosmash");
         assert_eq!(order(FavoritesSort::Recent), "Zelda Astrosmash Alpha Sonic");
-        lib.get_mut(Platform::Md, "Sonic").played_secs = 90;
-        lib.get_mut(Platform::Gba, "Alpha").played_secs = 30;
         assert_eq!(order(FavoritesSort::MostPlayed), "Sonic Alpha Zelda Astrosmash");
     }
 
