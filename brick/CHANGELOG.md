@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- Intellivision labels made by `brick/build_sp_art.py` from cart scans are the whole end label, the right shape for the cart, so a title's lower line or the bottom of its letters is no longer cut off.
 - A Favorites shelf collects starred games from every system in one row, each in its own cart or handheld. Y still stars or unstars a game. SELECT on that shelf is Added or Last Played. Library → Systems has Favorites as the top row, and you can hide every other system and keep only that shelf.
 - New shelf: Game & Watch (`Games/GW`, `.mgw`), run by gw-libretro. Each game sits on the shelf as its own handheld: Donkey Kong, Donkey Kong II, Mario Bros. and Lifeboat as closed clamshells that open when picked, every other one (Wide Screen, Panorama, Table Top, and the VTech, Mattel, Tomytronic, Gakken, Bandai, Epoch and Elektronika games) with its screen dark until it lights up. The art is `Labels/GW/<game>.png` and `Labels/GW/open/<game>.png`, made by `brick/gw-art`. The picture keeps its shape on screen whatever size the game draws it. No save states (the core has none).
 - New shelves: Genesis / Mega Drive (`Games/MD`), Master System (`Games/SMS`), Game Gear (`Games/GG`), Arcade (`Games/ARCADE`), TurboGrafx-16 (`Games/PCE`), Atari 2600 (`Games/A2600`), Intellivision (`Games/INTV`), Atari Lynx (`Games/LYNX`) and Atari 7800 (`Games/A7800`). Library → Systems shows or hides each one. A label picture in `Labels/<that folder>` sits on the cartridge.
