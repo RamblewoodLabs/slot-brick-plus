@@ -38,7 +38,8 @@ pub(crate) fn light_disc(face: &mut CartFace) {
                 px[c] = ((px[c] as u32 * shade[o] as u32 + 127) / 255) as u8;
             }
         }
-        let a = shell[o + 3] as u32;
+        // the model's hub, ring and rim show only where the print does not cover the disc
+        let a = shell[o + 3] as u32 * (255 - mask[o + 3] as u32) / 255;
         if a > 0 && px[3] > 0 {
             for c in 0..3 {
                 px[c] = ((shell[o + c] as u32 * a + px[c] as u32 * (255 - a) + 127) / 255) as u8;
