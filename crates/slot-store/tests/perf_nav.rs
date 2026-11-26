@@ -100,7 +100,10 @@ fn library_lookups_and_state_writes() {
     let writes = time_loops(LOOPS, || {
         write_slot_state(root, &state).unwrap();
     });
-    report("write_slot_state (atomic_write + 2 fsyncs) on this disk", &writes);
+    report(
+        "write_slot_state (atomic_write + 2 fsyncs) on this disk",
+        &writes,
+    );
 
     let bytes = b"favorites_only=1\nshow_favorites=1\n";
     let path = root.join("Config/tiny.txt");

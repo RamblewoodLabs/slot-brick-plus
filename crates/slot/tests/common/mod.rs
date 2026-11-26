@@ -74,6 +74,7 @@ pub fn tmp_root_with_real_carts(stems: &[&str]) -> TempDir {
 }
 
 fn tmp_root() -> TempDir {
+    App::sync_persist_for_tests();
     let d = tempfile::tempdir().expect("tempdir");
     for sub in slot::root::DIRS {
         std::fs::create_dir(d.path().join(sub)).expect("create content dir");
@@ -393,6 +394,7 @@ pub fn app_booting_with_clock(root: &Path) -> (App, Clock) {
 }
 
 pub fn app_booting_at(root: &Path, secs: i64) -> (App, Clock) {
+    App::sync_persist_for_tests();
     let mut a = App::boot(root);
     let (power, _, clock) = rig(root, Duration::from_secs(60), secs);
     a.set_power(power);
@@ -459,6 +461,7 @@ pub fn clocked(root: &Path) {
 }
 
 pub fn boot(root: &Path) -> App {
+    App::sync_persist_for_tests();
     clocked(root);
     App::boot(root)
 }
@@ -556,6 +559,7 @@ pub fn app_playing_with(root: &Path, stem: &str, snapshot: Box<dyn Snapshot>) ->
 }
 
 fn seated(root: &Path, snapshot: Box<dyn Snapshot>, state: SlotState) -> App {
+    App::sync_persist_for_tests();
     write_slot_state(root, &state).expect("write slot.state");
     let mut a = App::boot(root);
     a.set_snapshot(snapshot);

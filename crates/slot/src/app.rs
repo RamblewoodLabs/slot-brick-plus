@@ -8,11 +8,10 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Outline,
-    FavoritesSort, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
-    StateRing, Theme,
-    AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
-    VOLUME_MAX,
+    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, FavoritesSort, GbPalette,
+    Outline, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
+    StateRing, Theme, AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS,
+    RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
@@ -535,7 +534,11 @@ const BADGE_WAIT: Millis = 1500;
 
 fn shelves_of(carts: Vec<Cart>) -> Vec<(ShelfKind, Shelf)> {
     let mut rows: Vec<(ShelfKind, Vec<Cart>)> = std::iter::once((ShelfKind::Favorites, Vec::new()))
-        .chain(Platform::ALL.iter().map(|p| (ShelfKind::System(*p), Vec::new())))
+        .chain(
+            Platform::ALL
+                .iter()
+                .map(|p| (ShelfKind::System(*p), Vec::new())),
+        )
         .collect();
     for cart in carts {
         if let Some((_, row)) = rows
@@ -590,6 +593,9 @@ fn gigabytes(bytes: u64) -> String {
 /// See App::boot_early. (An App is moved between threads only there, so it must be Send.)
 static EARLY_APP: std::sync::Mutex<Option<std::thread::JoinHandle<App>>> =
     std::sync::Mutex::new(None);
+
+static SYNC_PERSIST_FOR_TESTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 impl App {
     pub fn new(carts: Vec<Cart>) -> Self {
@@ -862,6 +868,15 @@ impl App {
     /// the games, while none is a favorite). Each cart keeps its face, and each shelf the cart
     /// it had selected.
     fn arrange(&mut self) {
+        // Index once: writing a cart's plastic or label back used to scan every
+        // game for every game (thousands of times on a full card).
+        let mut index: HashMap<Platform, HashMap<String, usize>> = HashMap::new();
+        for (i, cart) in self.all_carts.iter().enumerate() {
+            index
+                .entry(cart.platform)
+                .or_default()
+                .insert(cart.stem.clone(), i);
+        }
         let mut faces = HashMap::new();
         let mut picked = Vec::new();
         for (kind, shelf) in &mut self.shelves {
@@ -876,12 +891,13 @@ impl App {
                 // What changed on the shelf (a label, a plastic) is kept for next time.
                 // The Favorites shelf holds copies; the system's shelf is the one that writes back.
                 if kind.system() == Some(cart.platform) {
-                    if let Some(kept) = self
-                        .all_carts
-                        .iter_mut()
-                        .find(|c| c.platform == cart.platform && c.stem == cart.stem)
+                    if let Some(&i) = index
+                        .get(&cart.platform)
+                        .and_then(|m| m.get(cart.stem.as_str()))
                     {
-                        *kept = cart.clone();
+                        if self.all_carts[i] != *cart {
+                            self.all_carts[i] = cart.clone();
+                        }
                     }
                 }
                 if let Some(face) = face {
@@ -891,20 +907,20 @@ impl App {
         }
         // Hidden systems have no shelf; with every system that has games hidden, all are shown,
         // unless the Favorites shelf is the one left on purpose.
-        let show_favorites = self.state.show_favorites && self.library.any_favorite(&self.all_carts);
+        let show_favorites =
+            self.state.show_favorites && self.library.any_favorite(&self.all_carts);
         let any_system_shown = self.all_carts.iter().any(|c| self.state.shows(c.platform));
-        let shown: Vec<Cart> = if any_system_shown {
-            self.all_carts
-                .iter()
-                .filter(|c| self.state.shows(c.platform))
-                .cloned()
-                .collect()
-        } else if show_favorites {
-            Vec::new()
-        } else {
-            self.all_carts.clone()
-        };
-        let favorites_only = self.state.favorites_only && self.library.any_favorite(&shown);
+        // Same rule as the old `shown` list, without cloning the whole library first.
+        let favorites_only = self.state.favorites_only
+            && if any_system_shown {
+                self.all_carts.iter().any(|c| {
+                    self.state.shows(c.platform) && self.library.get(c.platform, &c.stem).favorite
+                })
+            } else if show_favorites {
+                false
+            } else {
+                self.library.any_favorite(&self.all_carts)
+            };
         for ((kind, shelf), pick) in self.shelves.iter_mut().zip(picked) {
             let (carts, starred) = match *kind {
                 ShelfKind::Favorites => {
@@ -926,11 +942,20 @@ impl App {
                     (carts, starred)
                 }
                 ShelfKind::System(platform) => {
-                    let mut carts: Vec<Cart> = shown
-                        .iter()
-                        .filter(|c| c.platform == platform)
-                        .cloned()
-                        .collect();
+                    let include = if any_system_shown {
+                        self.state.shows(platform)
+                    } else {
+                        !show_favorites
+                    };
+                    let mut carts: Vec<Cart> = if include {
+                        self.all_carts
+                            .iter()
+                            .filter(|c| c.platform == platform)
+                            .cloned()
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                     slot_store::arrange(
                         &mut carts,
                         self.state.library_sort,
@@ -1392,29 +1417,31 @@ impl App {
     }
 
     fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
-        let matches = |cart: &Cart| {
-            cart.stem == stem && platform.is_none_or(|want| cart.platform == want)
-        };
-        let on_system = self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-            if platform.is_some() && kind.system() != platform {
-                return None;
-            }
-            if platform.is_none() && kind == &ShelfKind::Favorites {
-                return None;
-            }
-            shelf
-                .carts
-                .iter()
-                .position(matches)
-                .map(|i| (at, i))
-        });
-        on_system.or_else(|| {
-            self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-                if *kind != ShelfKind::Favorites {
+        let matches =
+            |cart: &Cart| cart.stem == stem && platform.is_none_or(|want| cart.platform == want);
+        let on_system = self
+            .shelves
+            .iter()
+            .enumerate()
+            .find_map(|(at, (kind, shelf))| {
+                if platform.is_some() && kind.system() != platform {
+                    return None;
+                }
+                if platform.is_none() && kind == &ShelfKind::Favorites {
                     return None;
                 }
                 shelf.carts.iter().position(matches).map(|i| (at, i))
-            })
+            });
+        on_system.or_else(|| {
+            self.shelves
+                .iter()
+                .enumerate()
+                .find_map(|(at, (kind, shelf))| {
+                    if *kind != ShelfKind::Favorites {
+                        return None;
+                    }
+                    shelf.carts.iter().position(matches).map(|i| (at, i))
+                })
         })
     }
 
@@ -4112,16 +4139,31 @@ impl App {
         self.persist();
     }
 
+    /// Tests that read Config/slot.state after a setting change call this once
+    /// so persist() still writes before they look. The device never does.
+    pub fn sync_persist_for_tests() {
+        SYNC_PERSIST_FOR_TESTS.store(true, Ordering::Relaxed);
+    }
+
     fn persist(&self) {
         let Some(root) = &self.root else {
             return;
         };
-        self.state_writer.flush();
-        let written = write_slot_state(root, &self.state);
-        if let Err(e) = &written {
-            eprintln!("slot: slot.state: {e}");
+        // On the device, a sync write (two fsyncs) stalls every menu toggle
+        // and the All/Favorites switch on a slow card. The worker keeps only
+        // the latest state; doze, power-off and settle_saves flush the queue.
+        // Integration tests call sync_persist_for_tests() so they can keep
+        // reading Config/slot.state right after apply.
+        if SYNC_PERSIST_FOR_TESTS.load(Ordering::Relaxed) {
+            self.state_writer.flush();
+            let written = write_slot_state(root, &self.state);
+            if let Err(e) = &written {
+                eprintln!("slot: slot.state: {e}");
+            }
+            self.card_failing.store(written.is_err(), Ordering::Relaxed);
+        } else {
+            self.state_writer.save(root, &self.state);
         }
-        self.card_failing.store(written.is_err(), Ordering::Relaxed);
     }
 
     /// Volume/brightness/mute: written in the background so held keys never stall a frame.
@@ -7970,7 +8012,6 @@ impl CartMenu {
     }
 }
 
-
 #[cfg(test)]
 impl App {
     pub(crate) fn test_set_library(&mut self, library: slot_store::Library) {
@@ -7983,10 +8024,6 @@ impl App {
 
     pub(crate) fn test_arrange(&mut self) {
         self.arrange();
-    }
-
-    pub(crate) fn test_favorites_only(&self) -> bool {
-        self.state.favorites_only
     }
 
     pub(crate) fn test_toggle_favorites_only(&mut self) {
