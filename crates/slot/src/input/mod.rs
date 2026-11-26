@@ -2,9 +2,9 @@
 pub mod brick;
 #[cfg(feature = "brick")]
 mod brick_gpio;
-mod device;
 #[cfg(feature = "brick")]
 mod pro_sticks;
+mod device;
 #[cfg(feature = "brick")]
 pub use brick::BrickInput;
 pub mod evdev;
@@ -13,10 +13,10 @@ mod host;
 #[cfg(feature = "host")]
 mod keys;
 mod mask;
-#[cfg(feature = "host")]
-mod pad;
 #[cfg(feature = "sim")]
 mod sim;
+#[cfg(feature = "host")]
+mod pad;
 pub mod trace;
 
 pub use device::DeviceInput;

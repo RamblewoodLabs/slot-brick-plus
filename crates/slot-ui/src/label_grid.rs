@@ -2,10 +2,7 @@
 //! this screen. Every label is shown as it was cut, the one under the cursor ringed. A wears it
 //! and goes back to the cart menu; B goes back leaving the cart as it was.
 use crate::draw::{Draw, TexId, OUT_H, OUT_W};
-use crate::plate::{
-    arrows_hint_face, centred_hints, footer_plate, hint_face, UndoFace, CAPTION_Y, HINT_H,
-    LEGEND_GAP, LEGEND_Y,
-};
+use crate::plate::{arrows_hint_face, centred_hints, footer_plate, hint_face, UndoFace, CAPTION_Y, HINT_H, LEGEND_GAP, LEGEND_Y};
 use crate::slot_chrome::{edge, opening};
 
 /// The grid's shape, and so how many labels a page holds.
@@ -37,45 +34,24 @@ pub struct LabelGridView<'a> {
 
 impl LabelGridView<'_> {
     pub fn draw(&self, out: &mut Vec<Draw>) {
-        out.push(Draw::Rect {
-            x: 0.0,
-            y: 0.0,
-            w: OUT_W as f32,
-            h: OUT_H as f32,
-            colour: opening(),
-        });
+        out.push(Draw::Rect { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, colour: opening() });
         if let Some((tex, w, h)) = self.title {
             push(out, tex, (OUT_W as f32 - w as f32) / 2.0, TITLE_Y, w, h);
         }
         let (cw, ch) = (GRID_W / GRID_COLS as f32, GRID_H / GRID_ROWS as f32);
         for i in 0..PAGE {
-            let (x, y) = (
-                GRID_X + cw * (i % GRID_COLS) as f32,
-                GRID_Y + ch * (i / GRID_COLS) as f32,
-            );
+            let (x, y) = (GRID_X + cw * (i % GRID_COLS) as f32, GRID_Y + ch * (i / GRID_COLS) as f32);
             if i == self.at {
                 // The house marks a chosen row by filling it. A label covers most of its cell,
                 // though, so the fill alone is a sliver: it gets a ring as well.
-                out.push(Draw::Rect {
-                    x: x.round(),
-                    y: y.round(),
-                    w: cw.round(),
-                    h: ch.round(),
-                    colour: edge(),
-                });
+                out.push(Draw::Rect { x: x.round(), y: y.round(), w: cw.round(), h: ch.round(), colour: edge() });
                 for (bx, by, bw, bh) in [
                     (x, y, cw, RING),
                     (x, y + ch - RING, cw, RING),
                     (x, y, RING, ch),
                     (x + cw - RING, y, RING, ch),
                 ] {
-                    out.push(Draw::Rect {
-                        x: bx.round(),
-                        y: by.round(),
-                        w: bw.round(),
-                        h: bh.round(),
-                        colour: RING_INK,
-                    });
+                    out.push(Draw::Rect { x: bx.round(), y: by.round(), w: bw.round(), h: bh.round(), colour: RING_INK });
                 }
             }
             let Some(&Some((tex, w, h))) = self.cells.get(i) else {
@@ -107,20 +83,10 @@ impl LabelGridView<'_> {
 }
 
 fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
-    out.push(Draw::Tex {
-        x: x.round(),
-        y: y.round(),
-        w: w as f32,
-        h: h as f32,
-        tex,
-        alpha: 1.0,
-    });
+    out.push(Draw::Tex { x: x.round(), y: y.round(), w: w as f32, h: h as f32, tex, alpha: 1.0 });
 }
 
 pub fn label_grid_legend_faces() -> [UndoFace; 3] {
-    [
-        hint_face("B", "Back"),
-        arrows_hint_face("Move"),
-        hint_face("A", "Keep"),
-    ]
+    [hint_face("B", "Back"), arrows_hint_face("Move"), hint_face("A", "Keep")]
 }
+

@@ -24,15 +24,21 @@ s = open(p).read().replace('-Wl,--no-undefined', '-static-libstdc++ -static-libg
 open(p, 'w').write(s)
 PY
 make -C "$m" platform=unix FORCE_GLES3=1 WITH_DYNAREC=aarch64 ARCH=aarch64 GL_LIB= \
-    CPUFLAGS="$CPU" -j"${JOBS:-8}" > "$W/mupen.log" 2>&1 || { tail -30 "$W/mupen.log"; exit 1; }
+    CPUFLAGS="$CPU" -j"${JOBS:-8}" > "$W/mupen.log" 2>&1 \
+    || { grep -B2 -A6 "error:" "$W/mupen.log" | head -60; tail -5 "$W/mupen.log"; exit 1; }
 cp "$m/mupen64plus_next_libretro.so" vendor/
 
 p="$W/ppsspp-$PPSSPP"
+# The asset folders the libretro core does not use (web debugger, UI languages, themes) are
+# left out of the source tarball; CMake still copies them, so they exist empty.
+for d in debugger upload lang shaders themes vfpu; do mkdir -p "$p/assets/$d"; done
 cmake -S "$p" -B "$p/build" -DLIBRETRO=ON -DUSING_GLES2=ON -DCMAKE_BUILD_TYPE=Release \
     -DUSE_DISCORD=OFF -DUSE_MINIUPNPC=OFF -DUSE_FFMPEG=ON -DUSE_SYSTEM_FFMPEG=OFF -DUSING_X11_VULKAN=OFF \
     -DCMAKE_C_FLAGS="$CPU" -DCMAKE_CXX_FLAGS="$CPU" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc $W/glibc_shim.o" > "$W/ppsspp.log" 2>&1
-cmake --build "$p/build" --target ppsspp_libretro -j"${JOBS:-8}" >> "$W/ppsspp.log" 2>&1 || { tail -30 "$W/ppsspp.log"; exit 1; }
+    -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc $W/glibc_shim.o" > "$W/ppsspp.log" 2>&1 \
+    || { grep -A4 "CMake Error" "$W/ppsspp.log"; exit 1; }
+cmake --build "$p/build" --target ppsspp_libretro -j"${JOBS:-8}" >> "$W/ppsspp.log" 2>&1 \
+    || { grep -B2 -A6 "error:" "$W/ppsspp.log" | head -60; tail -5 "$W/ppsspp.log"; exit 1; }
 cp "$(find "$p/build" -name ppsspp_libretro.so | head -1)" vendor/
 
 for f in mupen64plus_next ppsspp; do

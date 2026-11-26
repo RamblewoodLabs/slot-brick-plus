@@ -35,24 +35,12 @@ pub fn overlays(root: &Path, platform: Platform) -> Vec<String> {
 }
 
 /// The next choice from `now` among Off (None) and the overlays there are, either way round.
-pub fn step_overlay(
-    root: &Path,
-    platform: Platform,
-    now: Option<&str>,
-    right: bool,
-) -> Option<String> {
+pub fn step_overlay(root: &Path, platform: Platform, now: Option<&str>, right: bool) -> Option<String> {
     let mut choices: Vec<Option<String>> = vec![None];
     choices.extend(overlays(root, platform).into_iter().map(Some));
-    let at = choices
-        .iter()
-        .position(|c| c.as_deref() == now)
-        .unwrap_or(0);
+    let at = choices.iter().position(|c| c.as_deref() == now).unwrap_or(0);
     let n = choices.len();
-    choices.swap_remove(if right {
-        (at + 1) % n
-    } else {
-        (at + n - 1) % n
-    })
+    choices.swap_remove(if right { (at + 1) % n } else { (at + n - 1) % n })
 }
 
 #[cfg(test)]
@@ -64,16 +52,7 @@ mod tests {
         for ok in ["dmg-1024x768.png", "GBA SP.PNG", "a.png"] {
             assert!(overlay_name_ok(ok), "{ok}");
         }
-        for bad in [
-            "",
-            "../x.png",
-            "a/b.png",
-            "a\\b.png",
-            ".hidden.png",
-            "x.jpg",
-            "x.png\n",
-            &"x".repeat(200),
-        ] {
+        for bad in ["", "../x.png", "a/b.png", "a\\b.png", ".hidden.png", "x.jpg", "x.png\n", &"x".repeat(200)] {
             assert!(!overlay_name_ok(bad), "{bad:?}");
         }
     }
@@ -94,10 +73,6 @@ mod tests {
         assert_eq!(step(Some("A.png"), true).as_deref(), Some("b.png"));
         assert_eq!(step(Some("b.png"), true), None, "it comes round to Off");
         assert_eq!(step(None, false).as_deref(), Some("b.png"));
-        assert_eq!(
-            step(Some("gone.png"), true).as_deref(),
-            Some("A.png"),
-            "a missing one counts as Off"
-        );
+        assert_eq!(step(Some("gone.png"), true).as_deref(), Some("A.png"), "a missing one counts as Off");
     }
 }

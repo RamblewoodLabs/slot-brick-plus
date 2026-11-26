@@ -13,31 +13,18 @@ struct Raw {
     _private: [u8; 0],
 }
 
-type HttpFn =
-    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *mut c_void);
-type EventFn =
-    unsafe extern "C" fn(*mut c_void, c_int, *const c_char, *const c_char, c_uint, *const c_char);
+type HttpFn = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, *const c_char, *mut c_void);
+type EventFn = unsafe extern "C" fn(*mut c_void, c_int, *const c_char, *const c_char, c_uint, *const c_char);
 type DoneFn = unsafe extern "C" fn(*mut c_void, c_int, c_int, *const c_char, *const c_char);
 type EachFn = unsafe extern "C" fn(*mut c_void, *const c_char);
 type MemoryFn = unsafe extern "C" fn(*mut c_void, c_uint, *mut *mut u8, *mut usize);
 
 extern "C" {
-    fn slot_cheevos_new(
-        host: *mut c_void,
-        http: HttpFn,
-        event: EventFn,
-        done: DoneFn,
-        memory: MemoryFn,
-    ) -> *mut Raw;
+    fn slot_cheevos_new(host: *mut c_void, http: HttpFn, event: EventFn, done: DoneFn, memory: MemoryFn) -> *mut Raw;
     fn slot_cheevos_free(s: *mut Raw);
     fn slot_cheevos_respond(call: *mut c_void, body: *const c_char, length: usize, status: c_int);
     fn slot_cheevos_login(s: *mut Raw, user: *const c_char, token: *const c_char);
-    fn slot_cheevos_set_memory(
-        s: *mut Raw,
-        descriptors: *const c_void,
-        count: c_uint,
-        console: c_uint,
-    ) -> c_int;
+    fn slot_cheevos_set_memory(s: *mut Raw, descriptors: *const c_void, count: c_uint, console: c_uint) -> c_int;
     fn slot_cheevos_load_game(s: *mut Raw, path: *const c_char, console: c_uint);
     fn slot_cheevos_frame(s: *mut Raw);
     fn slot_cheevos_idle(s: *mut Raw);
@@ -52,31 +39,9 @@ extern "C" {
     fn slot_cheevos_console_snes() -> c_uint;
     fn slot_cheevos_console_ps1() -> c_uint;
     fn slot_cheevos_hash(path: *const c_char, console: c_uint, out: *mut c_char) -> c_int;
-    fn slot_cheevos_award_body(
-        out: *mut c_char,
-        cap: usize,
-        user: *const c_char,
-        token: *const c_char,
-        id: c_uint,
-        hardcore: c_int,
-        hash: *const c_char,
-        seconds: c_uint,
-    ) -> c_int;
-    fn slot_cheevos_sets_body(
-        out: *mut c_char,
-        cap: usize,
-        user: *const c_char,
-        token: *const c_char,
-        hash: *const c_char,
-    ) -> c_int;
-    fn slot_cheevos_session_body(
-        out: *mut c_char,
-        cap: usize,
-        user: *const c_char,
-        token: *const c_char,
-        game_id: c_uint,
-        hash: *const c_char,
-    ) -> c_int;
+    fn slot_cheevos_award_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, id: c_uint, hardcore: c_int, hash: *const c_char, seconds: c_uint) -> c_int;
+    fn slot_cheevos_sets_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, hash: *const c_char) -> c_int;
+    fn slot_cheevos_session_body(out: *mut c_char, cap: usize, user: *const c_char, token: *const c_char, game_id: c_uint, hash: *const c_char) -> c_int;
 }
 
 fn c_body(fill: impl FnOnce(*mut c_char, usize) -> c_int) -> Option<String> {
@@ -96,41 +61,20 @@ fn c_body(fill: impl FnOnce(*mut c_char, usize) -> c_int) -> Option<String> {
 pub fn hash_rom(console: Console, path: &Path) -> Option<String> {
     let path = CString::new(path.to_string_lossy().as_bytes()).ok()?;
     let mut buf = [0u8; 33];
-    let ok =
-        unsafe { slot_cheevos_hash(path.as_ptr(), console.id(), buf.as_mut_ptr() as *mut c_char) };
+    let ok = unsafe { slot_cheevos_hash(path.as_ptr(), console.id(), buf.as_mut_ptr() as *mut c_char) };
     if ok == 0 {
         return None;
     }
-    CStr::from_bytes_until_nul(&buf)
-        .ok()?
-        .to_str()
-        .ok()
-        .map(str::to_string)
+    CStr::from_bytes_until_nul(&buf).ok()?.to_str().ok().map(str::to_string)
 }
 
 /// `dorequest.php` body for a softcore or hardcore award, signed by rcheevos.
-pub fn award_body(
-    user: &str,
-    token: &str,
-    id: u32,
-    hardcore: bool,
-    hash: &str,
-    seconds: u32,
-) -> Option<String> {
+pub fn award_body(user: &str, token: &str, id: u32, hardcore: bool, hash: &str, seconds: u32) -> Option<String> {
     let user = CString::new(user).ok()?;
     let token = CString::new(token).ok()?;
     let hash = CString::new(hash).ok()?;
     c_body(|out, cap| unsafe {
-        slot_cheevos_award_body(
-            out,
-            cap,
-            user.as_ptr(),
-            token.as_ptr(),
-            id,
-            c_int::from(hardcore),
-            hash.as_ptr(),
-            seconds,
-        )
+        slot_cheevos_award_body(out, cap, user.as_ptr(), token.as_ptr(), id, c_int::from(hardcore), hash.as_ptr(), seconds)
     })
 }
 
@@ -139,9 +83,7 @@ pub fn sets_body(user: &str, token: &str, hash: &str) -> Option<String> {
     let user = CString::new(user).ok()?;
     let token = CString::new(token).ok()?;
     let hash = CString::new(hash).ok()?;
-    c_body(|out, cap| unsafe {
-        slot_cheevos_sets_body(out, cap, user.as_ptr(), token.as_ptr(), hash.as_ptr())
-    })
+    c_body(|out, cap| unsafe { slot_cheevos_sets_body(out, cap, user.as_ptr(), token.as_ptr(), hash.as_ptr()) })
 }
 
 /// `dorequest.php` body that starts a softcore session for a game id.
@@ -149,23 +91,12 @@ pub fn session_body(user: &str, token: &str, game_id: u32, hash: &str) -> Option
     let user = CString::new(user).ok()?;
     let token = CString::new(token).ok()?;
     let hash = CString::new(hash).ok()?;
-    c_body(|out, cap| unsafe {
-        slot_cheevos_session_body(
-            out,
-            cap,
-            user.as_ptr(),
-            token.as_ptr(),
-            game_id,
-            hash.as_ptr(),
-        )
-    })
+    c_body(|out, cap| unsafe { slot_cheevos_session_body(out, cap, user.as_ptr(), token.as_ptr(), game_id, hash.as_ptr()) })
 }
 
 /// rcheevos' version, for the User-Agent RetroAchievements asks clients to send.
 pub fn version() -> &'static str {
-    unsafe { CStr::from_ptr(slot_cheevos_version()) }
-        .to_str()
-        .unwrap_or("?")
+    unsafe { CStr::from_ptr(slot_cheevos_version()) }.to_str().unwrap_or("?")
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -229,31 +160,12 @@ pub enum Notice {
     /// "Title: 3 of 40 achievements" and the game's icon URL, or why the game has none.
     GameLoaded(Result<(String, String), String>),
     /// `badge`: the achievement's image URL ("" if none).
-    Unlocked {
-        title: String,
-        description: String,
-        points: u32,
-        badge: String,
-    },
-    GameCompleted {
-        title: String,
-        badge: String,
-    },
-    LeaderboardStarted {
-        title: String,
-        description: String,
-    },
-    LeaderboardFailed {
-        title: String,
-    },
-    LeaderboardSubmitted {
-        title: String,
-        score: String,
-    },
-    ServerError {
-        api: String,
-        message: String,
-    },
+    Unlocked { title: String, description: String, points: u32, badge: String },
+    GameCompleted { title: String, badge: String },
+    LeaderboardStarted { title: String, description: String },
+    LeaderboardFailed { title: String },
+    LeaderboardSubmitted { title: String, score: String },
+    ServerError { api: String, message: String },
     /// Unlocks are waiting to be sent.
     Disconnected,
     /// Everything waiting has been sent.
@@ -275,10 +187,7 @@ struct Shared {
 
 impl Shared {
     fn push(&self, notice: Notice) {
-        self.notices
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(notice);
+        self.notices.lock().unwrap_or_else(|e| e.into_inner()).push(notice);
     }
 
     /// Frees the client once nothing is in flight and its owner has let go.
@@ -305,103 +214,50 @@ fn text(p: *const c_char) -> String {
     unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
 }
 
-unsafe extern "C" fn on_http(
-    host: *mut c_void,
-    url: *const c_char,
-    post: *const c_char,
-    kind: *const c_char,
-    call: *mut c_void,
-) {
+unsafe extern "C" fn on_http(host: *mut c_void, url: *const c_char, post: *const c_char, kind: *const c_char, call: *mut c_void) {
     let shared = host as *const Shared;
     let request = HttpRequest {
         url: text(url),
         post: (!post.is_null()).then(|| text(post)),
         content_type: (!kind.is_null()).then(|| text(kind)),
     };
-    (*shared)
-        .state
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .inflight += 1;
+    (*shared).state.lock().unwrap_or_else(|e| e.into_inner()).inflight += 1;
     let (shared, call) = (shared as usize, call as usize);
-    let spawned = std::thread::Builder::new()
-        .name("slot-cheevos-http".into())
-        .spawn(move || {
-            let s = unsafe { &*(shared as *const Shared) };
-            let reply = s.http.send(&request);
-            if let Err(e) = &reply {
-                eprintln!(
-                    "slot: cheevos: {}: {e}",
-                    request.url.split('?').next().unwrap_or("")
-                );
-            }
-            let (status, body) = reply.unwrap_or((0, Vec::new()));
-            let status = if status == 0 { -1 } else { status as c_int };
-            unsafe {
-                slot_cheevos_respond(
-                    call as *mut c_void,
-                    body.as_ptr() as *const c_char,
-                    body.len(),
-                    status,
-                )
-            };
-            s.state.lock().unwrap_or_else(|e| e.into_inner()).inflight -= 1;
-            Shared::finish(shared as *const Shared);
-        });
+    let spawned = std::thread::Builder::new().name("slot-cheevos-http".into()).spawn(move || {
+        let s = unsafe { &*(shared as *const Shared) };
+        let reply = s.http.send(&request);
+        if let Err(e) = &reply {
+            eprintln!("slot: cheevos: {}: {e}", request.url.split('?').next().unwrap_or(""));
+        }
+        let (status, body) = reply.unwrap_or((0, Vec::new()));
+        let status = if status == 0 { -1 } else { status as c_int };
+        unsafe { slot_cheevos_respond(call as *mut c_void, body.as_ptr() as *const c_char, body.len(), status) };
+        s.state.lock().unwrap_or_else(|e| e.into_inner()).inflight -= 1;
+        Shared::finish(shared as *const Shared);
+    });
     if spawned.is_err() {
-        (*(shared as *const Shared))
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .inflight -= 1;
+        (*(shared as *const Shared)).state.lock().unwrap_or_else(|e| e.into_inner()).inflight -= 1;
         slot_cheevos_respond(call as *mut c_void, std::ptr::null(), 0, -1);
     }
 }
 
-unsafe extern "C" fn on_event(
-    host: *mut c_void,
-    kind: c_int,
-    title: *const c_char,
-    detail: *const c_char,
-    points: c_uint,
-    badge: *const c_char,
-) {
+unsafe extern "C" fn on_event(host: *mut c_void, kind: c_int, title: *const c_char, detail: *const c_char, points: c_uint, badge: *const c_char) {
     let (title, detail, badge) = (text(title), text(detail), text(badge));
     let notice = match kind {
-        1 => Notice::Unlocked {
-            title,
-            description: detail,
-            points,
-            badge,
-        },
+        1 => Notice::Unlocked { title, description: detail, points, badge },
         2 => Notice::GameCompleted { title, badge },
-        3 => Notice::ServerError {
-            api: title,
-            message: detail,
-        },
+        3 => Notice::ServerError { api: title, message: detail },
         4 => Notice::Disconnected,
         5 => Notice::Reconnected,
-        6 => Notice::LeaderboardStarted {
-            title,
-            description: detail,
-        },
+        6 => Notice::LeaderboardStarted { title, description: detail },
         7 => Notice::LeaderboardFailed { title },
-        8 => Notice::LeaderboardSubmitted {
-            title,
-            score: detail,
-        },
+        8 => Notice::LeaderboardSubmitted { title, score: detail },
         _ => return,
     };
     (*(host as *const Shared)).push(notice);
 }
 
-unsafe extern "C" fn on_done(
-    host: *mut c_void,
-    op: c_int,
-    ok: c_int,
-    message: *const c_char,
-    badge: *const c_char,
-) {
+unsafe extern "C" fn on_done(host: *mut c_void, op: c_int, ok: c_int, message: *const c_char, badge: *const c_char) {
     let message = text(message);
     let notice = match (op, ok != 0) {
         (1, true) => Notice::LoggedIn(Ok(())),
@@ -420,12 +276,7 @@ thread_local! {
     static MEMORY: RefCell<Option<*mut MemoryQuery>> = const { RefCell::new(None) };
 }
 
-unsafe extern "C" fn on_memory(
-    _host: *mut c_void,
-    id: c_uint,
-    data: *mut *mut u8,
-    size: *mut usize,
-) {
+unsafe extern "C" fn on_memory(_host: *mut c_void, id: c_uint, data: *mut *mut u8, size: *mut usize) {
     MEMORY.with(|m| {
         if let Some(f) = *m.borrow() {
             if let Some((p, n)) = (*f)(id) {
@@ -449,26 +300,14 @@ impl Cheevos {
         let shared = Arc::into_raw(Arc::new(Shared {
             http,
             notices: Mutex::new(Vec::new()),
-            state: Mutex::new(State {
-                raw: 0,
-                inflight: 0,
-                closing: false,
-            }),
+            state: Mutex::new(State { raw: 0, inflight: 0, closing: false }),
         }));
-        let raw = unsafe {
-            slot_cheevos_new(shared as *mut c_void, on_http, on_event, on_done, on_memory)
-        };
+        let raw = unsafe { slot_cheevos_new(shared as *mut c_void, on_http, on_event, on_done, on_memory) };
         if raw.is_null() {
             unsafe { drop(Arc::from_raw(shared)) };
             return None;
         }
-        unsafe {
-            (*shared)
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .raw = raw as usize
-        };
+        unsafe { (*shared).state.lock().unwrap_or_else(|e| e.into_inner()).raw = raw as usize };
         Some(Cheevos { raw, shared })
     }
 
@@ -487,13 +326,7 @@ impl Cheevos {
     /// # Safety
     /// `descriptors` is null or points to `count` retro_memory_descriptors, and they and
     /// the memory they and `memory` point at stay valid while frames run.
-    pub unsafe fn set_memory(
-        &mut self,
-        descriptors: *const c_void,
-        count: u32,
-        console: Console,
-        memory: CoreMemory,
-    ) -> usize {
+    pub unsafe fn set_memory(&mut self, descriptors: *const c_void, count: u32, console: Console, memory: CoreMemory) -> usize {
         // Only reached from on_memory while slot_cheevos_set_memory runs below.
         let memory: *mut (dyn FnMut(u32) -> Option<(*mut u8, usize)> + '_) = memory;
         let memory: *mut MemoryQuery = unsafe { std::mem::transmute(memory) };
@@ -537,31 +370,18 @@ impl Cheevos {
             (*(ctx as *mut Vec<String>)).push(text(url));
         }
         let mut urls = Vec::new();
-        unsafe {
-            slot_cheevos_badges(self.raw, each, &mut urls as *mut Vec<String> as *mut c_void)
-        };
+        unsafe { slot_cheevos_badges(self.raw, each, &mut urls as *mut Vec<String> as *mut c_void) };
         urls
     }
 
     pub fn take(&self) -> Vec<Notice> {
-        std::mem::take(
-            &mut *unsafe { &*self.shared }
-                .notices
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *unsafe { &*self.shared }.notices.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 
 impl Drop for Cheevos {
     fn drop(&mut self) {
-        unsafe {
-            (*self.shared)
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .closing = true
-        };
+        unsafe { (*self.shared).state.lock().unwrap_or_else(|e| e.into_inner()).closing = true };
         Shared::finish(self.shared);
     }
 }

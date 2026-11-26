@@ -40,25 +40,17 @@ fn ask(server: &str) -> Result<i64, String> {
         .find(|a| a.is_ipv4())
         .ok_or("no address")?;
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-    socket
-        .set_read_timeout(Some(Duration::from_secs(3)))
-        .map_err(|e| e.to_string())?;
+    socket.set_read_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
     // Version 4, client. The transmit time is a value of our own, which the reply must
     // echo back: a stray or forged packet that doesn't is ignored.
     let mut request = [0u8; 48];
     request[0] = 0x23;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-        ^ 0x5107_c10c;
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0) ^ 0x5107_c10c;
     request[40..48].copy_from_slice(&nonce.to_be_bytes());
     socket.send_to(&request, addr).map_err(|e| e.to_string())?;
     let mut reply = [0u8; 48];
     loop {
-        let (n, from) = socket
-            .recv_from(&mut reply)
-            .map_err(|_| "no answer".to_string())?;
+        let (n, from) = socket.recv_from(&mut reply).map_err(|_| "no answer".to_string())?;
         if from == addr && n >= 48 {
             break;
         }

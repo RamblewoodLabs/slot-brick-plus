@@ -1330,10 +1330,7 @@ mod layout_tests {
         assert!(fav.pitch >= QUICK_PITCH - 0.5);
         let y0 = fav.row_top(QuickRow::ShowFavorites);
         let y1 = fav.row_top(QuickRow::ShowGba);
-        assert!(
-            (y1 - y0 - fav.pitch).abs() < 0.1,
-            "rows should sit a pitch apart"
-        );
+        assert!((y1 - y0 - fav.pitch).abs() < 0.1, "rows should sit a pitch apart");
         let last_visible = QuickRow::SYSTEMS[fav.visible - 1];
         let bottom = fav.row_top(last_visible) + TYPE_DROP + MENU_H as f32;
         assert!(
@@ -1343,10 +1340,7 @@ mod layout_tests {
 
         let gw = page_layout(QuickRow::ShowGw);
         assert!(gw.shows(QuickRow::ShowGw));
-        assert!(
-            !gw.shows(QuickRow::ShowFavorites),
-            "the first row should have scrolled off"
-        );
+        assert!(!gw.shows(QuickRow::ShowFavorites), "the first row should have scrolled off");
         let gw_bottom = gw.row_top(QuickRow::ShowGw) + TYPE_DROP + MENU_H as f32;
         assert!(
             gw_bottom <= LEGEND_Y,
@@ -1360,10 +1354,7 @@ mod layout_tests {
         let leds = page_layout(QuickRow::SYSTEM[0]);
         assert_eq!(leds.start, 0);
         assert_eq!(leds.visible, QuickRow::SYSTEM.len());
-        assert!(
-            leds.shows(QuickRow::About),
-            "About should stay on a short System page"
-        );
+        assert!(leds.shows(QuickRow::About), "About should stay on a short System page");
         assert!(
             leds.pitch + 0.5 >= MENU_H as f32,
             "short pages should not drop below the type height, got {}",

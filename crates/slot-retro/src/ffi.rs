@@ -306,7 +306,11 @@ pub mod guard {
     }
 
     /// `f(buf, len)` for serialize.
-    pub unsafe fn call_buf_mut(f: unsafe extern "C" fn(*mut c_void, usize) -> bool, p: *mut c_void, n: usize) -> bool {
+    pub unsafe fn call_buf_mut(
+        f: unsafe extern "C" fn(*mut c_void, usize) -> bool,
+        p: *mut c_void,
+        n: usize,
+    ) -> bool {
         #[cfg(target_arch = "aarch64")]
         return raw(f as usize, p as usize, n) & 0xff != 0;
         #[cfg(not(target_arch = "aarch64"))]
@@ -314,7 +318,11 @@ pub mod guard {
     }
 
     /// `f(buf, len)` for unserialize.
-    pub unsafe fn call_buf(f: unsafe extern "C" fn(*const c_void, usize) -> bool, p: *const c_void, n: usize) -> bool {
+    pub unsafe fn call_buf(
+        f: unsafe extern "C" fn(*const c_void, usize) -> bool,
+        p: *const c_void,
+        n: usize,
+    ) -> bool {
         #[cfg(target_arch = "aarch64")]
         return raw(f as usize, p as usize, n) & 0xff != 0;
         #[cfg(not(target_arch = "aarch64"))]

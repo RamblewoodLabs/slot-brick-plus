@@ -42,31 +42,19 @@ fn find(stem: &str, list: &[&str]) -> Option<String> {
 
 #[test]
 fn a_no_intro_name_matches_itself() {
-    assert_eq!(
-        find("Metroid - Zero Mission (Japan)", GBA).as_deref(),
-        Some("Metroid - Zero Mission (Japan)")
-    );
+    assert_eq!(find("Metroid - Zero Mission (Japan)", GBA).as_deref(), Some("Metroid - Zero Mission (Japan)"));
 }
 
 #[test]
 fn exact_matching_ignores_case_and_libretro_substitutions() {
     let list = ["Mario _ Luigi - Superstar Saga (USA)"];
-    assert_eq!(
-        find("mario & luigi - superstar saga (usa)", &list).as_deref(),
-        Some(list[0])
-    );
+    assert_eq!(find("mario & luigi - superstar saga (usa)", &list).as_deref(), Some(list[0]));
 }
 
 #[test]
 fn a_bare_title_prefers_usa_and_the_original_release() {
-    assert_eq!(
-        find("Metroid - Zero Mission", GBA).as_deref(),
-        Some("Metroid - Zero Mission (USA)")
-    );
-    assert_eq!(
-        find("Pokemon - Emerald Version", GBA).as_deref(),
-        Some("Pokemon - Emerald Version (USA, Europe)")
-    );
+    assert_eq!(find("Metroid - Zero Mission", GBA).as_deref(), Some("Metroid - Zero Mission (USA)"));
+    assert_eq!(find("Pokemon - Emerald Version", GBA).as_deref(), Some("Pokemon - Emerald Version (USA, Europe)"));
 }
 
 #[test]
@@ -75,10 +63,7 @@ fn the_region_in_the_rom_name_wins() {
         find("Metroid - Zero Mission (Europe)", GBA).as_deref(),
         Some("Metroid - Zero Mission (Europe) (En,Fr,De,Es,It)")
     );
-    assert_eq!(
-        find("Tetris Worlds (J)", GBA).as_deref(),
-        Some("Tetris Worlds (Japan)")
-    );
+    assert_eq!(find("Tetris Worlds (J)", GBA).as_deref(), Some("Tetris Worlds (Japan)"));
 }
 
 #[test]
@@ -100,23 +85,14 @@ fn goodtools_and_scene_names_match() {
 
 #[test]
 fn a_shortened_name_finds_the_full_title() {
-    assert_eq!(
-        find("pokemon_emerald", GBA).as_deref(),
-        Some("Pokemon - Emerald Version (USA, Europe)")
-    );
-    assert_eq!(
-        find("Pokemon Crystal", GBC).as_deref(),
-        Some("Pokemon - Crystal Version (USA)")
-    );
+    assert_eq!(find("pokemon_emerald", GBA).as_deref(), Some("Pokemon - Emerald Version (USA, Europe)"));
+    assert_eq!(find("Pokemon Crystal", GBC).as_deref(), Some("Pokemon - Crystal Version (USA)"));
 }
 
 #[test]
 fn a_longer_rom_name_never_gets_a_shorter_title() {
     assert_eq!(find("Golden Sun 2", GBA), None);
-    assert_eq!(
-        find("Golden Sun - The Lost Age", GBA).as_deref(),
-        Some("Golden Sun - The Lost Age (USA, Europe)")
-    );
+    assert_eq!(find("Golden Sun - The Lost Age", GBA).as_deref(), Some("Golden Sun - The Lost Age (USA, Europe)"));
 }
 
 #[test]
@@ -130,20 +106,14 @@ fn demos_and_short_vague_names_are_avoided() {
 
 #[test]
 fn accents_and_ampersands_are_normalised() {
-    assert_eq!(
-        title_key("Pokémon - Émeraude"),
-        title_key("Pokemon - Emeraude")
-    );
+    assert_eq!(title_key("Pokémon - Émeraude"), title_key("Pokemon - Emeraude"));
     assert_eq!(title_key("Mario & Luigi"), title_key("Mario and Luigi"));
     assert_eq!(title_key("Legend of Zelda, The (USA) [!]"), "legendofzelda");
 }
 
 #[test]
 fn libretro_replaces_reserved_characters() {
-    assert_eq!(
-        libretro_name("Mario & Luigi: Superstar Saga?"),
-        "Mario _ Luigi_ Superstar Saga_"
-    );
+    assert_eq!(libretro_name("Mario & Luigi: Superstar Saga?"), "Mario _ Luigi_ Superstar Saga_");
 }
 
 #[test]
@@ -154,29 +124,12 @@ fn hacks_match_only_when_listed_and_win_when_the_rom_says_hack() {
         "Pokemon Glazed [Hack by Redriders180]",
         "Pokemon - Liquid Crystal (Hack)",
     ];
-    assert_eq!(
-        find("Pokemon Glazed", &list).as_deref(),
-        Some("Pokemon Glazed [Hack by Redriders180]")
-    );
-    assert_eq!(
-        find("Pokemon - Liquid Crystal (Hack)", &list).as_deref(),
-        Some("Pokemon - Liquid Crystal (Hack)")
-    );
-    assert_eq!(
-        find("Pokemon Radical Red", &list),
-        None,
-        "an unlisted hack keeps its own label"
-    );
-    assert_eq!(
-        find("Pokemon - Emerald (Hack)", &list),
-        None,
-        "never the original's art for a hack"
-    );
+    assert_eq!(find("Pokemon Glazed", &list).as_deref(), Some("Pokemon Glazed [Hack by Redriders180]"));
+    assert_eq!(find("Pokemon - Liquid Crystal (Hack)", &list).as_deref(), Some("Pokemon - Liquid Crystal (Hack)"));
+    assert_eq!(find("Pokemon Radical Red", &list), None, "an unlisted hack keeps its own label");
+    assert_eq!(find("Pokemon - Emerald (Hack)", &list), None, "never the original's art for a hack");
     let both = ["Tetris (World) (Beta)", "Tetris (World) (Hack)"];
-    assert_eq!(
-        find("Tetris (Hack)", &both).as_deref(),
-        Some("Tetris (World) (Hack)")
-    );
+    assert_eq!(find("Tetris (Hack)", &both).as_deref(), Some("Tetris (World) (Hack)"));
 }
 
 #[test]
@@ -186,37 +139,15 @@ fn goodtools_language_regions_pick_that_release() {
         "Pokemon - Rote Edition (Germany) (SGB Enhanced)",
         "Pokemon - Red Version (Germany) (SGB Enhanced)",
     ];
-    assert_eq!(
-        find("Pokemon - Red Version (G)", &list).as_deref(),
-        Some(list[2])
-    );
-    assert_eq!(
-        find("Pokemon - Red Version (U)", &list).as_deref(),
-        Some(list[0])
-    );
+    assert_eq!(find("Pokemon - Red Version (G)", &list).as_deref(), Some(list[2]));
+    assert_eq!(find("Pokemon - Red Version (U)", &list).as_deref(), Some(list[0]));
 }
 
 #[test]
 fn a_same_title_match_never_takes_a_longer_title() {
-    let list = names(&[
-        "Super Metroid Legacy (World)",
-        "Super Mario Kart (USA)",
-        "Super Mario Kart - Horizons (World)",
-    ]);
-    assert_eq!(
-        best_match("Super Metroid (Japan, USA) (En,Ja)", &list),
-        Some("Super Metroid Legacy (World)")
-    );
-    assert_eq!(
-        same_title_match("Super Metroid (Japan, USA) (En,Ja)", &list),
-        None
-    );
-    assert_eq!(
-        same_title_match("Super Mario Kart (USA)", &list),
-        Some("Super Mario Kart (USA)")
-    );
-    assert_eq!(
-        same_title_match("super_mario_kart", &list),
-        Some("Super Mario Kart (USA)")
-    );
+    let list = names(&["Super Metroid Legacy (World)", "Super Mario Kart (USA)", "Super Mario Kart - Horizons (World)"]);
+    assert_eq!(best_match("Super Metroid (Japan, USA) (En,Ja)", &list), Some("Super Metroid Legacy (World)"));
+    assert_eq!(same_title_match("Super Metroid (Japan, USA) (En,Ja)", &list), None);
+    assert_eq!(same_title_match("Super Mario Kart (USA)", &list), Some("Super Mario Kart (USA)"));
+    assert_eq!(same_title_match("super_mario_kart", &list), Some("Super Mario Kart (USA)"));
 }

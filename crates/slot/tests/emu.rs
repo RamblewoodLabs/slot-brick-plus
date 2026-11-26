@@ -1145,22 +1145,13 @@ fn buttons_seen(native_xy: bool) -> Vec<u16> {
     let mut sink = StubSink::new();
     sink.open(32_768).expect("the stub refused to open");
     drain(sink.clone());
-    let core = Box::new(Keys {
-        inner: MockCore::new(),
-        seen: seen.clone(),
-    });
+    let core = Box::new(Keys { inner: MockCore::new(), seen: seen.clone() });
     let emu = EmuHandle::spawn(core, PathBuf::from("mock"), sink.ring(), None, None);
-    assert!(
-        wait_for(|| emu.state() == CoreState::Ready),
-        "the core never finished loading"
-    );
+    assert!(wait_for(|| emu.state() == CoreState::Ready), "the core never finished loading");
     emu.set_native_xy(native_xy);
     emu.set_input(ButtonMask(ButtonMask::X | ButtonMask::Y));
     emu.set_speed(Speed::Normal);
-    assert!(
-        wait_for(|| seen.lock().unwrap().len() > 12),
-        "too few frames ran"
-    );
+    assert!(wait_for(|| seen.lock().unwrap().len() > 12), "too few frames ran");
     let frames = seen.lock().unwrap().clone();
     frames
 }
@@ -1170,17 +1161,8 @@ fn x_and_y_are_turbo_a_and_b_but_a_snes_gets_its_own() {
     let xy = ButtonMask::X | ButtonMask::Y;
     let ab = ButtonMask::A | ButtonMask::B;
     let turbo = buttons_seen(false);
-    assert!(
-        turbo.iter().all(|m| m & xy == 0),
-        "X or Y reached a core that has none: {turbo:?}"
-    );
-    assert!(
-        turbo.iter().any(|m| m & ab == ab) && turbo.iter().any(|m| m & ab == 0),
-        "no turbo: {turbo:?}"
-    );
+    assert!(turbo.iter().all(|m| m & xy == 0), "X or Y reached a core that has none: {turbo:?}");
+    assert!(turbo.iter().any(|m| m & ab == ab) && turbo.iter().any(|m| m & ab == 0), "no turbo: {turbo:?}");
     let native = buttons_seen(true);
-    assert!(
-        native.iter().skip(1).all(|m| *m == xy),
-        "the SNES did not get X and Y as pressed: {native:?}"
-    );
+    assert!(native.iter().skip(1).all(|m| *m == xy), "the SNES did not get X and Y as pressed: {native:?}");
 }

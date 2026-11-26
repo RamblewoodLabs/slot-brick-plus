@@ -349,16 +349,9 @@ mod tests {
         let nes_seated = crate::cart::seated_box(Platform::Nes).1;
         for platform in Platform::ALL {
             let Some(shell) = of(platform) else { continue };
-            assert!(
-                shell.h <= crate::cart::NES_CART_H,
-                "{platform:?} is {} tall",
-                shell.h
-            );
+            assert!(shell.h <= crate::cart::NES_CART_H, "{platform:?} is {} tall", shell.h);
             let (sw, sh) = crate::cart::seated_box(platform);
-            assert!(
-                sh <= nes_seated && sw <= crate::cart::SEATED_W,
-                "{platform:?} seats {sw}x{sh}"
-            );
+            assert!(sh <= nes_seated && sw <= crate::cart::SEATED_W, "{platform:?} seats {sw}x{sh}");
         }
     }
 
@@ -442,10 +435,7 @@ mod tests {
         assert_eq!(lit([200, 100, 50, 255], 128, false), [100, 50, 25, 255]);
         assert_eq!(lit([200, 100, 50, 77], 0, false), [0, 0, 0, 77]);
         let glow = lit([100, 100, 250, 255], 0, true);
-        assert!(
-            glow[0] > 100 && glow[2] == 255,
-            "backlit ignores the shade and lifts: {glow:?}"
-        );
+        assert!(glow[0] > 100 && glow[2] == 255, "backlit ignores the shade and lifts: {glow:?}");
     }
 
     #[test]
@@ -454,8 +444,7 @@ mod tests {
             let Some(shell) = of(platform) else { continue };
             for (what, png) in [("mask", shell.mask), ("shade", shell.shade)] {
                 if let Some(bytes) = png {
-                    let (_, w, h) =
-                        decode(bytes).unwrap_or_else(|| panic!("{platform:?} {what}.png"));
+                    let (_, w, h) = decode(bytes).unwrap_or_else(|| panic!("{platform:?} {what}.png"));
                     assert_eq!((w, h), (shell.w, shell.h), "{platform:?} {what}.png size");
                 }
             }
@@ -472,10 +461,7 @@ mod tests {
         let (x, y) = (md.x + md.lw / 2, md.y + md.lh / 2);
         let got = face.rgba[((y * face.w + x) * 4) as usize];
         let want = shade[((y * sw + x) * 4) as usize];
-        assert!(
-            got.abs_diff(want) <= 2,
-            "white label at the centre {got}, shade {want}"
-        );
+        assert!(got.abs_diff(want) <= 2, "white label at the centre {got}, shade {want}");
 
         let arcade = of(Platform::Arcade).unwrap();
         let grey = vec![128u8; (arcade.lw * arcade.lh * 4) as usize]
@@ -485,10 +471,7 @@ mod tests {
         let face = cart_face(&cart(Platform::Arcade), Some(grey)).unwrap();
         let (x, y) = (arcade.x + arcade.lw / 2, arcade.y + arcade.lh / 2);
         let lit_centre = face.rgba[((y * face.w + x) * 4) as usize];
-        assert!(
-            lit_centre > 140,
-            "the marquee should glow, centre {lit_centre}"
-        );
+        assert!(lit_centre > 140, "the marquee should glow, centre {lit_centre}");
     }
 
     #[test]

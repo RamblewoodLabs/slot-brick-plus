@@ -109,14 +109,26 @@ unsafe extern "C" fn log_noop(_level: c_uint, _fmt: *const c_char) {}
 /// the 64-bit targets Slot runs on (aarch64, and x86-64 for the simulator) the first
 /// arguments arrive in registers like fixed ones, so the first four integer or string
 /// arguments are read as such. Floats print as `?`. For finding where a core stops.
-unsafe extern "C" fn log_stderr(level: c_uint, fmt: *const c_char, a: usize, b: usize, c: usize, d: usize) {
+unsafe extern "C" fn log_stderr(
+    level: c_uint,
+    fmt: *const c_char,
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+) {
     if fmt.is_null() {
         return;
     }
     let args = [a, b, c, d];
     let mut next = args.iter();
     let mut out = String::new();
-    let mut chars = std::ffi::CStr::from_ptr(fmt).to_string_lossy().into_owned().into_bytes().into_iter().peekable();
+    let mut chars = std::ffi::CStr::from_ptr(fmt)
+        .to_string_lossy()
+        .into_owned()
+        .into_bytes()
+        .into_iter()
+        .peekable();
     while let Some(ch) = chars.next() {
         if ch != b'%' {
             out.push(ch as char);
@@ -126,18 +138,29 @@ unsafe extern "C" fn log_stderr(level: c_uint, fmt: *const c_char, a: usize, b: 
         while let Some(&n) = chars.peek() {
             chars.next();
             spec.push(n as char);
-            if n.is_ascii_alphabetic() && !matches!(n, b'l' | b'z' | b'h' | b'j' | b't') || n == b'%' {
+            if n.is_ascii_alphabetic() && !matches!(n, b'l' | b'z' | b'h' | b'j' | b't')
+                || n == b'%'
+            {
                 break;
             }
         }
         match spec.chars().last() {
             Some('%') => out.push('%'),
             Some('s') => match next.next() {
-                Some(&p) if p != 0 => out.push_str(&std::ffi::CStr::from_ptr(p as *const c_char).to_string_lossy()),
+                Some(&p) if p != 0 => {
+                    out.push_str(&std::ffi::CStr::from_ptr(p as *const c_char).to_string_lossy())
+                }
                 _ => out.push_str("(null)"),
             },
-            Some('d' | 'i') => out.push_str(&next.next().map_or(0, |&v| v as i64 as i32 as i64).to_string()),
-            Some('u' | 'x' | 'X' | 'p' | 'c') => out.push_str(&format!("{:#x}", next.next().copied().unwrap_or(0))),
+            Some('d' | 'i') => out.push_str(
+                &next
+                    .next()
+                    .map_or(0, |&v| v as i64 as i32 as i64)
+                    .to_string(),
+            ),
+            Some('u' | 'x' | 'X' | 'p' | 'c') => {
+                out.push_str(&format!("{:#x}", next.next().copied().unwrap_or(0)))
+            }
             _ => out.push('?'),
         }
     }
@@ -349,8 +372,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let list = if map.descriptors.is_null() {
                 Vec::new()
             } else {
-                std::slice::from_raw_parts(map.descriptors, map.num_descriptors.min(256) as usize)
-                    .to_vec()
+                std::slice::from_raw_parts(map.descriptors, map.num_descriptors.min(256) as usize).to_vec()
             };
             with_host(|h| h.memory_map = list).is_some()
         }
@@ -455,10 +477,9 @@ unsafe fn report_audio_status(skip: bool) {
 unsafe extern "C" fn hw_current_framebuffer() -> usize {
     with_host(|h| {
         let (w, hgt) = h.hw_max;
-        let fbo = h
-            .gl
-            .as_mut()
-            .map_or(0, |gl| gl.framebuffer(w, hgt) as usize);
+        let fbo =
+            h.gl.as_mut()
+                .map_or(0, |gl| gl.framebuffer(w, hgt) as usize);
         HW_FBO.store(fbo, Ordering::Release);
         fbo
     })
@@ -580,10 +601,7 @@ unsafe fn present(h: &mut Host, data: *const c_void, width: c_uint, height: c_ui
 /// Disc `at` (from 0) of an .m3u, as a core reads the list: its folder and the line as written,
 /// lines starting # left out. None for anything but an .m3u.
 fn m3u_disc(m3u: &Path, at: u32) -> Option<CString> {
-    if !m3u
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
-    {
+    if !m3u.extension().is_some_and(|e| e.eq_ignore_ascii_case("m3u")) {
         return None;
     }
     let text = std::fs::read_to_string(m3u).ok()?;
@@ -601,13 +619,7 @@ fn m3u_disc(m3u: &Path, at: u32) -> Option<CString> {
 }
 
 /// The frame stretched over the whole canvas, nearest pixel: no borders, whatever its size.
-unsafe fn fill_canvas(
-    h: &mut Host,
-    data: *const c_void,
-    width: c_uint,
-    height: c_uint,
-    pitch: usize,
-) {
+unsafe fn fill_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
     let (cw, ch) = (h.canvas.0 as usize, h.canvas.1 as usize);
     let (w, hgt) = (width as usize, height as usize);
     if w == 0 || hgt == 0 {
@@ -641,13 +653,7 @@ unsafe fn fill_canvas(
 }
 
 /// The frame scaled whole into the canvas, nearest pixel, centred, the margins black.
-unsafe fn fit_canvas(
-    h: &mut Host,
-    data: *const c_void,
-    width: c_uint,
-    height: c_uint,
-    pitch: usize,
-) {
+unsafe fn fit_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
     let (cw, ch) = (h.canvas.0 as usize, h.canvas.1 as usize);
     let (w, hgt) = (width as usize, height as usize);
     if w == 0 || hgt == 0 || cw == 0 || ch == 0 {
@@ -687,16 +693,8 @@ unsafe fn pixel(format: PixelFormat, row: *const u8, i: usize) -> [u8; 3] {
         }
         PixelFormat::Rgb565 => {
             let p = ptr::read_unaligned((row as *const u16).add(i));
-            let (r, g, b) = (
-                ((p >> 11) & 0x1f) as u8,
-                ((p >> 5) & 0x3f) as u8,
-                (p & 0x1f) as u8,
-            );
-            [
-                (b << 3) | (b >> 2),
-                (g << 2) | (g >> 4),
-                (r << 3) | (r >> 2),
-            ]
+            let (r, g, b) = (((p >> 11) & 0x1f) as u8, ((p >> 5) & 0x3f) as u8, (p & 0x1f) as u8);
+            [(b << 3) | (b >> 2), (g << 2) | (g >> 4), (r << 3) | (r >> 2)]
         }
     }
 }
@@ -986,10 +984,7 @@ impl RetroCore for LibretroCore {
             meta: ptr::null(),
         };
         // The disc to start on, named as the core names the .m3u's discs.
-        let initial = self
-            .wanted_disc
-            .filter(|at| *at > 0)
-            .and_then(|at| Some((at, m3u_disc(rom, at)?)));
+        let initial = self.wanted_disc.filter(|at| *at > 0).and_then(|at| Some((at, m3u_disc(rom, at)?)));
         if let (Some((at, path)), Some(set)) = (&initial, self.host.initial_disc) {
             let _a = Active::bind(&mut self.host);
             if !unsafe { set(*at, path.as_ptr()) } {
@@ -1089,7 +1084,13 @@ impl RetroCore for LibretroCore {
         let mut buf = vec![0u8; size];
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { crate::ffi::guard::call_buf_mut(self.api.serialize, buf.as_mut_ptr() as *mut c_void, size) }
+            unsafe {
+                crate::ffi::guard::call_buf_mut(
+                    self.api.serialize,
+                    buf.as_mut_ptr() as *mut c_void,
+                    size,
+                )
+            }
         };
         if ok {
             Ok(buf)
@@ -1101,7 +1102,13 @@ impl RetroCore for LibretroCore {
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { crate::ffi::guard::call_buf(self.api.unserialize, data.as_ptr() as *const c_void, data.len()) }
+            unsafe {
+                crate::ffi::guard::call_buf(
+                    self.api.unserialize,
+                    data.as_ptr() as *const c_void,
+                    data.len(),
+                )
+            }
         };
         if ok {
             Ok(())
@@ -1139,10 +1146,7 @@ impl RetroCore for LibretroCore {
     fn memory_map(&self) -> (*const c_void, u32) {
         match self.host.memory_map.is_empty() {
             true => (ptr::null(), 0),
-            false => (
-                self.host.memory_map.as_ptr() as *const c_void,
-                self.host.memory_map.len() as u32,
-            ),
+            false => (self.host.memory_map.as_ptr() as *const c_void, self.host.memory_map.len() as u32),
         }
     }
 
@@ -2139,39 +2143,18 @@ mod tests {
         // 512x448, RGB565: columns alternate white and black, odd lines are red.
         let (w, h) = (512usize, 448usize);
         let frame: Vec<u16> = (0..w * h)
-            .map(|i| match ((i / w) % 2, i % 2) {
-                (1, _) => 0xf800,
-                (_, 0) => 0xffff,
-                _ => 0,
-            })
+            .map(|i| match ((i / w) % 2, i % 2) { (1, _) => 0xf800, (_, 0) => 0xffff, _ => 0 })
             .collect();
         unsafe {
             with_host(|h| h.format = PixelFormat::Rgb565);
-            video_refresh(
-                frame.as_ptr() as *const c_void,
-                w as c_uint,
-                h as c_uint,
-                w * 2,
-            );
+            video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 2);
         }
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 256 + x) * 4..(y * 256 + x) * 4 + 3].to_vec();
-        assert_eq!(
-            px(128, 120),
-            vec![127, 127, 127],
-            "a pixel pair is not averaged"
-        );
+        assert_eq!(px(128, 120), vec![127, 127, 127], "a pixel pair is not averaged");
         assert_eq!(px(0, 8), vec![127, 127, 127], "224 lines start 8 down");
-        assert_eq!(
-            px(128, 4),
-            vec![0, 0, 0],
-            "the band above the picture is not cleared"
-        );
-        assert_eq!(
-            px(128, 233),
-            vec![0, 0, 0],
-            "the band below the picture is not cleared"
-        );
+        assert_eq!(px(128, 4), vec![0, 0, 0], "the band above the picture is not cleared");
+        assert_eq!(px(128, 233), vec![0, 0, 0], "the band below the picture is not cleared");
     }
 
     #[test]
@@ -2180,13 +2163,7 @@ mod tests {
         host.stick = (1200, -3400);
         let _active = Active::bind(&mut host);
         let read = |port, index, id| unsafe { input_state(port, DEVICE_ANALOG, index, id) };
-        assert_eq!(
-            (
-                read(0, ANALOG_LEFT, ANALOG_X),
-                read(0, ANALOG_LEFT, ANALOG_Y)
-            ),
-            (1200, -3400)
-        );
+        assert_eq!((read(0, ANALOG_LEFT, ANALOG_X), read(0, ANALOG_LEFT, ANALOG_Y)), (1200, -3400));
         assert_eq!(read(1, ANALOG_LEFT, ANALOG_X), 0, "player 2 has no stick");
         assert_eq!(read(0, 1, ANALOG_X), 0, "there is no right stick");
     }
@@ -2196,11 +2173,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("slot-m3u-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         let m3u = d.join("FF7.m3u");
-        std::fs::write(
-            &m3u,
-            "#EXTM3U\r\nFF7 (Disc 1).cue\r\n\r\nFF7 (Disc 2).cue\n",
-        )
-        .unwrap();
+        std::fs::write(&m3u, "#EXTM3U\r\nFF7 (Disc 1).cue\r\n\r\nFF7 (Disc 2).cue\n").unwrap();
         let want = format!("{}/FF7 (Disc 2).cue", d.display());
         assert_eq!(m3u_disc(&m3u, 1).unwrap().to_str().unwrap(), want);
         assert!(m3u_disc(&m3u, 2).is_none());
@@ -2217,29 +2190,12 @@ mod tests {
         let _active = Active::bind(&mut host);
         // 368x240, the left half white: it covers the canvas, its left half white.
         let (w, h) = (368usize, 240usize);
-        let frame: Vec<u8> = (0..w * h)
-            .flat_map(|i| if i % w < w / 2 { [255; 4] } else { [0; 4] })
-            .collect();
-        unsafe {
-            video_refresh(
-                frame.as_ptr() as *const c_void,
-                w as c_uint,
-                h as c_uint,
-                w * 4,
-            )
-        };
+        let frame: Vec<u8> = (0..w * h).flat_map(|i| if i % w < w / 2 { [255; 4] } else { [0; 4] }).collect();
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!(
-            (px(0, 0), px(318, 479)),
-            (255, 255),
-            "the left half is not white to its edges"
-        );
-        assert_eq!(
-            (px(322, 0), px(639, 479)),
-            (0, 0),
-            "the right half is not dark to its edges"
-        );
+        assert_eq!((px(0, 0), px(318, 479)), (255, 255), "the left half is not white to its edges");
+        assert_eq!((px(322, 0), px(639, 479)), (0, 0), "the right half is not dark to its edges");
     }
 
     #[test]
@@ -2252,49 +2208,19 @@ mod tests {
         // 1280x400, white: scaled to 640x200, so black bands of 140 lines above and below.
         let (w, h) = (1280usize, 400usize);
         let frame = vec![255u8; w * h * 4];
-        unsafe {
-            video_refresh(
-                frame.as_ptr() as *const c_void,
-                w as c_uint,
-                h as c_uint,
-                w * 4,
-            )
-        };
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!(
-            (px(0, 139), px(639, 340)),
-            (0, 0),
-            "the bands are not black"
-        );
-        assert_eq!(
-            (px(0, 140), px(639, 339)),
-            (255, 255),
-            "the picture does not reach both sides"
-        );
+        assert_eq!((px(0, 139), px(639, 340)), (0, 0), "the bands are not black");
+        assert_eq!((px(0, 140), px(639, 339)), (255, 255), "the picture does not reach both sides");
         // 480x650, tall: 354x480, centred across.
         let (w, h) = (480usize, 650usize);
         let frame = vec![255u8; w * h * 4];
-        unsafe {
-            video_refresh(
-                frame.as_ptr() as *const c_void,
-                w as c_uint,
-                h as c_uint,
-                w * 4,
-            )
-        };
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!(
-            (px(0, 240), px(142, 0), px(497, 479)),
-            (0, 0, 0),
-            "the sides are not black"
-        );
-        assert_eq!(
-            (px(143, 0), px(496, 479)),
-            (255, 255),
-            "the picture does not reach top and bottom"
-        );
+        assert_eq!((px(0, 240), px(142, 0), px(497, 479)), (0, 0, 0), "the sides are not black");
+        assert_eq!((px(143, 0), px(496, 479)), (255, 255), "the picture does not reach top and bottom");
     }
 
     #[test]

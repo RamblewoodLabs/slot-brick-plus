@@ -49,7 +49,7 @@ SYSTEMS = [
     ("32X", ("sega32x", "32x"), "Sega - 32X", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
     ("N64", ("n64",), "Nintendo - Nintendo 64", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
     ("NDS", ("nds",), "Nintendo - Nintendo DS", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
-    ("PSP", ("psp",), "Sony - PlayStation Portable", ("covers", "physicalmedia", "marquees"), "Named_Boxarts"),
+    ("PSP", ("psp",), "Sony - PlayStation Portable", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
 ]
 
 # thumbnails.libretro.com answers 404 for whole playlists now; the GitHub mirror is complete.

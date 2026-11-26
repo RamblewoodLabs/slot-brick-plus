@@ -51,9 +51,7 @@ pub fn disc_face(cart: &Cart, art: Option<Vec<u8>>, number: Option<usize>) -> Ca
                 let (colour, alpha) = match &art {
                     Some(art) => ([art[o], art[o + 1], art[o + 2]], art[o + 3] as f32 / 255.0),
                     None if d < HUB => (HUB_GREY, HUB_ALPHA),
-                    None if d < MIRROR => {
-                        (shade(SILVER, 1.0 - 0.25 * (d - HUB) / (MIRROR - HUB)), 1.0)
-                    }
+                    None if d < MIRROR => (shade(SILVER, 1.0 - 0.25 * (d - HUB) / (MIRROR - HUB)), 1.0),
                     None if d > RIM => (shade(print, 0.7), 1.0),
                     None => (print, 1.0),
                 };
@@ -72,39 +70,15 @@ pub fn disc_face(cart: &Cart, art: Option<Vec<u8>>, number: Option<usize>) -> Ca
     }
     match (&art, number) {
         (None, number) => {
-            print_title(
-                &mut rgba,
-                n,
-                &title,
-                print,
-                TITLE_BOX,
-                TITLE_LINES,
-                TITLE_PX,
-            );
+            print_title(&mut rgba, n, &title, print, TITLE_BOX, TITLE_LINES, TITLE_PX);
             if let Some(number) = number {
-                print_title(
-                    &mut rgba,
-                    n,
-                    &format!("DISC {number}"),
-                    print,
-                    NUMBER_BOX,
-                    1,
-                    NUMBER_PX,
-                );
+                print_title(&mut rgba, n, &format!("DISC {number}"), print, NUMBER_BOX, 1, NUMBER_PX);
             }
         }
         // A scan prints its own number, but which scan is which disc is not known: a tag says.
         (Some(_), Some(number)) => {
             tag(&mut rgba, n, NUMBER_BOX);
-            print_title(
-                &mut rgba,
-                n,
-                &format!("DISC {number}"),
-                TAG,
-                NUMBER_BOX,
-                1,
-                NUMBER_PX,
-            );
+            print_title(&mut rgba, n, &format!("DISC {number}"), TAG, NUMBER_BOX, 1, NUMBER_PX);
         }
         (Some(_), None) => {}
     }
@@ -152,8 +126,7 @@ fn print_title(
             }
             let d = (((y0 + y) * n + x0 + x) * 4) as usize;
             for c in 0..3 {
-                rgba[d + c] =
-                    ((block[s + c] as u32 * a + rgba[d + c] as u32 * (255 - a)) / 255) as u8;
+                rgba[d + c] = ((block[s + c] as u32 * a + rgba[d + c] as u32 * (255 - a)) / 255) as u8;
             }
         }
     }
@@ -221,9 +194,6 @@ mod tests {
         assert_eq!(alpha(&face, 0, 0), 0, "a corner is not clear");
         assert_eq!(alpha(&face, c, c), 0, "the hole is not clear");
         assert_eq!(alpha(&face, c, DISC_PX - 10), 255, "the print is not solid");
-        assert!(
-            alpha(&face, c, c + (0.2 * c as f32) as u32) < 255,
-            "the hub is not see-through"
-        );
+        assert!(alpha(&face, c, c + (0.2 * c as f32) as u32) < 255, "the hub is not see-through");
     }
 }

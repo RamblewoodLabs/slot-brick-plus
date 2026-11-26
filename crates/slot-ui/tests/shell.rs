@@ -337,11 +337,7 @@ fn the_presets_are_the_tables_plastics_each_once() {
     let find = |n: &str| presets.iter().find(|(name, _)| *name == n).unwrap().1;
     assert_eq!(find("Game Boy grey"), DMG_SHELL);
     assert_eq!(find("NES grey"), slot_ui::NES_SHELL);
-    assert_ne!(
-        find("Zelda gold"),
-        slot_ui::NES_SHELL,
-        "the gold Zelda carts are not grey"
-    );
+    assert_ne!(find("Zelda gold"), slot_ui::NES_SHELL, "the gold Zelda carts are not grey");
     assert_eq!(find("SNES grey"), slot_ui::SNES_SHELL);
     assert_eq!(find("Super Famicom grey"), slot_ui::SNES_PAL_SHELL);
     assert_eq!(find("Pokémon Emerald"), gba_shell_for("BPEE"));
@@ -436,27 +432,14 @@ fn a_nes_cart_is_grey_and_a_famicom_release_coloured_and_steady() {
     use slot_ui::{nes_shell_for, FAMICOM_SHELLS, NES_SHELL};
     assert_eq!(nes_shell_for("Super Mario Bros. (World)"), NES_SHELL);
     assert_eq!(nes_shell_for("Zelda (USA)"), NES_SHELL);
-    assert_eq!(
-        nes_shell_for("Japanese Homebrew"),
-        NES_SHELL,
-        "a word, not a region tag"
-    );
-    for japan in [
-        "Rockman (Japan)",
-        "Rockman (J)",
-        "Rockman (Japan, USA) (Rev 1)",
-        "Rockman [J]",
-    ] {
+    assert_eq!(nes_shell_for("Japanese Homebrew"), NES_SHELL, "a word, not a region tag");
+    for japan in ["Rockman (Japan)", "Rockman (J)", "Rockman (Japan, USA) (Rev 1)", "Rockman [J]"] {
         let s = nes_shell_for(japan);
-        assert!(
-            FAMICOM_SHELLS.contains(&s),
-            "{japan} is not in a Famicom plastic"
-        );
+        assert!(FAMICOM_SHELLS.contains(&s), "{japan} is not in a Famicom plastic");
         assert_eq!(nes_shell_for(japan), s, "{japan} changed colour");
     }
-    let colours: std::collections::HashSet<_> = (0..40)
-        .map(|i| nes_shell_for(&format!("Game {i} (Japan)")).colour)
-        .collect();
+    let colours: std::collections::HashSet<_> =
+        (0..40).map(|i| nes_shell_for(&format!("Game {i} (Japan)")).colour).collect();
     assert!(colours.len() > 3, "Famicom carts all wear the same plastic");
 }
 
@@ -501,12 +484,6 @@ fn a_pal_snes_cart_is_the_lighter_grey() {
         title: String::new(),
         famicom_label: None,
     };
-    assert_eq!(
-        slot_ui::shell_for(&cart("Mario (USA)")),
-        slot_ui::SNES_SHELL
-    );
-    assert_eq!(
-        slot_ui::shell_for(&cart("Mario (Europe)")),
-        slot_ui::SNES_PAL_SHELL
-    );
+    assert_eq!(slot_ui::shell_for(&cart("Mario (USA)")), slot_ui::SNES_SHELL);
+    assert_eq!(slot_ui::shell_for(&cart("Mario (Europe)")), slot_ui::SNES_PAL_SHELL);
 }

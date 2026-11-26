@@ -49,9 +49,7 @@ fn load(d: &std::path::Path) -> Option<Box<dyn RetroCore>> {
 fn a_snes_game_draws_its_picture_centred_on_its_canvas() {
     let _g = common::core_lock();
     let d = tempfile::tempdir().unwrap();
-    let Some(mut core) = load(d.path()) else {
-        return;
-    };
+    let Some(mut core) = load(d.path()) else { return };
     for _ in 0..10 {
         core.run_frame(slot_retro::ButtonMask(0));
     }
@@ -63,29 +61,13 @@ fn a_snes_game_draws_its_picture_centred_on_its_canvas() {
         let i = ((y * w + x) * 4) as usize;
         [video[i], video[i + 1], video[i + 2]]
     };
-    assert!(
-        px(128, 120).iter().all(|c| *c > 0xc0),
-        "the picture is not white: {:?}",
-        px(128, 120)
-    );
-    assert!(
-        px(128, 9).iter().all(|c| *c > 0xc0),
-        "the first line of the picture is missing"
-    );
-    assert_eq!(
-        px(128, 3),
-        [0, 0, 0],
-        "the cropped overscan is not black above the picture"
-    );
-    assert_eq!(
-        px(128, 236),
-        [0, 0, 0],
-        "the cropped overscan is not black below the picture"
-    );
+    assert!(px(128, 120).iter().all(|c| *c > 0xc0), "the picture is not white: {:?}", px(128, 120));
+    assert!(px(128, 9).iter().all(|c| *c > 0xc0), "the first line of the picture is missing");
+    assert_eq!(px(128, 3), [0, 0, 0], "the cropped overscan is not black above the picture");
+    assert_eq!(px(128, 236), [0, 0, 0], "the cropped overscan is not black below the picture");
     let state = core.serialize().expect("no save state");
     core.run_frame(slot_retro::ButtonMask(0));
-    core.unserialize(&state)
-        .expect("its own save state was refused");
+    core.unserialize(&state).expect("its own save state was refused");
     assert!(core.av_info().sample_rate > 0.0);
 }
 
@@ -100,24 +82,12 @@ fn every_option_slot_sets_on_snes9x_is_one_it_declares() {
     let mut core = slot_retro::LibretroCore::open(&path).expect("open snes9x");
     slot::core::apply_core_options(&mut core, Core::Snes9x, "auto", false, true, None);
     let declared = core.declared_options();
-    assert!(
-        !declared.is_empty(),
-        "snes9x declared no options, so this would pass on anything"
-    );
+    assert!(!declared.is_empty(), "snes9x declared no options, so this would pass on anything");
     let set = core.options();
-    assert!(
-        set.iter()
-            .any(|(k, v)| k == "snes9x_mode7_hires" && v == "disabled"),
-        "{set:?}"
-    );
+    assert!(set.iter().any(|(k, v)| k == "snes9x_mode7_hires" && v == "disabled"), "{set:?}");
     for (key, value) in set {
-        let values = declared
-            .get(&key)
-            .unwrap_or_else(|| panic!("snes9x declares no option {key:?}"));
-        assert!(
-            values.contains(&value),
-            "snes9x declares {key:?} as {values:?}, not {value:?}"
-        );
+        let values = declared.get(&key).unwrap_or_else(|| panic!("snes9x declares no option {key:?}"));
+        assert!(values.contains(&value), "snes9x declares {key:?} as {values:?}, not {value:?}");
     }
 }
 
@@ -136,11 +106,7 @@ fn the_emulator_thread_hands_the_screen_whole_snes_frames_with_x_and_y_untouched
     while emu.state() != CoreState::Ready && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(
-        emu.state(),
-        CoreState::Ready,
-        "snes9x never finished loading"
-    );
+    assert_eq!(emu.state(), CoreState::Ready, "snes9x never finished loading");
     emu.set_speed(Speed::Normal);
     while !emu.has_published() && std::time::Instant::now() < deadline {
         sink.device_drain();
@@ -148,9 +114,5 @@ fn the_emulator_thread_hands_the_screen_whole_snes_frames_with_x_and_y_untouched
     }
     let frame = emu.latest_frame().expect("no frame was published");
     let (w, h) = slot_store::Platform::Snes.canvas();
-    assert_eq!(
-        frame.len(),
-        (w * h * 4) as usize,
-        "a frame is not the SNES canvas"
-    );
+    assert_eq!(frame.len(), (w * h * 4) as usize, "a frame is not the SNES canvas");
 }

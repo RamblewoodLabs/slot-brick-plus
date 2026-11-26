@@ -24,23 +24,12 @@ const DETAIL_PX: f32 = 13.0;
 pub fn banner_face(title: &str, detail: &str, badge: Option<&[u8]>) -> UndoFace {
     let (w, h) = (BANNER_W, BANNER_H);
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    let fill = |c: [f32; 4], alpha: u8| {
-        [
-            (c[0] * 255.0) as u8,
-            (c[1] * 255.0) as u8,
-            (c[2] * 255.0) as u8,
-            alpha,
-        ]
-    };
+    let fill = |c: [f32; 4], alpha: u8| [(c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8, alpha];
     let (plate, rim) = (fill(opening(), 240), fill(edge(), 255));
     for y in 0..h {
         for x in 0..w {
             let accent = x < STRIP || y == 0 || y == h - 1 || x == w - 1;
-            rgba[((y * w + x) * 4) as usize..][..4].copy_from_slice(if accent {
-                &rim
-            } else {
-                &plate
-            });
+            rgba[((y * w + x) * 4) as usize..][..4].copy_from_slice(if accent { &rim } else { &plate });
         }
     }
     let badge = badge.filter(|b| b.len() == (BADGE_PX * BADGE_PX * 4) as usize);
@@ -54,8 +43,7 @@ pub fn banner_face(title: &str, detail: &str, badge: Option<&[u8]>) -> UndoFace 
                     let d = (((by + y) * w + bx + x) * 4) as usize;
                     let a = px[s + 3] as u32;
                     for c in 0..3 {
-                        rgba[d + c] =
-                            ((px[s + c] as u32 * a + rgba[d + c] as u32 * (255 - a)) / 255) as u8;
+                        rgba[d + c] = ((px[s + c] as u32 * a + rgba[d + c] as u32 * (255 - a)) / 255) as u8;
                     }
                 }
             }
@@ -80,8 +68,7 @@ pub fn banner_face(title: &str, detail: &str, badge: Option<&[u8]>) -> UndoFace 
                     }
                     let b = (((top + y) * w + INSET + x - shift) * 4) as usize;
                     for (ch, c) in ink.iter().enumerate() {
-                        rgba[b + ch] =
-                            ((*c as u32 * a + rgba[b + ch] as u32 * (255 - a)) / 255) as u8;
+                        rgba[b + ch] = ((*c as u32 * a + rgba[b + ch] as u32 * (255 - a)) / 255) as u8;
                     }
                 }
             }
@@ -103,11 +90,7 @@ mod tests {
             .flat_map(|i| {
                 let (x, y) = (i % BADGE_PX, i / BADGE_PX);
                 let ring = x < 4 || y < 4 || x >= BADGE_PX - 4 || y >= BADGE_PX - 4;
-                if ring {
-                    [120, 84, 20, 255]
-                } else {
-                    [232, 182, 60, 255]
-                }
+                if ring { [120, 84, 20, 255] } else { [232, 182, 60, 255] }
             })
             .collect();
         // SLOT_BADGE_PNG=<file>: a real badge instead, scaled as the frontend does.
@@ -116,39 +99,24 @@ mod tests {
             .and_then(|p| crate::art::cover(std::path::Path::new(&p), BADGE_PX, BADGE_PX))
             .unwrap_or(badge);
         let f = banner_face("First Steps", "5 pts - Leave the house", Some(&badge));
-        assert_eq!(
-            (f.w, f.h, f.rgba.len()),
-            (BANNER_W, BANNER_H, (BANNER_W * BANNER_H * 4) as usize)
-        );
+        assert_eq!((f.w, f.h, f.rgba.len()), (BANNER_W, BANNER_H, (BANNER_W * BANNER_H * 4) as usize));
         assert!(f.rgba.chunks_exact(4).all(|p| p[3] >= 240));
-        assert!(
-            BANNER_X + BANNER_W as f32 <= slot_gfx::OUT_W as f32 - 8.0,
-            "inside the right edge"
-        );
+        assert!(BANNER_X + BANNER_W as f32 <= slot_gfx::OUT_W as f32 - 8.0, "inside the right edge");
         // SLOT_BANNER_PREVIEW=<file>: the toast in place on a 640x480 screen.
         if let Ok(path) = std::env::var("SLOT_BANNER_PREVIEW") {
             let (sw, sh) = (slot_gfx::OUT_W, slot_gfx::OUT_H);
             let mut screen: Vec<u8> = (0..sw * sh)
                 .flat_map(|i| {
-                    let v = if (i % sw / 32 + i / sw / 32) % 2 == 0 {
-                        70
-                    } else {
-                        110
-                    };
+                    let v = if (i % sw / 32 + i / sw / 32) % 2 == 0 { 70 } else { 110 };
                     [v, v + 20, v, 255]
                 })
                 .collect();
             for y in 0..f.h {
                 for x in 0..f.w {
-                    let (src, dst) = (
-                        ((y * f.w + x) * 4) as usize,
-                        (((BANNER_Y as u32 + y) * sw + BANNER_X as u32 + x) * 4) as usize,
-                    );
+                    let (src, dst) = (((y * f.w + x) * 4) as usize, (((BANNER_Y as u32 + y) * sw + BANNER_X as u32 + x) * 4) as usize);
                     let a = f.rgba[src + 3] as u32;
                     for c in 0..3 {
-                        screen[dst + c] = ((f.rgba[src + c] as u32 * a
-                            + screen[dst + c] as u32 * (255 - a))
-                            / 255) as u8;
+                        screen[dst + c] = ((f.rgba[src + c] as u32 * a + screen[dst + c] as u32 * (255 - a)) / 255) as u8;
                     }
                 }
             }
@@ -163,10 +131,7 @@ mod tests {
     fn text_starts_at_the_left_beside_the_strip() {
         let f = banner_face("I", "", None);
         let ink = |x: u32| (8..30).any(|y| f.rgba[((y * f.w + x) * 4) as usize] > 200);
-        assert!(
-            (INSET..INSET + 14).any(ink),
-            "title starts beside the strip"
-        );
+        assert!((INSET..INSET + 14).any(ink), "title starts beside the strip");
         assert!(!(f.w / 2..f.w - 2).any(ink), "and not centred");
     }
 
@@ -176,32 +141,13 @@ mod tests {
         let f = banner_face("I", "", Some(&white));
         let px = |x: u32, y: u32| f.rgba[((y * f.w + x) * 4) as usize];
         let badge_x = f.w - 1 - BADGE_GAP - BADGE_PX;
-        assert_eq!(
-            px(badge_x + 2, BANNER_H / 2),
-            255,
-            "badge drawn at the right"
-        );
-        assert!(
-            px(STRIP + BADGE_GAP + 2, BANNER_H / 2) < 200,
-            "nothing at the left"
-        );
-        assert!(
-            (INSET..INSET + 14).any(|x| (8..30).any(|y| px(x, y) > 200)),
-            "text beside the strip"
-        );
+        assert_eq!(px(badge_x + 2, BANNER_H / 2), 255, "badge drawn at the right");
+        assert!(px(STRIP + BADGE_GAP + 2, BANNER_H / 2) < 200, "nothing at the left");
+        assert!((INSET..INSET + 14).any(|x| (8..30).any(|y| px(x, y) > 200)), "text beside the strip");
         let long = banner_face(&"W".repeat(60), "", Some(&white));
-        let ink_until = (0..badge_x)
-            .rev()
-            .find(|&x| (8..30).any(|y| long.rgba[((y * long.w + x) * 4) as usize] > 200));
-        assert!(
-            ink_until.is_some_and(|x| x < badge_x - 4),
-            "long text stops before the badge: {ink_until:?}"
-        );
+        let ink_until = (0..badge_x).rev().find(|&x| (8..30).any(|y| long.rgba[((y * long.w + x) * 4) as usize] > 200));
+        assert!(ink_until.is_some_and(|x| x < badge_x - 4), "long text stops before the badge: {ink_until:?}");
         let wrong = vec![0u8; 12];
-        assert_eq!(
-            banner_face("I", "", Some(&wrong)).rgba,
-            banner_face("I", "", None).rgba,
-            "a bad image is left out"
-        );
+        assert_eq!(banner_face("I", "", Some(&wrong)).rgba, banner_face("I", "", None).rgba, "a bad image is left out");
     }
 }

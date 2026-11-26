@@ -139,36 +139,23 @@ fn tinted_board(colour: [u8; 3]) -> Vec<u8> {
         let draw = |white: Option<&str>| {
             let mut svg = BOARD_SVG.to_string();
             for key in [PLASTIC, FLOOR, DEEP] {
-                svg = svg.replace(
-                    key,
-                    if Some(key) == white {
-                        "#ffffff"
-                    } else {
-                        "#000000"
-                    },
-                );
+                svg = svg.replace(key, if Some(key) == white { "#ffffff" } else { "#000000" });
             }
             art::render_premultiplied(&svg, BOARD_W, BOARD_H)
         };
-        Some(Layers {
-            black: draw(None)?,
-            white: [draw(Some(PLASTIC))?, draw(Some(FLOOR))?, draw(Some(DEEP))?],
-        })
+        Some(Layers { black: draw(None)?, white: [draw(Some(PLASTIC))?, draw(Some(FLOOR))?, draw(Some(DEEP))?] })
     });
     let Some(layers) = layers else {
         return vec![0; (BOARD_W * BOARD_H * 4) as usize];
     };
     // Each plastic's colour, 0..1 a channel, as the SVG's shades of it.
-    let fills =
-        [colour, shade(colour, 0.62), shade(colour, 0.35)].map(|c| c.map(|v| v as f32 / 255.0));
+    let fills = [colour, shade(colour, 0.62), shade(colour, 0.35)].map(|c| c.map(|v| v as f32 / 255.0));
     let mut rgba = layers.black.clone();
     for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
         for c in 0..3 {
             let at = i * 4 + c;
             let base = layers.black[at] as f32;
-            let lit: f32 = (0..3)
-                .map(|k| (layers.white[k][at] as f32 - base) * fills[k][c])
-                .sum();
+            let lit: f32 = (0..3).map(|k| (layers.white[k][at] as f32 - base) * fills[k][c]).sum();
             px[c] = (base + lit).round().clamp(0.0, px[3] as f32) as u8;
         }
     }
@@ -397,13 +384,7 @@ mod tests {
 
     #[test]
     fn a_mixed_board_matches_the_drawn_one() {
-        for colour in [
-            [0x35, 0x35, 0x3a],
-            [0xc4, 0x2b, 0x2b],
-            [0x2f, 0x5a, 0xb0],
-            [0xff, 0xff, 0xff],
-            [0, 0, 0],
-        ] {
+        for colour in [[0x35, 0x35, 0x3a], [0xc4, 0x2b, 0x2b], [0x2f, 0x5a, 0xb0], [0xff, 0xff, 0xff], [0, 0, 0]] {
             let (mixed, drawn) = (tinted_board(colour), drawn(colour));
             assert_eq!(mixed.len(), drawn.len());
             let diffs: Vec<u8> = mixed
@@ -416,10 +397,7 @@ mod tests {
             let worst = *diffs.iter().max().unwrap();
             let mean = diffs.iter().map(|d| *d as f32).sum::<f32>() / diffs.len() as f32;
             // Each cached layer is rounded to 8 bits: a step or few here and there, unseen.
-            assert!(
-                worst <= 6 && mean < 0.5,
-                "{colour:?}: off by up to {worst}, {mean:.2} on average"
-            );
+            assert!(worst <= 6 && mean < 0.5, "{colour:?}: off by up to {worst}, {mean:.2} on average");
         }
     }
 }

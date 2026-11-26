@@ -32,11 +32,7 @@ pub enum LibrarySort {
 }
 
 impl LibrarySort {
-    pub const ALL: [LibrarySort; 3] = [
-        LibrarySort::Az,
-        LibrarySort::Recent,
-        LibrarySort::MostPlayed,
-    ];
+    pub const ALL: [LibrarySort; 3] = [LibrarySort::Az, LibrarySort::Recent, LibrarySort::MostPlayed];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -99,17 +95,13 @@ impl Library {
             // FAVADD\tPLATFORM\tSTEM\tunix: when the game was starred. Older builds skip
             // these lines (FAVADD is not a platform), so the five-field rows still load.
             if fields.len() == 4 && fields[0] == "FAVADD" {
-                let Some(platform) = Platform::ALL
-                    .into_iter()
-                    .find(|p| p.dir_name() == fields[1])
-                else {
+                let Some(platform) = Platform::ALL.into_iter().find(|p| p.dir_name() == fields[1]) else {
                     continue;
                 };
                 let Ok(favorited_at) = fields[3].parse() else {
                     continue;
                 };
-                let record: &mut GameRecord =
-                    games.entry((platform, fields[2].to_string())).or_default();
+                let record: &mut GameRecord = games.entry((platform, fields[2].to_string())).or_default();
                 record.favorite = true;
                 record.favorited_at = favorited_at;
                 continue;
@@ -117,8 +109,7 @@ impl Library {
             let [platform, stem, secs, last, favorite] = fields[..] else {
                 continue;
             };
-            let Some(platform) = Platform::ALL.into_iter().find(|p| p.dir_name() == platform)
-            else {
+            let Some(platform) = Platform::ALL.into_iter().find(|p| p.dir_name() == platform) else {
                 continue;
             };
             let (Ok(played_secs), Ok(last_played)) = (secs.parse(), last.parse()) else {
@@ -140,13 +131,7 @@ impl Library {
             .iter()
             .filter(|(_, r)| **r != GameRecord::default())
             .map(|((platform, stem), r)| {
-                format!(
-                    "{}\t{stem}\t{}\t{}\t{}",
-                    platform.dir_name(),
-                    r.played_secs,
-                    r.last_played,
-                    r.favorite as u8
-                )
+                format!("{}\t{stem}\t{}\t{}\t{}", platform.dir_name(), r.played_secs, r.last_played, r.favorite as u8)
             })
             .collect();
         lines.sort();
@@ -155,11 +140,7 @@ impl Library {
             .iter()
             .filter(|(_, r)| r.favorite && r.favorited_at != 0)
             .map(|((platform, stem), r)| {
-                format!(
-                    "FAVADD\t{}\t{stem}\t{}",
-                    platform.dir_name(),
-                    r.favorited_at
-                )
+                format!("FAVADD\t{}\t{stem}\t{}", platform.dir_name(), r.favorited_at)
             })
             .collect();
         added.sort();
@@ -168,10 +149,7 @@ impl Library {
     }
 
     pub fn get(&self, platform: Platform, stem: &str) -> GameRecord {
-        self.games
-            .get(&(platform, stem.to_string()))
-            .copied()
-            .unwrap_or_default()
+        self.games.get(&(platform, stem.to_string())).copied().unwrap_or_default()
     }
 
     pub fn get_mut(&mut self, platform: Platform, stem: &str) -> &mut GameRecord {
@@ -184,9 +162,7 @@ impl Library {
 
     /// Every game the library remembers.
     pub fn records(&self) -> impl Iterator<Item = (Platform, &str, GameRecord)> + '_ {
-        self.games
-            .iter()
-            .map(|((platform, stem), record)| (*platform, stem.as_str(), *record))
+        self.games.iter().map(|((platform, stem), record)| (*platform, stem.as_str(), *record))
     }
 }
 
@@ -199,12 +175,8 @@ pub fn arrange(carts: &mut Vec<Cart>, sort: LibrarySort, favorites_only: bool, l
     // Stable: games alike in the order keep their A–Z order.
     match sort {
         LibrarySort::Az => {}
-        LibrarySort::Recent => {
-            carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played))
-        }
-        LibrarySort::MostPlayed => {
-            carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).played_secs))
-        }
+        LibrarySort::Recent => carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played)),
+        LibrarySort::MostPlayed => carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).played_secs)),
     }
 }
 
@@ -213,10 +185,7 @@ pub fn arrange_favorites(carts: &mut Vec<Cart>, sort: FavoritesSort, library: &L
     carts.retain(|c| library.get(c.platform, &c.stem).favorite);
     match sort {
         FavoritesSort::Added => carts.sort_by(|a, b| {
-            added_order(
-                library.get(a.platform, &a.stem),
-                library.get(b.platform, &b.stem),
-            )
+            added_order(library.get(a.platform, &a.stem), library.get(b.platform, &b.stem))
         }),
         FavoritesSort::Recent => {
             carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played))
@@ -269,33 +238,18 @@ mod tests {
     #[test]
     fn records_round_trip_and_bad_lines_are_skipped() {
         let mut lib = Library::default();
-        *lib.get_mut(Platform::Gba, "Pixel Racer") = GameRecord {
-            played_secs: 3700,
-            last_played: 1_800_000_000,
-            favorite: true,
-            favorited_at: 0,
-        };
+        *lib.get_mut(Platform::Gba, "Pixel Racer") = GameRecord { played_secs: 3700, last_played: 1_800_000_000, favorite: true, favorited_at: 0 };
         lib.get_mut(Platform::Gb, "Untouched");
         let text = lib.text();
         assert_eq!(text, "GBA\tPixel Racer\t3700\t1800000000\t1\n");
-        let again = Library::parse(&format!(
-            "{text}nonsense\nXYZ\ta\t1\t2\t1\nGB\tx\tlots\t2\t0\n"
-        ));
-        assert_eq!(
-            again.get(Platform::Gba, "Pixel Racer"),
-            lib.get(Platform::Gba, "Pixel Racer")
-        );
+        let again = Library::parse(&format!("{text}nonsense\nXYZ\ta\t1\t2\t1\nGB\tx\tlots\t2\t0\n"));
+        assert_eq!(again.get(Platform::Gba, "Pixel Racer"), lib.get(Platform::Gba, "Pixel Racer"));
         assert_eq!(again.games.len(), 1);
     }
 
     #[test]
     fn shelves_sort_by_last_played_or_most_played_with_the_rest_a_to_z() {
-        let all = [
-            cart(Platform::Gba, "Alpha"),
-            cart(Platform::Gba, "Beta"),
-            cart(Platform::Gba, "Gamma"),
-            cart(Platform::Gba, "Delta"),
-        ];
+        let all = [cart(Platform::Gba, "Alpha"), cart(Platform::Gba, "Beta"), cart(Platform::Gba, "Gamma"), cart(Platform::Gba, "Delta")];
         let mut lib = Library::default();
         lib.get_mut(Platform::Gba, "Gamma").last_played = 20;
         lib.get_mut(Platform::Gba, "Gamma").played_secs = 10;
@@ -309,10 +263,7 @@ mod tests {
         };
         assert_eq!(order(LibrarySort::Az, false), "Alpha Beta Gamma Delta");
         assert_eq!(order(LibrarySort::Recent, false), "Gamma Beta Alpha Delta");
-        assert_eq!(
-            order(LibrarySort::MostPlayed, false),
-            "Beta Gamma Alpha Delta"
-        );
+        assert_eq!(order(LibrarySort::MostPlayed, false), "Beta Gamma Alpha Delta");
         assert_eq!(order(LibrarySort::Recent, true), "Delta");
         assert!(lib.any_favorite(&all) && !Library::default().any_favorite(&all));
     }
@@ -323,18 +274,9 @@ mod tests {
             assert_eq!(played_text(59, hours), None);
             assert_eq!(played_text(12 * 60 + 5, hours).as_deref(), Some("12M"));
         }
-        assert_eq!(
-            played_text(3 * 3600 + 20 * 60, false).as_deref(),
-            Some("200M")
-        );
-        assert_eq!(
-            played_text(3 * 3600 + 20 * 60, true).as_deref(),
-            Some("3H20M")
-        );
-        assert_eq!(
-            played_text(3 * 3600 + 5 * 60, true).as_deref(),
-            Some("3H05M")
-        );
+        assert_eq!(played_text(3 * 3600 + 20 * 60, false).as_deref(), Some("200M"));
+        assert_eq!(played_text(3 * 3600 + 20 * 60, true).as_deref(), Some("3H20M"));
+        assert_eq!(played_text(3 * 3600 + 5 * 60, true).as_deref(), Some("3H05M"));
         assert_eq!(played_text(3 * 3600, true).as_deref(), Some("3H00M"));
     }
 
@@ -361,10 +303,7 @@ mod tests {
         assert!(text.starts_with("GBA\tPixel Racer\t3700\t1800000000\t1\n"));
         assert!(text.contains("FAVADD\tGBA\tPixel Racer\t1700000000\n"));
         let again = Library::parse(&text);
-        assert_eq!(
-            again.get(Platform::Gba, "Pixel Racer"),
-            lib.get(Platform::Gba, "Pixel Racer")
-        );
+        assert_eq!(again.get(Platform::Gba, "Pixel Racer"), lib.get(Platform::Gba, "Pixel Racer"));
         // An older file with no FAVADD still loads the star.
         let old = Library::parse("GBA\tPixel Racer\t3700\t1800000000\t1\n");
         let rec = old.get(Platform::Gba, "Pixel Racer");
@@ -374,10 +313,7 @@ mod tests {
         let starred = Library::parse("FAVADD\tMD\tSonic\t42\n");
         let rec = starred.get(Platform::Md, "Sonic");
         assert!(rec.favorite && rec.favorited_at == 42);
-        assert_eq!(
-            starred.text(),
-            "MD\tSonic\t0\t0\t1\nFAVADD\tMD\tSonic\t42\n"
-        );
+        assert_eq!(starred.text(), "MD\tSonic\t0\t0\t1\nFAVADD\tMD\tSonic\t42\n");
     }
 
     #[test]

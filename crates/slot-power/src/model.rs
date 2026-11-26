@@ -29,8 +29,7 @@ pub fn model() -> Model {
     static MODEL: OnceLock<Model> = OnceLock::new();
     *MODEL.get_or_init(|| match std::fs::read(crate::hw(MAIN_UI)) {
         Ok(bytes) => model_of(&bytes),
-        Err(_) => std::fs::read_to_string(crate::hw(SLOT_OS_MODEL))
-            .map_or(Model::Brick, |m| model_named(&m)),
+        Err(_) => std::fs::read_to_string(crate::hw(SLOT_OS_MODEL)).map_or(Model::Brick, |m| model_named(&m)),
     })
 }
 
@@ -57,10 +56,7 @@ mod tests {
 
     #[test]
     fn the_brick_pro_is_known_by_its_name_in_main_ui() {
-        assert_eq!(
-            model_of(b"\x7fELF...\0Trimui Brick Pro\0more"),
-            Model::BrickPro
-        );
+        assert_eq!(model_of(b"\x7fELF...\0Trimui Brick Pro\0more"), Model::BrickPro);
         assert_eq!(model_of(b"\x7fELF...\0Trimui Brick\0more"), Model::Brick);
         assert_eq!(model_of(b"\0Trimui Brick Pros and cons\0"), Model::Brick);
         assert_eq!(model_of(b""), Model::Brick);

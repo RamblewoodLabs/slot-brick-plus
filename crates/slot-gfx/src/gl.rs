@@ -8,16 +8,10 @@ pub fn load(surface: &dyn Surface) {
     gl::load_with(|name| surface.proc_address(name));
     let text = |name| {
         let s = unsafe { gl::GetString(name) };
-        (!s.is_null()).then(|| {
-            unsafe { std::ffi::CStr::from_ptr(s as *const std::ffi::c_char) }
-                .to_string_lossy()
-                .into_owned()
-        })
+        (!s.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(s as *const std::ffi::c_char) }.to_string_lossy().into_owned())
     };
     let version = text(gl::VERSION);
-    let es = version
-        .as_deref()
-        .is_some_and(|v| v.starts_with("OpenGL ES"));
+    let es = version.as_deref().is_some_and(|v| v.starts_with("OpenGL ES"));
     eprintln!(
         "slot: gl: {} / {} / {} / GLSL {}",
         text(gl::VENDOR).unwrap_or_else(|| "?".into()),
@@ -52,11 +46,7 @@ fn shader(kind: gl::types::GLenum, src: &str) -> Result<gl::types::GLuint, GfxEr
         if ok == 0 {
             let log = info_log(id, gl::GetShaderiv, gl::GetShaderInfoLog);
             gl::DeleteShader(id);
-            let what = if kind == gl::VERTEX_SHADER {
-                "vertex"
-            } else {
-                "fragment"
-            };
+            let what = if kind == gl::VERTEX_SHADER { "vertex" } else { "fragment" };
             let first = src.lines().next().unwrap_or("");
             return Err(GfxError::Shader(format!(
                 "{what} shader did not compile (shader id {id}, gl error {:#x}, source starts {first:?}): {log}",

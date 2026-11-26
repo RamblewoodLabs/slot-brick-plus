@@ -86,38 +86,21 @@ pub fn peel_pose(t: Millis, from: Rect, to: Rect, bow: f32) -> PeelPose {
     let centre = |(x, y, w, h): Rect| (x + w / 2.0, y + h / 2.0);
     let ((ax, ay), (bx, by)) = (centre(from), centre(to));
     let bend = bow.clamp(-1.0, 1.0) * BOW;
-    let (cx, cy) = (
-        (ax + bx) / 2.0 - (by - ay) * bend,
-        (ay + by) / 2.0 + (bx - ax) * bend,
-    );
+    let (cx, cy) = ((ax + bx) / 2.0 - (by - ay) * bend, (ay + by) / 2.0 + (bx - ax) * bend);
     let v = 1.0 - fly;
-    let (px, py) = (
-        v * v * ax + 2.0 * v * fly * cx + fly * fly * bx,
-        v * v * ay + 2.0 * v * fly * cy + fly * fly * by,
-    );
+    let (px, py) = (v * v * ax + 2.0 * v * fly * cx + fly * fly * bx, v * v * ay + 2.0 * v * fly * cy + fly * fly * by);
     // Peeled up a touch smaller, larger high in the air, the slot's own size as it touches.
     let air = (std::f32::consts::PI * fly).sin();
     let k = 1.0 - LIFT_SHRINK * lift * (1.0 - fly);
     let grow = 1.0 + AIR_GROW * air;
-    let (w, h) = (
-        (from.2 * k + (to.2 - from.2) * fly) * grow,
-        (from.3 * k + (to.3 - from.3) * fly) * grow,
-    );
+    let (w, h) = ((from.2 * k + (to.2 - from.2) * fly) * grow, (from.3 * k + (to.3 - from.3) * fly) * grow);
     // Exactly there once there, so the hand-over to the cart's own label is to the pixel.
-    let at = if u >= 1.0 {
-        to
-    } else {
-        (px - w / 2.0, py - h / 2.0, w, h)
-    };
+    let at = if u >= 1.0 { to } else { (px - w / 2.0, py - h / 2.0, w, h) };
     PeelPose {
         at,
         // The tilt it peels up with gives way to banking into the bend, and both straighten
         // out as it comes down.
-        turn: if u >= 1.0 {
-            0.0
-        } else {
-            TILT * lift * (1.0 - fly) - BANK * bow.clamp(-1.0, 1.0) * air
-        },
+        turn: if u >= 1.0 { 0.0 } else { TILT * lift * (1.0 - fly) - BANK * bow.clamp(-1.0, 1.0) * air },
         curl: lift * (1.0 - flat),
         lift: AIR * lift.max(air) * (1.0 - fly * 0.85) * (1.0 - flat),
         shadow: SHADOW_ALPHA * lift * (1.0 - flat),
@@ -134,11 +117,7 @@ pub fn peel_bow(stem: &str) -> f32 {
     }
     // 0.4 to 1 either way: a gentle bend at the least.
     let size = 0.4 + 0.6 * ((h >> 8) % 1000) as f32 / 999.0;
-    if h & 1 == 0 {
-        size
-    } else {
-        -size
-    }
+    if h & 1 == 0 { size } else { -size }
 }
 
 /// Which of the baked curls to draw for `curl`.
@@ -201,21 +180,14 @@ pub fn peel_face(label: &[u8], w: u32, h: u32, curl: f32) -> CartFace {
     let reach = (d * 0.25 + 3.0).min(24.0);
     let roll = d.clamp(1.0, ROLL);
     let inside = |x: f32, y: f32| {
-        (x + 0.5).clamp(0.0, 1.0)
-            * (wf - x + 0.5).clamp(0.0, 1.0)
-            * (y + 0.5).clamp(0.0, 1.0)
-            * (hf - y + 0.5).clamp(0.0, 1.0)
+        (x + 0.5).clamp(0.0, 1.0) * (wf - x + 0.5).clamp(0.0, 1.0) * (y + 0.5).clamp(0.0, 1.0) * (hf - y + 0.5).clamp(0.0, 1.0)
     };
     for oy in 0..fh {
         for ox in 0..fw {
             let dst = ((oy * fw + ox) * 4) as usize;
             let (x, y) = (ox as i64 - pad as i64, oy as i64 - pad as i64);
             let on_label = x >= 0 && y >= 0 && x < w as i64 && y < h as i64;
-            let src = if on_label {
-                ((y as u32 * w + x as u32) * 4) as usize
-            } else {
-                0
-            };
+            let src = if on_label { ((y as u32 * w + x as u32) * 4) as usize } else { 0 };
             if d < 0.5 {
                 if on_label {
                     rgba[dst..dst + 4].copy_from_slice(&label[src..src + 4]);
@@ -240,21 +212,13 @@ pub fn peel_face(label: &[u8], w: u32, h: u32, curl: f32) -> CartFace {
             // From the crease out: dark in the roll, light where the paper lies flat.
             let along = (e / STANDING / roll).clamp(0.0, 1.0);
             let lum = 0.70 + 0.30 * (1.0 - (1.0 - along).powi(2));
-            let front_a = if on_label {
-                label[src + 3] as f32 / 255.0 * kept
-            } else {
-                0.0
-            };
+            let front_a = if on_label { label[src + 3] as f32 / 255.0 * kept } else { 0.0 };
             let a = flap + front_a * (1.0 - flap);
             if a <= 0.0 {
                 continue;
             }
             for ch in 0..3 {
-                let front = if on_label {
-                    label[src + ch] as f32 * (1.0 - shade)
-                } else {
-                    0.0
-                };
+                let front = if on_label { label[src + ch] as f32 * (1.0 - shade) } else { 0.0 };
                 let v = (BACK[ch] * lum * flap + front * front_a * (1.0 - flap)) / a;
                 rgba[dst + ch] = v.round().clamp(0.0, 255.0) as u8;
             }
@@ -286,18 +250,10 @@ pub fn peel_shadow_face(w: u32, h: u32) -> CartFace {
 
 /// The sticker as it is at `pose`: `faces` are its baked curls, flat first, for a label `label`
 /// pixels in size, those still on their way to the GPU None, and `shadow` its drop shadow.
-pub fn draw_peel(
-    pose: &PeelPose,
-    faces: &[Option<TexId>],
-    shadow: TexId,
-    label: (u32, u32),
-    out: &mut Vec<Draw>,
-) {
+pub fn draw_peel(pose: &PeelPose, faces: &[Option<TexId>], shadow: TexId, label: (u32, u32), out: &mut Vec<Draw>) {
     let want = peel_step(pose.curl);
     // The curl wanted, or the nearest one there is while the rest are still going up.
-    let nearest = (0..faces.len())
-        .filter(|&i| faces[i].is_some())
-        .min_by_key(|&i| i.abs_diff(want));
+    let nearest = (0..faces.len()).filter(|&i| faces[i].is_some()).min_by_key(|&i| i.abs_diff(want));
     let Some(tex) = nearest.and_then(|i| faces[i]) else {
         return;
     };
@@ -317,15 +273,7 @@ pub fn draw_peel(
     }
     let pad = peel_pad(label.0, label.1) as f32;
     let (px, py) = (pad * kx, pad * ky);
-    out.push(Draw::Turned {
-        x: x - px,
-        y: y - py,
-        w: w + 2.0 * px,
-        h: h + 2.0 * py,
-        tex,
-        alpha: 1.0,
-        turn: pose.turn,
-    });
+    out.push(Draw::Turned { x: x - px, y: y - py, w: w + 2.0 * px, h: h + 2.0 * py, tex, alpha: 1.0, turn: pose.turn });
 }
 
 /// Fades what has been drawn into `out` since `from` by `alpha`: the framing screen, going.
@@ -349,15 +297,9 @@ mod tests {
     #[test]
     fn it_starts_where_it_was_framed_and_ends_flat_on_the_cart() {
         let start = peel_pose(0, FROM, TO, 0.7);
-        assert_eq!(
-            (start.at, start.curl, start.shadow, start.backdrop),
-            (FROM, 0.0, 0.0, 1.0)
-        );
+        assert_eq!((start.at, start.curl, start.shadow, start.backdrop), (FROM, 0.0, 0.0, 1.0));
         let end = peel_pose(PEEL_MS, FROM, TO, 0.7);
-        assert_eq!(
-            (end.at, end.turn, end.curl, end.shadow, end.backdrop),
-            (TO, 0.0, 0.0, 0.0, 0.0)
-        );
+        assert_eq!((end.at, end.turn, end.curl, end.shadow, end.backdrop), (TO, 0.0, 0.0, 0.0, 0.0));
         assert_eq!(peel_pose(PEEL_MS + 500, FROM, TO, 0.7), end);
     }
 
@@ -368,11 +310,7 @@ mod tests {
             assert!(p.curl > 0.99, "{t} ms: curl {}", p.curl);
         }
         let landed = peel_pose(LAND_MS, FROM, TO, -0.5);
-        assert_eq!(
-            (landed.at, landed.turn),
-            (TO, 0.0),
-            "it lands flat and square before it is smoothed"
-        );
+        assert_eq!((landed.at, landed.turn), (TO, 0.0), "it lands flat and square before it is smoothed");
         let half = peel_pose((LAND_MS + PEEL_MS) / 2, FROM, TO, -0.5);
         assert!(half.curl > 0.0 && half.curl < 1.0);
     }
@@ -392,35 +330,17 @@ mod tests {
             last = g;
         }
         let size = peel_pose(LAND_MS - 20, FROM, TO, 0.6).at;
-        assert!(
-            (size.2 / TO.2 - 1.0).abs() < 0.01,
-            "near enough its own size as it touches: {size:?}"
-        );
+        assert!((size.2 / TO.2 - 1.0).abs() < 0.01, "near enough its own size as it touches: {size:?}");
     }
 
     #[test]
     fn the_flight_bends_to_the_side_its_bow_says_and_differs_by_game() {
         let mid = (FLY_FROM_MS + LAND_MS) / 2;
-        let (a, b) = (
-            peel_pose(mid, FROM, TO, 1.0).at,
-            peel_pose(mid, FROM, TO, -1.0).at,
-        );
-        assert!(
-            (a.0 - b.0).abs() + (a.1 - b.1).abs() > 40.0,
-            "{a:?} and {b:?} took the same path"
-        );
-        let bows: Vec<f32> = ["Tetris", "Zelda", "Metroid", "Kirby", "Mother 3"]
-            .iter()
-            .map(|g| peel_bow(g))
-            .collect();
-        assert!(
-            bows.iter().all(|b| (0.4..=1.0).contains(&b.abs())),
-            "{bows:?}"
-        );
-        assert!(
-            bows.iter().any(|b| *b > 0.0) && bows.iter().any(|b| *b < 0.0),
-            "always to one side: {bows:?}"
-        );
+        let (a, b) = (peel_pose(mid, FROM, TO, 1.0).at, peel_pose(mid, FROM, TO, -1.0).at);
+        assert!((a.0 - b.0).abs() + (a.1 - b.1).abs() > 40.0, "{a:?} and {b:?} took the same path");
+        let bows: Vec<f32> = ["Tetris", "Zelda", "Metroid", "Kirby", "Mother 3"].iter().map(|g| peel_bow(g)).collect();
+        assert!(bows.iter().all(|b| (0.4..=1.0).contains(&b.abs())), "{bows:?}");
+        assert!(bows.iter().any(|b| *b > 0.0) && bows.iter().any(|b| *b < 0.0), "always to one side: {bows:?}");
         assert_eq!(peel_bow("Tetris"), peel_bow("Tetris"));
     }
 
@@ -432,15 +352,9 @@ mod tests {
         assert_eq!((face.w, face.h), (6 + 2 * pad, 4 + 2 * pad));
         for y in 0..4 {
             let row = ((y + pad) * face.w + pad) as usize * 4;
-            assert_eq!(
-                &face.rgba[row..row + 24],
-                &label[y as usize * 24..(y as usize + 1) * 24]
-            );
+            assert_eq!(&face.rgba[row..row + 24], &label[y as usize * 24..(y as usize + 1) * 24]);
         }
-        assert!(
-            face.rgba[..face.w as usize * 4].iter().all(|&v| v == 0),
-            "the edge is clear"
-        );
+        assert!(face.rgba[..face.w as usize * 4].iter().all(|&v| v == 0), "the edge is clear");
     }
 
     #[test]
@@ -451,25 +365,13 @@ mod tests {
         let pad = peel_pad(w, h);
         let at = |x: u32, y: u32| {
             let i = (((y + pad) * face.w + x + pad) * 4) as usize;
-            [
-                face.rgba[i],
-                face.rgba[i + 1],
-                face.rgba[i + 2],
-                face.rgba[i + 3],
-            ]
+            [face.rgba[i], face.rgba[i + 1], face.rgba[i + 2], face.rgba[i + 3]]
         };
         assert_eq!(at(w - 1, h - 1)[3], 0, "the far corner has lifted away");
         assert_eq!(at(w - 5, 3)[3], 0, "and so has the half it was on");
         let back = at(40, 30);
-        assert!(
-            back[3] == 255 && back[0] > 150 && back[0] > back[2] - 30,
-            "paper back: {back:?}"
-        );
-        assert_eq!(
-            at(3, h - 3),
-            [20, 40, 200, 255],
-            "where the fold does not reach, the label as it was"
-        );
+        assert!(back[3] == 255 && back[0] > 150 && back[0] > back[2] - 30, "paper back: {back:?}");
+        assert_eq!(at(3, h - 3), [20, 40, 200, 255], "where the fold does not reach, the label as it was");
     }
 
     #[test]
@@ -500,20 +402,8 @@ mod tests {
     #[test]
     fn the_framing_screen_fades_and_nothing_before_it_does() {
         let mut out = vec![
-            Draw::Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 1.0,
-                h: 1.0,
-                colour: [1.0; 4],
-            },
-            Draw::Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 1.0,
-                h: 1.0,
-                colour: [1.0; 4],
-            },
+            Draw::Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0, colour: [1.0; 4] },
+            Draw::Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0, colour: [1.0; 4] },
         ];
         fade_from(&mut out, 1, 0.25);
         assert!(matches!(out[0], Draw::Rect { colour: [_, _, _, a], .. } if a == 1.0));

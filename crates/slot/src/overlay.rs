@@ -26,11 +26,7 @@ pub fn load(path: &Path) -> Option<Overlay> {
         return None;
     }
     let (rgba, w, h) = crate::cart_art::decode_rgba(&std::fs::read(path).ok()?)?;
-    if w == 0
-        || h == 0
-        || w > crate::cart_art::PICTURE_SIDE_MAX
-        || h > crate::cart_art::PICTURE_SIDE_MAX
-    {
+    if w == 0 || h == 0 || w > crate::cart_art::PICTURE_SIDE_MAX || h > crate::cart_art::PICTURE_SIDE_MAX {
         return None;
     }
     let window = window(&rgba, w, h)?;
@@ -42,10 +38,7 @@ pub fn window(rgba: &[u8], w: u32, h: u32) -> Option<[f32; 4]> {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
     for y in 0..h {
         for x in 0..w {
-            if rgba
-                .get(((y * w + x) * 4 + 3) as usize)
-                .is_some_and(|&a| a < 255)
-            {
+            if rgba.get(((y * w + x) * 4 + 3) as usize).is_some_and(|&a| a < 255) {
                 (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
             }
         }
@@ -54,12 +47,7 @@ pub fn window(rgba: &[u8], w: u32, h: u32) -> Option<[f32; 4]> {
         return None;
     }
     let (fw, fh) = (w as f32, h as f32);
-    let found = [
-        x0 as f32 / fw,
-        y0 as f32 / fh,
-        (x1 - x0 + 1) as f32 / fw,
-        (y1 - y0 + 1) as f32 / fh,
-    ];
+    let found = [x0 as f32 / fw, y0 as f32 / fh, (x1 - x0 + 1) as f32 / fw, (y1 - y0 + 1) as f32 / fh];
     (found[2] * found[3] >= WINDOW_MIN).then_some(found)
 }
 
@@ -72,21 +60,11 @@ pub fn source_rect(platform: Platform, window: [f32; 4]) -> [f32; 4] {
     let (sw, sh) = (slot_gfx::OUT_W as f32, slot_gfx::OUT_H as f32);
     let [wx, wy, ww, wh] = window;
     // Screen pixels to a picture pixel, and where the picture lands on the screen.
-    let k = (ww * sw / w as f32)
-        .min(wh * sh / h as f32)
-        .max(f32::EPSILON);
-    let (dx, dy) = (
-        wx * sw + (ww * sw - w as f32 * k) / 2.0,
-        wy * sh + (wh * sh - h as f32 * k) / 2.0,
-    );
+    let k = (ww * sw / w as f32).min(wh * sh / h as f32).max(f32::EPSILON);
+    let (dx, dy) = (wx * sw + (ww * sw - w as f32 * k) / 2.0, wy * sh + (wh * sh - h as f32 * k) / 2.0);
     // The picture sits in the middle of the canvas.
     let (px, py) = ((cw - w) as f32 / 2.0, (ch - h) as f32 / 2.0);
-    [
-        (px - dx / k) / cw as f32,
-        (py - dy / k) / ch as f32,
-        sw / k / cw as f32,
-        sh / k / ch as f32,
-    ]
+    [(px - dx / k) / cw as f32, (py - dy / k) / ch as f32, sw / k / cw as f32, sh / k / ch as f32]
 }
 
 #[cfg(test)]
@@ -112,25 +90,11 @@ mod tests {
     fn the_window_is_the_box_round_the_clear_pixels() {
         let rgba = picture(100, 80, (10, 20, 50, 40));
         assert_eq!(window(&rgba, 100, 80), Some([0.1, 0.25, 0.5, 0.5]));
-        assert_eq!(
-            window(&picture(100, 80, (0, 0, 0, 0)), 100, 80),
-            None,
-            "no window"
-        );
-        assert_eq!(
-            window(&picture(100, 80, (5, 5, 2, 2)), 100, 80),
-            None,
-            "a speck is not a window"
-        );
+        assert_eq!(window(&picture(100, 80, (0, 0, 0, 0)), 100, 80), None, "no window");
+        assert_eq!(window(&picture(100, 80, (5, 5, 2, 2)), 100, 80), None, "a speck is not a window");
         // A grid or tint over the game, half see-through, is still its window.
-        assert_eq!(
-            window(&tinted(100, 80, (10, 20, 50, 40), 128), 100, 80),
-            Some([0.1, 0.25, 0.5, 0.5])
-        );
-        assert_eq!(
-            window(&tinted(100, 80, (10, 20, 50, 40), 254), 100, 80),
-            Some([0.1, 0.25, 0.5, 0.5])
-        );
+        assert_eq!(window(&tinted(100, 80, (10, 20, 50, 40), 128), 100, 80), Some([0.1, 0.25, 0.5, 0.5]));
+        assert_eq!(window(&tinted(100, 80, (10, 20, 50, 40), 254), 100, 80), Some([0.1, 0.25, 0.5, 0.5]));
     }
 
     #[test]
@@ -150,24 +114,12 @@ mod tests {
             let (px, py) = ((cw - w) as f32 / 2.0, (ch - h) as f32 / 2.0);
             let (l, t, r, b) = (to_x(px), to_y(py), to_x(px + w as f32), to_y(py + h as f32));
             let near = |a: f32, b: f32| (a - b).abs() < 0.01;
-            assert!(
-                near((r - l) / (b - t), w as f32 / h as f32),
-                "{platform:?} changed shape"
-            );
+            assert!(near((r - l) / (b - t), w as f32 / h as f32), "{platform:?} changed shape");
             let [wx, wy, ww, wh] = window.map(|v| v);
             let (wl, wt, wr, wb) = (wx * sw, wy * sh, (wx + ww) * sw, (wy + wh) * sh);
-            assert!(
-                l >= wl - 0.01 && t >= wt - 0.01 && r <= wr + 0.01 && b <= wb + 0.01,
-                "{platform:?} spills out"
-            );
-            assert!(
-                near(r - l, wr - wl) || near(b - t, wb - wt),
-                "{platform:?} does not fill the window"
-            );
-            assert!(
-                near(l - wl, wr - r) && near(t - wt, wb - b),
-                "{platform:?} is not centred"
-            );
+            assert!(l >= wl - 0.01 && t >= wt - 0.01 && r <= wr + 0.01 && b <= wb + 0.01, "{platform:?} spills out");
+            assert!(near(r - l, wr - wl) || near(b - t, wb - wt), "{platform:?} does not fill the window");
+            assert!(near(l - wl, wr - r) && near(t - wt, wb - b), "{platform:?} is not centred");
         }
     }
 }

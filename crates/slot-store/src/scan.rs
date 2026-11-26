@@ -9,20 +9,12 @@ use crate::platform::Platform;
 pub const FAMICOM_LABELS: &str = "Famicom";
 
 /// A game's labels as they are on the card now: (its own, its Famicom one).
-pub fn labels_of(
-    root: &Path,
-    platform: Platform,
-    stem: &str,
-) -> (Option<PathBuf>, Option<PathBuf>) {
+pub fn labels_of(root: &Path, platform: Platform, stem: &str) -> (Option<PathBuf>, Option<PathBuf>) {
     let dir = root.join("Labels").join(platform.dir_name());
     let find = |dir: PathBuf| {
-        listing(&dir)
-            .get(&format!("{stem}.png").to_lowercase())
-            .map(|name| dir.join(name))
+        listing(&dir).get(&format!("{stem}.png").to_lowercase()).map(|name| dir.join(name))
     };
-    let famicom = (platform == Platform::Nes)
-        .then(|| find(dir.join(FAMICOM_LABELS)))
-        .flatten();
+    let famicom = (platform == Platform::Nes).then(|| find(dir.join(FAMICOM_LABELS))).flatten();
     (find(dir), famicom)
 }
 
@@ -111,11 +103,7 @@ pub fn scan(root: &Path) -> Result<Vec<Cart>, StoreError> {
         let labels_dir = root.join("Labels").join(platform.dir_name());
         let labels = listing(&labels_dir);
         let famicom_dir = labels_dir.join(FAMICOM_LABELS);
-        let famicom = if platform == Platform::Nes {
-            listing(&famicom_dir)
-        } else {
-            HashMap::new()
-        };
+        let famicom = if platform == Platform::Nes { listing(&famicom_dir) } else { HashMap::new() };
         for rom in roms {
             if is_hidden(&rom) {
                 continue;

@@ -1,0 +1,25 @@
+The cores added for ColecoVision, Atari 5200, Atari 800, Vectrex, 32X, Nintendo DS,
+Nintendo 64 and PSP. Each one's source, at the commit it was built from, is in vendor/
+(<core>-src.tar.gz, checked by brick/cores-systems2.sha256 and
+brick/gpu-cores/sources.sha256); brick/build-cores-systems2.sh and
+brick/build-gpu-cores.sh build them from it.
+
+    Gearcoleco (ColecoVision)    GPL-3.0     https://github.com/drhelius/Gearcoleco           020740f6a6c778200e7fe1bc6b508be13a4dd582
+    a5200 (Atari 5200)           GPL-2.0     https://github.com/libretro/a5200                 40c6f2f1ad4a3145b328d5baaf010fae6c7e752b
+    Atari800 (Atari 800)         GPL-2.0+    https://github.com/libretro/libretro-atari800     4e7fbc73765c1a9670c7506616046ad1d4ccda51
+    vecx (Vectrex)               GPL-3.0     https://github.com/libretro/libretro-vecx         dccff5402a16d1ea7c112095a8e42632bf149506
+    PicoDrive (32X)              see below   https://github.com/libretro/picodrive             1890c2932234c9d30f4cd3851d02228baae8f09e
+    melonDS (Nintendo DS)        GPL-3.0     https://github.com/libretro/melonDS               4081e8358e66f1ea11879560be6b813dfeaab75a
+    mupen64plus-next (N64)       GPL-2.0     https://github.com/libretro/mupen64plus-libretro-nx 8623e490a8773fcb6c10f424cebbdb0ac44e88ea
+    PPSSPP (PSP)                 GPL-2.0+    https://github.com/hrydgard/ppsspp                v1.20.4 (with FFmpeg, LGPL-2.1+)
+
+GPL-2.0 is the text Slot already ships (fceumm-GPL-2.0.txt); GPL-3.0 is in GPL-3.0.txt.
+PicoDrive is under its own license, in picodrive-COPYING.txt: it may be redistributed,
+not sold or used commercially, and a modified build must come with its complete source.
+Slot's build of it is unmodified and its source is in vendor/picodrive-src.tar.gz.
+
+PPSSPP's own files (fonts, shaders, compat.ini, the PPGe atlas) go on the card in
+BIOS/PPSSPP, from vendor/ppsspp-assets; they are part of PPSSPP and under its license.
+
+DraStic, the usual DS emulator on these handhelds, is closed and may not be redistributed,
+so the DS shelf runs melonDS.

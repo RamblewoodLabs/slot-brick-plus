@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use slot_input::RawEvent;
 
-use super::{image, panel, parse_btn, phase_name, Shared};
+use super::{image, parse_btn, phase_name, Shared, panel};
 
 const SETTLE: Duration = Duration::from_millis(400);
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -133,11 +133,7 @@ impl Step<'_> {
                     .get(1)
                     .and_then(|w| super::parse_stick(w))
                     .ok_or("needs up, down, left or right")?;
-                self.shared.flick(
-                    x,
-                    y,
-                    ms(words.get(2), Duration::from_millis(80))?.as_millis() as u64,
-                );
+                self.shared.flick(x, y, ms(words.get(2), Duration::from_millis(80))?.as_millis() as u64);
             }
             "down" => self.shared.push(RawEvent::Down(btn(1)?)),
             "up" => self.shared.push(RawEvent::Up(btn(1)?)),
@@ -197,8 +193,7 @@ impl Step<'_> {
             .screenshot(Duration::from_secs(5))
             .ok_or("no screenshot came back")?;
         let shot = self.out.join(format!("{name}.png"));
-        std::fs::write(&shot, image::encode(panel().0, panel().1, &rgba))
-            .map_err(|e| format!("{}: {e}", shot.display()))
+        std::fs::write(&shot, image::encode(panel().0, panel().1, &rgba)).map_err(|e| format!("{}: {e}", shot.display()))
     }
 
     fn snap(&self, name: &str) -> Result<Option<String>, String> {
@@ -233,8 +228,7 @@ impl Step<'_> {
         if (w, h) != panel() {
             return Ok(Some(format!(
                 "{name}: golden is {w}x{h}, the screen is {}x{}",
-                panel().0,
-                panel().1
+                panel().0, panel().1
             )));
         }
         let diff = image::compare(&rgba, &want);

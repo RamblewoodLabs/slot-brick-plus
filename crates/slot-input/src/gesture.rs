@@ -111,10 +111,7 @@ impl Gestures {
     }
 
     pub fn brick() -> Self {
-        Self {
-            home_chords: true,
-            ..Self::default()
-        }
+        Self { home_chords: true, ..Self::default() }
     }
 
     pub fn set_triggers_to_game(&mut self, on: bool) {
@@ -194,12 +191,8 @@ impl Gestures {
                 _ => self.ff_down(now),
             };
         }
-        if let (true, Some(_), Some((bit, action))) =
-            (self.home_chords, self.menu_down_at, home_chord(b))
-        {
-            if self.chord_held & bit != 0 {
-                return Vec::new();
-            }
+        if let (true, Some(_), Some((bit, action))) = (self.home_chords, self.menu_down_at, home_chord(b)) {
+            if self.chord_held & bit != 0 { return Vec::new(); }
             self.chord_held |= bit;
             self.menu_eject_fired = true; // consume Home: no tap menu or hold eject
             return vec![action];
@@ -373,9 +366,7 @@ impl Gestures {
 
     fn power_up(&mut self) -> Vec<Action> {
         // A wake-key release can arrive after the input state was reset.
-        if self.power_down_at.is_none() {
-            return Vec::new();
-        }
+        if self.power_down_at.is_none() { return Vec::new(); }
         let held = self.power_hold_fired;
         self.power_down_at = None;
         self.power_hold_fired = false;

@@ -39,6 +39,8 @@ PHYSICAL = {
     "32X": ((0.18, 0.03, 0.82, 0.74), 1.52, 1.0),
     "N64": ((0.31, 0.14, 0.71, 0.95), 1.55, 1.0),
     "NDS": ((0.07, 0.12, 0.93, 0.86), 0.95, 1.0),
+    # The UMD scan is the whole disc front; the shell's window is nearly all of it.
+    "PSP": ((0.079, 0.055, 0.934, 0.94), 1.01, 1.0),
 }
 # How far a picture's shape may be from the window's and still be cut to it.
 NEAR = math.log(1.3)

@@ -6,7 +6,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::cable::{self, Cable};
-use slot_retro::{ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE};
+use slot_retro::{
+    ButtonMask, Link, LinkChannel, RetroCore, Rumble, NETPACKET_RELIABLE,
+};
 
 use crate::audio::Ring;
 use crate::drc::{drc_ratio, drc_target};
@@ -240,43 +242,17 @@ impl EmuHandle {
 
     /// Turns RetroAchievements on for this game (softcore), logged in with a saved token.
     /// `root` is where a cached set and the unlock queue live.
-    pub fn achievements(
-        &self,
-        root: &std::path::Path,
-        user: &str,
-        token: &str,
-        console: slot_cheevos::Console,
-    ) {
-        *self
-            .shared
-            .cheevos_login
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some((
-            user.to_string(),
-            token.to_string(),
-            console,
-            root.to_path_buf(),
-        ));
+    pub fn achievements(&self, root: &std::path::Path, user: &str, token: &str, console: slot_cheevos::Console) {
+        *self.shared.cheevos_login.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((user.to_string(), token.to_string(), console, root.to_path_buf()));
     }
 
     pub fn take_badge_urls(&self) -> Vec<String> {
-        std::mem::take(
-            &mut *self
-                .shared
-                .cheevos_badges
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *self.shared.cheevos_badges.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub fn take_achievement_notices(&self) -> Vec<slot_cheevos::Notice> {
-        std::mem::take(
-            &mut *self
-                .shared
-                .cheevos_notices
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *self.shared.cheevos_notices.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub fn net(&self) -> &Link {
@@ -367,9 +343,7 @@ impl EmuHandle {
     }
 
     pub fn set_stick(&self, (x, y): (i16, i16)) {
-        self.shared
-            .stick
-            .store(x as u16 as u32 | (y as u16 as u32) << 16, Ordering::Relaxed);
+        self.shared.stick.store(x as u16 as u32 | (y as u16 as u32) << 16, Ordering::Relaxed);
     }
 
     pub fn input(&self) -> ButtonMask {
@@ -672,33 +646,17 @@ impl Worker {
                     }
                 }
             }
-            let login = self
-                .shared
-                .cheevos_login
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take();
+            let login = self.shared.cheevos_login.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((user, token, console, root)) = login {
                 cheevos = start_cheevos(core.as_mut(), &rom, &root, &user, &token, console);
             }
             if let Some(c) = &cheevos {
                 let said = c.take();
-                if said
-                    .iter()
-                    .any(|n| matches!(n, slot_cheevos::Notice::GameLoaded(Ok(_))))
-                {
-                    *self
-                        .shared
-                        .cheevos_badges
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner()) = c.badge_urls();
+                if said.iter().any(|n| matches!(n, slot_cheevos::Notice::GameLoaded(Ok(_)))) {
+                    *self.shared.cheevos_badges.lock().unwrap_or_else(|e| e.into_inner()) = c.badge_urls();
                 }
                 if !said.is_empty() {
-                    self.shared
-                        .cheevos_notices
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .extend(said);
+                    self.shared.cheevos_notices.lock().unwrap_or_else(|e| e.into_inner()).extend(said);
                 }
             }
 
@@ -982,8 +940,7 @@ impl Worker {
                         }
                         Wait::Request => {
                             for cmd in self.cmds.try_iter() {
-                                if self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link)
-                                {
+                                if self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link) {
                                     if let Some(c) = &cheevos {
                                         c.reset();
                                     }

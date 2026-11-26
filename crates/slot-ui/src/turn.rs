@@ -251,20 +251,10 @@ mod tests {
         assert_eq!(faces.frames.len(), 3);
         for (i, f) in faces.frames.iter().enumerate() {
             assert_eq!((f.face.w, f.face.h, f.x, f.y), (w, h, 0, 0));
-            assert!(
-                f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100),
-                "frame {i}"
-            );
+            assert!(f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100), "frame {i}");
         }
-        assert_eq!(
-            faces.seated.unwrap().rgba[0],
-            200,
-            "it goes in as the last frame shows it"
-        );
-        assert!(
-            gw_faces(&strip[..strip.len() / 2]).is_none(),
-            "a broken strip"
-        );
+        assert_eq!(faces.seated.unwrap().rgba[0], 200, "it goes in as the last frame shows it");
+        assert!(gw_faces(&strip[..strip.len() / 2]).is_none(), "a broken strip");
         assert!(turns(Platform::Gw) && seconds(Platform::Gw) > 0.5);
     }
 

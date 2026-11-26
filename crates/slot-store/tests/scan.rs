@@ -172,10 +172,7 @@ fn nes_roms_fill_their_own_shelf_and_read_no_game_boy_title() {
     let carts = slot_store::scan(d.path()).unwrap();
     assert_eq!(carts.len(), 1, "{carts:?}");
     let mut zelda = carts[0].clone();
-    assert_eq!(
-        (zelda.platform, zelda.stem.as_str()),
-        (slot_store::Platform::Nes, "Zelda (USA)")
-    );
+    assert_eq!((zelda.platform, zelda.stem.as_str()), (slot_store::Platform::Nes, "Zelda (USA)"));
     zelda.read_header();
     assert_eq!((zelda.title.as_str(), zelda.code.as_str()), ("", ""));
 }

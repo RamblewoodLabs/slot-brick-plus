@@ -13,20 +13,12 @@ impl Http for Fake {
     fn send(&self, request: &HttpRequest) -> Result<(u16, Vec<u8>), String> {
         let post = request.post.clone().unwrap_or_default();
         self.seen.lock().unwrap().push(post.clone());
-        let r = post
-            .split('&')
-            .find_map(|kv| kv.strip_prefix("r="))
-            .unwrap_or("");
+        let r = post.split('&').find_map(|kv| kv.strip_prefix("r=")).unwrap_or("");
         let body = match r {
-            "login2" => {
-                r#"{"Success":true,"User":"Benni","Token":"t0k3n","Score":10,"SoftcoreScore":2,"Messages":0,"Permissions":1,"AccountType":"Registered"}"#
-            }
+            "login2" => r#"{"Success":true,"User":"Benni","Token":"t0k3n","Score":10,"SoftcoreScore":2,"Messages":0,"Permissions":1,"AccountType":"Registered"}"#,
             _ => r#"{"Success":false,"Error":"Unknown game","Code":"not_found","Status":404}"#,
         };
-        Ok((
-            if r == "login2" { 200 } else { 404 },
-            body.as_bytes().to_vec(),
-        ))
+        Ok((if r == "login2" { 200 } else { 404 }, body.as_bytes().to_vec()))
     }
 }
 
@@ -56,29 +48,16 @@ fn a_token_logs_in_and_a_rom_is_identified_by_its_hash() {
     let fake = Arc::new(Fake::default());
     let c = Cheevos::new(fake.clone()).unwrap();
     c.login("Benni", "t0k3n");
-    assert_eq!(
-        wait(&c, |n| matches!(n, Notice::LoggedIn(_))),
-        Notice::LoggedIn(Ok(()))
-    );
-    assert!(
-        fake.seen.lock().unwrap()[0].contains("u=Benni")
-            && fake.seen.lock().unwrap()[0].contains("t=t0k3n")
-    );
+    assert_eq!(wait(&c, |n| matches!(n, Notice::LoggedIn(_))), Notice::LoggedIn(Ok(())));
+    assert!(fake.seen.lock().unwrap()[0].contains("u=Benni") && fake.seen.lock().unwrap()[0].contains("t=t0k3n"));
 
     let d = tempfile::tempdir().unwrap();
     let rom = d.path().join("game.gba");
     std::fs::write(&rom, (0..=255u8).cycle().take(1024).collect::<Vec<_>>()).unwrap();
     c.load_game(&rom, Console::Gba);
-    assert!(matches!(
-        wait(&c, |n| matches!(n, Notice::GameLoaded(_))),
-        Notice::GameLoaded(Err(_))
-    ));
+    assert!(matches!(wait(&c, |n| matches!(n, Notice::GameLoaded(_))), Notice::GameLoaded(Err(_))));
     let seen = fake.seen.lock().unwrap();
-    assert!(
-        seen.iter()
-            .any(|p| p.contains("b2ea9f7fcea831a4a63b213f41a8855b")),
-        "{seen:?}"
-    );
+    assert!(seen.iter().any(|p| p.contains("b2ea9f7fcea831a4a63b213f41a8855b")), "{seen:?}");
 }
 
 #[test]
@@ -96,11 +75,7 @@ fn a_nes_rom_is_hashed_without_its_ines_header() {
     wait(&c, |n| matches!(n, Notice::GameLoaded(_)));
     let seen = fake.seen.lock().unwrap();
     // The same 1024 bytes as the GBA ROM above: the 16-byte header is not hashed.
-    assert!(
-        seen.iter()
-            .any(|p| p.contains("b2ea9f7fcea831a4a63b213f41a8855b")),
-        "{seen:?}"
-    );
+    assert!(seen.iter().any(|p| p.contains("b2ea9f7fcea831a4a63b213f41a8855b")), "{seen:?}");
 }
 
 /// A PlayStation disc as a 2048-byte-sector ISO 9660 image: SYSTEM.CNF booting PSX.EXE.
@@ -161,11 +136,7 @@ fn a_playstation_disc_is_identified_by_its_boot_program() {
     wait(&c, |n| matches!(n, Notice::GameLoaded(_)));
     let seen = fake.seen.lock().unwrap();
     // md5("PSX.EXE" + the program): the boot program's name, then the program itself.
-    assert!(
-        seen.iter()
-            .any(|p| p.contains("d254942162e1a7e2ba7a02bb5cc8b1c2")),
-        "{seen:?}"
-    );
+    assert!(seen.iter().any(|p| p.contains("d254942162e1a7e2ba7a02bb5cc8b1c2")), "{seen:?}");
 }
 
 #[test]
@@ -176,17 +147,10 @@ fn a_playstation_disc_kept_as_chd_is_identified_as_the_same_disc() {
     let c = Cheevos::new(fake.clone()).unwrap();
     c.login("Benni", "t0k3n");
     wait(&c, |n| matches!(n, Notice::LoggedIn(_)));
-    c.load_game(
-        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/disc.chd")),
-        Console::Ps1,
-    );
+    c.load_game(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/disc.chd")), Console::Ps1);
     wait(&c, |n| matches!(n, Notice::GameLoaded(_)));
     let seen = fake.seen.lock().unwrap();
-    assert!(
-        seen.iter()
-            .any(|p| p.contains("d254942162e1a7e2ba7a02bb5cc8b1c2")),
-        "{seen:?}"
-    );
+    assert!(seen.iter().any(|p| p.contains("d254942162e1a7e2ba7a02bb5cc8b1c2")), "{seen:?}");
 }
 
 #[test]

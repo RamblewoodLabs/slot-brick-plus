@@ -24,9 +24,7 @@ pub enum VideoMode {
 }
 
 impl Default for VideoMode {
-    fn default() -> Self {
-        Self::Actual
-    }
+    fn default() -> Self { Self::Actual }
 }
 
 impl VideoMode {
@@ -57,20 +55,13 @@ impl VideoMode {
     }
 
     pub fn index(self) -> usize {
-        Self::CHOICES
-            .iter()
-            .position(|mode| *mode == self)
-            .unwrap_or(0)
+        Self::CHOICES.iter().position(|mode| *mode == self).unwrap_or(0)
     }
 
     pub fn step(self, right: bool) -> VideoMode {
         let n = Self::CHOICES.len();
         let at = self.index();
-        Self::CHOICES[if right {
-            (at + 1) % n
-        } else {
-            (at + n - 1) % n
-        }]
+        Self::CHOICES[if right { (at + 1) % n } else { (at + n - 1) % n }]
     }
 
     pub fn parse(s: &str) -> Option<VideoMode> {
@@ -113,10 +104,7 @@ fn system_key(platform: Platform) -> String {
 
 /// The picture for this game: its own saved choice, else the system's, else the global one.
 pub fn effective(root: &Path, stem: &str, platform: Platform) -> VideoMode {
-    if let Some(mode) = ini::value(root, VIDEO_MODE_FILE, stem)
-        .as_deref()
-        .and_then(VideoMode::parse)
-    {
+    if let Some(mode) = ini::value(root, VIDEO_MODE_FILE, stem).as_deref().and_then(VideoMode::parse) {
         return mode;
     }
     system_mode(root, platform).unwrap_or_else(|| global_mode(root))
@@ -139,11 +127,7 @@ pub fn write_global(root: &Path, mode: VideoMode) -> std::io::Result<()> {
     ini::write(root, VIDEO_MODE_FILE, global_key(), mode.as_str())
 }
 
-pub fn write_system(
-    root: &Path,
-    platform: Platform,
-    mode: Option<VideoMode>,
-) -> std::io::Result<()> {
+pub fn write_system(root: &Path, platform: Platform, mode: Option<VideoMode>) -> std::io::Result<()> {
     write_opt(root, &system_key(platform), mode.map(VideoMode::as_str))
 }
 
@@ -184,11 +168,7 @@ pub fn source_rect(platform: Platform, mode: VideoMode) -> [f32; 4] {
         return integer_rect(platform);
     }
     // 4:3 on this 4:3 panel is the picture filling the screen.
-    let mode = if mode == VideoMode::FourThree {
-        VideoMode::Stretch
-    } else {
-        mode
-    };
+    let mode = if mode == VideoMode::FourThree { VideoMode::Stretch } else { mode };
     let (w, h) = platform.picture();
     // In canvas units: a NES frame arrives on a 256x240 canvas, the Game Boys' on 240x160.
     let (src_w, src_h) = platform.canvas();
@@ -229,39 +209,18 @@ mod tests {
     #[test]
     fn a_game_follows_its_own_choice_then_its_system_then_the_global_one() {
         let root = tempfile::tempdir().unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::Actual
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Actual);
         write_global(root.path(), VideoMode::Integer).unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::Integer
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Integer);
         write_system(root.path(), Platform::Nes, Some(VideoMode::Stretch)).unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::Stretch
-        );
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Gba),
-            VideoMode::Integer
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Stretch);
+        assert_eq!(effective(root.path(), "Emerald", Platform::Gba), VideoMode::Integer);
         write_video_mode(root.path(), "Emerald", VideoMode::FourThree).unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::FourThree
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::FourThree);
         clear_game(root.path(), "Emerald").unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::Stretch
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Stretch);
         write_system(root.path(), Platform::Nes, None).unwrap();
-        assert_eq!(
-            effective(root.path(), "Emerald", Platform::Nes),
-            VideoMode::Integer
-        );
+        assert_eq!(effective(root.path(), "Emerald", Platform::Nes), VideoMode::Integer);
     }
 }
 
@@ -315,17 +274,10 @@ mod brick_tests {
     fn a_nes_picture_sits_in_its_own_canvas() {
         let (cw, ch) = Platform::Nes.canvas();
         let [x, y, w, h] = source_rect(Platform::Nes, VideoMode::Stretch);
-        assert_eq!(
-            (w * cw as f32, h * ch as f32),
-            (256.0, 224.0),
-            "the overscan-cropped picture"
-        );
+        assert_eq!((w * cw as f32, h * ch as f32), (256.0, 224.0), "the overscan-cropped picture");
         assert_eq!((x, y * ch as f32), (0.0, 8.0), "centred, 8 lines down");
         let [_, _, w, h] = source_rect(Platform::Nes, VideoMode::Actual);
-        assert!(
-            (w * cw as f32 / (h * ch as f32) - 4.0 / 3.0).abs() < 0.001,
-            "padded to 4:3"
-        );
+        assert!((w * cw as f32 / (h * ch as f32) - 4.0 / 3.0).abs() < 0.001, "padded to 4:3");
         assert!((h * ch as f32 - 224.0).abs() < 0.001, "no line cropped");
     }
 

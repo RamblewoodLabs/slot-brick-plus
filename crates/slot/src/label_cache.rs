@@ -18,23 +18,17 @@ const OLD_DIRS: [&str; 1] = ["System/Cache/Labels"];
 pub fn forget_old(root: &Path) {
     // Labels a search found and nobody kept, should Slot have stopped before clearing them.
     crate::cart_art::forget_choices(root);
-    let old: Vec<PathBuf> = OLD_DIRS
-        .iter()
-        .map(|d| root.join(d))
-        .filter(|d| d.is_dir())
-        .collect();
+    let old: Vec<PathBuf> = OLD_DIRS.iter().map(|d| root.join(d)).filter(|d| d.is_dir()).collect();
     if old.is_empty() {
         return;
     }
-    let spawned = thread::Builder::new()
-        .name("slot-label-cache".into())
-        .spawn(move || {
-            for dir in old {
-                if let Err(e) = std::fs::remove_dir_all(&dir) {
-                    eprintln!("slot: label cache: {}: {e}", dir.display());
-                }
+    let spawned = thread::Builder::new().name("slot-label-cache".into()).spawn(move || {
+        for dir in old {
+            if let Err(e) = std::fs::remove_dir_all(&dir) {
+                eprintln!("slot: label cache: {}: {e}", dir.display());
             }
-        });
+        }
+    });
     if let Err(e) = spawned {
         eprintln!("slot: label cache: {e}");
     }
@@ -104,9 +98,7 @@ pub fn stale<'a>(root: &Path, carts: impl Iterator<Item = &'a Cart>) -> Vec<Cart
 }
 
 pub fn cache_path(root: &Path, cart: &Cart) -> PathBuf {
-    root.join(DIR)
-        .join(cart.platform.dir_name())
-        .join(cache_name(cart))
+    root.join(DIR).join(cart.platform.dir_name()).join(cache_name(cart))
 }
 
 /// A NES game on the Famicom cart has its label cached apart: another picture, another size.

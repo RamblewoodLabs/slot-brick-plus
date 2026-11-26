@@ -241,10 +241,7 @@ static DISC_ART: OnceLock<(TexId, TexId)> = OnceLock::new();
 static DISC_MIX: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub fn set_disc_slot(mix: f32) {
-    DISC_MIX.store(
-        mix.clamp(0.0, 1.0).to_bits(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    DISC_MIX.store(mix.clamp(0.0, 1.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
 }
 
 fn disc_mix() -> f32 {
@@ -252,21 +249,13 @@ fn disc_mix() -> f32 {
 }
 
 #[cfg(feature = "brick")]
-pub fn upload_slot_art(mut upload: impl FnMut(u32, u32, &[u8]) -> TexId) {
-    if ART.get().is_some() {
-        return;
+pub fn upload_slot_art(mut upload: impl FnMut(u32,u32,&[u8])->TexId) {
+    if ART.get().is_some() {return;}
+    if let (Some(back),Some(front))=(slot_art_face(false),slot_art_face(true)) {
+        let _=ART.set((upload(back.w,back.h,&back.rgba),upload(front.w,front.h,&front.rgba)));
     }
-    if let (Some(back), Some(front)) = (slot_art_face(false), slot_art_face(true)) {
-        let _ = ART.set((
-            upload(back.w, back.h, &back.rgba),
-            upload(front.w, front.h, &front.rgba),
-        ));
-    }
-    if let (Some(back), Some(front)) = (disc_slot_face(false), disc_slot_face(true)) {
-        let _ = DISC_ART.set((
-            upload(back.w, back.h, &back.rgba),
-            upload(front.w, front.h, &front.rgba),
-        ));
+    if let (Some(back),Some(front))=(disc_slot_face(false),disc_slot_face(true)) {
+        let _=DISC_ART.set((upload(back.w,back.h,&back.rgba),upload(front.w,front.h,&front.rgba)));
     }
 }
 
@@ -274,13 +263,13 @@ pub fn upload_slot_art(mut upload: impl FnMut(u32, u32, &[u8]) -> TexId) {
 /// inside it, and a lip of light under it. Drawn over the cartridge slot as it fades in.
 #[cfg(feature = "brick")]
 fn disc_slot_face(front: bool) -> Option<crate::cart::CartFace> {
-    let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
-    let t = theme();
-    let (housing, opening, edge) = (hex(t.housing), hex(t.opening), hex(t.edge));
-    let local = |y: f32| y - BAND_Y;
-    let (top, h) = (local(DISC_SLIT_Y), DISC_SLIT_H);
-    let r = h / 2.0;
-    let body = if front {
+    let hex=|c: [u8;3]|format!("#{:02x}{:02x}{:02x}",c[0],c[1],c[2]);
+    let t=theme();
+    let (housing,opening,edge)=(hex(t.housing),hex(t.opening),hex(t.edge));
+    let local=|y:f32|y-BAND_Y;
+    let (top,h)=(local(DISC_SLIT_Y),DISC_SLIT_H);
+    let r=h/2.0;
+    let body=if front {
         format!("<path fill-rule='evenodd' fill='{housing}' d='M0,0 H{OUT_W} V{MOUTH_H} H0 Z M{},{top} H{} A{r},{r} 0 0 1 {},{} H{} A{r},{r} 0 0 1 {},{top} Z'/>\
             <rect x='{}' y='{}' width='{}' height='1' fill='{edge}'/>",
             MOUTH_X+r,MOUTH_X+MOUTH_W-r,MOUTH_X+MOUTH_W-r,top+h,MOUTH_X+r,MOUTH_X+r,
@@ -293,55 +282,30 @@ fn disc_slot_face(front: bool) -> Option<crate::cart::CartFace> {
 #[cfg(feature = "brick")]
 pub fn slot_art_face(front: bool) -> Option<crate::cart::CartFace> {
     use std::fmt::Write;
-    let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
-    let t = theme();
-    let (housing, recess, opening, edge) =
-        (hex(t.housing), hex(t.recess), hex(t.opening), hex(t.edge));
-    let near = CX - SCOOP_W / 2.0;
-    let far = CX + SCOOP_W / 2.0;
-    let right = BAY_X + BAY_W;
-    let local = |y: f32| y - BAND_Y;
-    let curve = |offset: f32, reverse: bool| {
-        let mut path = String::new();
+    let hex=|c: [u8;3]|format!("#{:02x}{:02x}{:02x}",c[0],c[1],c[2]);
+    let t=theme();
+    let (housing,recess,opening,edge)=(hex(t.housing),hex(t.recess),hex(t.opening),hex(t.edge));
+    let near=CX-SCOOP_W/2.0;let far=CX+SCOOP_W/2.0;let right=BAY_X+BAY_W;
+    let local=|y:f32|y-BAND_Y;
+    let curve=|offset:f32,reverse:bool| {
+        let mut path=String::new();
         for i in 0..=256 {
-            let u = if reverse {
-                1.0 - i as f32 / 256.0
-            } else {
-                i as f32 / 256.0
-            };
-            let x = near + SCOOP_W * u;
-            let y =
-                local(SCOOP_Y) + SCOOP_D * (1.0 - (2.0 * u - 1.0).abs().powf(SCOOP_FLAT)) + offset;
-            let _ = write!(path, " L{x:.3},{y:.3}");
+            let u=if reverse {1.0-i as f32/256.0} else {i as f32/256.0};
+            let x=near+SCOOP_W*u;
+            let y=local(SCOOP_Y)+SCOOP_D*(1.0-(2.0*u-1.0).abs().powf(SCOOP_FLAT))+offset;
+            let _=write!(path," L{x:.3},{y:.3}");
         }
         path
     };
-    let mut body = String::new();
+    let mut body=String::new();
     if front {
         let _=write!(body,"<path fill='{housing}' d='M0,0 H{BAY_X} V{} H{near} {} H{right} V0 H{OUT_W} V{MOUTH_H} H0 Z'/>",local(SCOOP_Y)+RIM_W,curve(RIM_W,false));
-        let _ = write!(
-            body,
-            "<path fill='{edge}' d='M{near},{} {} {} Z'/>",
-            local(SCOOP_Y),
-            curve(0.0, false),
-            curve(RIM_W, true)
-        );
+        let _=write!(body,"<path fill='{edge}' d='M{near},{} {} {} Z'/>",local(SCOOP_Y),curve(0.0,false),curve(RIM_W,true));
         let _=write!(body,"<path fill='none' stroke='white' stroke-opacity='.08' stroke-width='.5' d='M{near},{} {}'/>",local(SCOOP_Y)+RIM_W,curve(RIM_W,false));
     } else {
         let _=write!(body,"<rect x='{BAY_X}' y='0' width='{BAY_W}' height='{LIP_H}' fill='{housing}'/><rect x='{MOUTH_X}' y='0' width='{MOUTH_W}' height='{LIP_H}' fill='{edge}'/><rect x='{BAY_X}' y='{}' width='{BAY_W}' height='{RECESS_H}' fill='{recess}'/>",local(BAY_Y));
-        let _ = write!(
-            body,
-            "<path fill='{opening}' d='M{MOUTH_X},{} H{} V{} H{far} {} H{MOUTH_X} Z'/>",
-            local(SLIT_Y),
-            MOUTH_X + MOUTH_W,
-            local(SCOOP_Y),
-            curve(0.0, true)
-        );
-        let _ = write!(
-            body,
-            "<rect x='{MOUTH_X}' y='{}' width='{MOUTH_W}' height='3' fill='url(#shade)'/>",
-            local(SLIT_Y)
-        );
+        let _=write!(body,"<path fill='{opening}' d='M{MOUTH_X},{} H{} V{} H{far} {} H{MOUTH_X} Z'/>",local(SLIT_Y),MOUTH_X+MOUTH_W,local(SCOOP_Y),curve(0.0,true));
+        let _=write!(body,"<rect x='{MOUTH_X}' y='{}' width='{MOUTH_W}' height='3' fill='url(#shade)'/>",local(SLIT_Y));
     }
     raster(&body)
 }
@@ -351,62 +315,34 @@ pub fn slot_art_face(front: bool) -> Option<crate::cart::CartFace> {
 #[cfg(feature = "brick")]
 fn raster(body: &str) -> Option<crate::cart::CartFace> {
     let svg=format!("<svg xmlns='http://www.w3.org/2000/svg' width='{OUT_W}' height='{MOUTH_H}'><defs><linearGradient id='shade' x2='0' y2='1'><stop stop-color='black' stop-opacity='.25'/><stop offset='1' stop-color='black' stop-opacity='0'/></linearGradient></defs>{body}</svg>");
-    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).ok()?;
-    let (w, h) = (OUT_W * 2, (MOUTH_H * 2.0) as u32);
-    let mut pixels = resvg::tiny_skia::Pixmap::new(w, h)?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::from_scale(2.0, 2.0),
-        &mut pixels.as_mut(),
-    );
-    let mut rgba = pixels.data().to_vec();
+    let tree=usvg::Tree::from_str(&svg,&usvg::Options::default()).ok()?;
+    let (w,h)=(OUT_W*2,(MOUTH_H*2.0) as u32);
+    let mut pixels=resvg::tiny_skia::Pixmap::new(w,h)?;
+    resvg::render(&tree,resvg::tiny_skia::Transform::from_scale(2.0,2.0),&mut pixels.as_mut());
+    let mut rgba=pixels.data().to_vec();
     // Convert premultiplied raster colours for the straight-alpha sprite shader.
     for p in rgba.chunks_exact_mut(4) {
-        let a = u32::from(p[3]);
-        if a > 0 {
-            for c in &mut p[..3] {
-                *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
-            }
-        }
+        let a=u32::from(p[3]);
+        if a>0 {for c in &mut p[..3] {*c=((u32::from(*c)*255+a/2)/a).min(255) as u8;}}
     }
-    Some(crate::cart::CartFace { w, h, rgba })
+    Some(crate::cart::CartFace{w,h,rgba})
 }
 #[cfg(feature = "brick")]
 fn draw_art(front: bool, alpha: f32, out: &mut Vec<Draw>) -> bool {
-    let Some(&(back, fore)) = ART.get() else {
-        return false;
-    };
-    if alpha > 0.0 {
-        out.push(Draw::Tex {
-            x: 0.0,
-            y: BAND_Y,
-            w: OUT_W as f32,
-            h: MOUTH_H,
-            tex: if front { fore } else { back },
-            alpha,
-        });
-    }
+    let Some(&(back,fore))=ART.get() else {return false;};
+    if alpha>0.0 {out.push(Draw::Tex{x:0.0,y:BAND_Y,w:OUT_W as f32,h:MOUTH_H,tex:if front {fore}else{back},alpha});}
     // The disc slot over it, as far as it has come in: opaque where the cart slot is open, so
     // drawn on top it closes the scoop and leaves the slit.
-    let mix = disc_mix();
-    if let (true, Some(&(back, fore))) = (mix > 0.0 && alpha > 0.0, DISC_ART.get()) {
-        out.push(Draw::Tex {
-            x: 0.0,
-            y: BAND_Y,
-            w: OUT_W as f32,
-            h: MOUTH_H,
-            tex: if front { fore } else { back },
-            alpha: alpha * mix,
-        });
+    let mix=disc_mix();
+    if let (true,Some(&(back,fore)))=(mix>0.0&&alpha>0.0,DISC_ART.get()) {
+        out.push(Draw::Tex{x:0.0,y:BAND_Y,w:OUT_W as f32,h:MOUTH_H,tex:if front {fore}else{back},alpha:alpha*mix});
     }
     true
 }
 
 fn draw_slot_back(alpha: f32, out: &mut Vec<Draw>) {
     #[cfg(feature = "brick")]
-    if draw_art(false, alpha, out) {
-        return;
-    }
+    if draw_art(false,alpha,out) {return;}
     out.push(band(BAY_X, BAND_Y, BAY_W, LIP_H, housing(), alpha));
     out.push(band(MOUTH_X, BAND_Y, MOUTH_W, LIP_H, edge(), alpha));
     out.push(band(BAY_X, BAY_Y, BAY_W, RECESS_H, recess(), alpha));
@@ -418,9 +354,7 @@ fn draw_slot_back(alpha: f32, out: &mut Vec<Draw>) {
 
 fn draw_slot_front(alpha: f32, out: &mut Vec<Draw>) {
     #[cfg(feature = "brick")]
-    if draw_art(true, alpha, out) {
-        return;
-    }
+    if draw_art(true,alpha,out) {return;}
     front_bands(|x, y, w, h, c| out.push(band(x, y, w, h, c, alpha)));
 }
 

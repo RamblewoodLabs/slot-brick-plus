@@ -475,7 +475,8 @@ impl Companion {
     pub fn say(&self, day: i64, hour: u32, games: &[GameSeen]) -> String {
         let mood = self.mood_at(day, hour, games);
         let (stem, system) = self.topic();
-        let seed = (day as u64).wrapping_mul(17)
+        let seed = (day as u64)
+            .wrapping_mul(17)
             ^ u64::from(hour / 4)
             ^ u64::from(self.streak.current).wrapping_mul(9)
             ^ u64::from(self.level())
@@ -533,9 +534,7 @@ impl Companion {
         if last > 0 && last + 1 == day {
             return Mood::Sleepy;
         }
-        if games.iter().any(|g| g.played_secs == 0)
-            && self.sessions.is_empty()
-            && self.open.is_none()
+        if games.iter().any(|g| g.played_secs == 0) && self.sessions.is_empty() && self.open.is_none()
         {
             return Mood::Curious;
         }
@@ -1929,12 +1928,7 @@ mod tests {
         }
         assert!(seen.len() > 4, "the lines should not repeat every day");
         let named = pip.say(3, 9, &[]);
-        assert!(
-            named.contains("Tetris")
-                || named.contains("GB")
-                || named.contains("days")
-                || !named.is_empty()
-        );
+        assert!(named.contains("Tetris") || named.contains("GB") || named.contains("days") || !named.is_empty());
     }
 
     #[test]

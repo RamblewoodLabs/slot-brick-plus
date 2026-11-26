@@ -89,16 +89,7 @@ fn a_scanned_gba_cart_wears_its_games_plastic_on_the_shelf() {
     let face = slot::cart_faces::shelf_face(d.path(), &mut cart);
     let mut read = cart.clone();
     read.read_header();
-    assert!(
-        face.rgba == slot_ui::cart_face(&read).rgba,
-        "the shelf face ignores the game code"
-    );
-    let grey = Cart {
-        code: String::new(),
-        ..read
-    };
-    assert!(
-        face.rgba != slot_ui::cart_face(&grey).rgba,
-        "Drill Dozer's red is the default grey"
-    );
+    assert!(face.rgba == slot_ui::cart_face(&read).rgba, "the shelf face ignores the game code");
+    let grey = Cart { code: String::new(), ..read };
+    assert!(face.rgba != slot_ui::cart_face(&grey).rgba, "Drill Dozer's red is the default grey");
 }

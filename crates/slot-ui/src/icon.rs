@@ -152,11 +152,7 @@ pub fn icon_face(icon: Icon, px: f32, colour: [u8; 3]) -> CartFace {
 /// `base`. Outlined like the other icons.
 pub fn star_face(px: f32, base: [u8; 3], light: [u8; 3], shade: [u8; 3]) -> CartFace {
     let Some(r) = raster(Icon::Star, px) else {
-        return CartFace {
-            rgba: Vec::new(),
-            w: 0,
-            h: 0,
-        };
+        return CartFace { rgba: Vec::new(), w: 0, h: 0 };
     };
     let (w, h) = (r.w as usize, r.h as usize);
     // Its centre, as the ink's balance point: a five-pointed star's is its middle.
@@ -342,12 +338,7 @@ mod tests {
                 .filter(|c| matches!(*c as u32, 0xe000..=0xf8ff | 0xf0000..=0xfffff))
         }));
         for c in used {
-            assert_ne!(
-                font.lookup_glyph_index(c),
-                0,
-                "U+{:X} is not in the symbols font",
-                c as u32
-            );
+            assert_ne!(font.lookup_glyph_index(c), 0, "U+{:X} is not in the symbols font", c as u32);
         }
     }
 }
