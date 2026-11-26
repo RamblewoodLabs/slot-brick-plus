@@ -12,13 +12,17 @@ write to any card.
 ## Status
 
 - [x] Worktree created off main
-- [ ] Profile code paths (arrange, favorites toggle, menus, textures, IO)
-- [ ] Measure before timings
-- [ ] Fix biggest offenders
-- [ ] CI-equivalent checks
-- [ ] Push + PR against main (do not merge)
-- [ ] Build dist-rg35xxsp and dist-brick
-- [ ] Stage \\192.168.7.99\Shared-Space\sp-update-<sha> with SHA-256 manifest
+- [x] Profile code paths (arrange, favorites toggle, menus, textures, IO)
+- [x] Measure before timings
+- [x] Fix biggest offenders
+- [x] CI-equivalent checks (`sim.sh unit`, `sim.sh test` goldens, changelog-check)
+- [x] Push + PR against main (do not merge): https://github.com/jfink22-design/slot-brick-plus/pull/27
+      Head 5073fbc. CI: changelog, unit, and scenarios all green.
+- [x] Build dist-rg35xxsp (aarch64, stripped, BuildID edf46d99…, 17:30 Pacific)
+- [x] Build dist-brick (aarch64, stripped, BuildID ddc367c5…, 13,944,432 bytes, 5:38 PM Pacific)
+- [x] Stage \\192.168.7.99\Shared-Space\sp-update-5073fbc with SHA-256 manifest
+      (30 files, all matched dist-rg35xxsp byte-for-byte). Do not write to a card
+      until Jeff says to install.
 
 ## Notes
 
@@ -78,4 +82,25 @@ background thread. No full library rescan or PNG reload on a shelf switch.
 On the SP, the bigger win is `persist()` no longer blocking the frame on two SD fsyncs
 (often tens to hundreds of ms). arrange() is also cheaper on that slower CPU.
 
+
+
+## PR, CI, and staging (updated 2026-11-25 5:33 PM Pacific)
+
+- PR: https://github.com/jfink22-design/slot-brick-plus/pull/27 (open, not merged)
+- CI: unit, changelog, and scenarios all SUCCESS on 5073fbc
+- Local: `sh brick/sim.sh unit` and all 17 `sh brick/sim.sh test` goldens passed
+- Pre-existing on main, not caused by this branch: `quick_menu::screen_opens_a_page_per_system_each_with_its_own_page_and_b_comes_back_up`
+- dist-rg35xxsp built at 5:30 PM Pacific. Device builds used the SP amd64 image plus
+  a local QEMU gcc retry wrapper (`.docker-cache/gcc-retry.sh`, not in the PR) because
+  Linaro gcc sometimes SIGSEGV/ICE under qemu-amd64 on Apple silicon.
+- Staged: `/Users/jeff/Shared-Space/sp-update-5073fbc` (same as \\192.168.7.99\Shared-Space\sp-update-5073fbc).
+  30 files, `sp-system.sha256` verified, only `Slot/System` and `System/launch_frontend.sh`.
+  No Games, Labels, BIOS, Saves, States, or Config.
+
+
+## Brick dist (updated 2026-11-25 5:38 PM Pacific)
+
+- dist-brick/Slot/System/slot: ELF aarch64 pie, stripped, BuildID ddc367c555c50feefdbfdd88f9e9fbc11a67336b, 13944432 bytes, mtime 5:38 PM Pacific.
+- brick/card/Slot/System/slot-filecheck restored after the package step; crates/slot-cheevos/core left untracked and uncommitted.
+- No card writes. PR #27 remains open and unmerged.
 
