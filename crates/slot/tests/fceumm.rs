@@ -54,14 +54,30 @@ fn a_nes_game_draws_its_picture_centred_on_the_nes_canvas() {
         let i = ((y * w + x) * 4) as usize;
         [video[i], video[i + 1], video[i + 2]]
     };
-    assert!(px(128, 120).iter().all(|c| *c > 0xc0), "the picture is not white: {:?}", px(128, 120));
-    assert!(px(128, 9).iter().all(|c| *c > 0xc0), "the first line of the picture is missing");
-    assert_eq!(px(128, 3), [0, 0, 0], "the cropped overscan is not black above the picture");
-    assert_eq!(px(128, 236), [0, 0, 0], "the cropped overscan is not black below the picture");
+    assert!(
+        px(128, 120).iter().all(|c| *c > 0xc0),
+        "the picture is not white: {:?}",
+        px(128, 120)
+    );
+    assert!(
+        px(128, 9).iter().all(|c| *c > 0xc0),
+        "the first line of the picture is missing"
+    );
+    assert_eq!(
+        px(128, 3),
+        [0, 0, 0],
+        "the cropped overscan is not black above the picture"
+    );
+    assert_eq!(
+        px(128, 236),
+        [0, 0, 0],
+        "the cropped overscan is not black below the picture"
+    );
 
     let state = core.serialize().expect("no save state");
     core.run_frame(slot_retro::ButtonMask(0));
-    core.unserialize(&state).expect("its own save state was refused");
+    core.unserialize(&state)
+        .expect("its own save state was refused");
     assert!(core.av_info().sample_rate > 0.0);
 }
 
@@ -81,12 +97,23 @@ fn every_option_slot_sets_on_fceumm_is_one_it_declares() {
     // It declares its options as the game loads, and reads slot's values then.
     core.load(&rom).expect("FCEUmm refused the cart");
     let declared = core.declared_options();
-    assert!(!declared.is_empty(), "FCEUmm declared no options, so this would pass on anything");
+    assert!(
+        !declared.is_empty(),
+        "FCEUmm declared no options, so this would pass on anything"
+    );
     let set = core.options();
-    assert!(set.iter().any(|(k, _)| k == "fceumm_overscan_v_top"), "{set:?}");
+    assert!(
+        set.iter().any(|(k, _)| k == "fceumm_overscan_v_top"),
+        "{set:?}"
+    );
     for (key, value) in set {
-        let values = declared.get(&key).unwrap_or_else(|| panic!("FCEUmm declares no option {key:?}"));
-        assert!(values.contains(&value), "FCEUmm declares {key:?} as {values:?}, not {value:?}");
+        let values = declared
+            .get(&key)
+            .unwrap_or_else(|| panic!("FCEUmm declares no option {key:?}"));
+        assert!(
+            values.contains(&value),
+            "FCEUmm declares {key:?} as {values:?}, not {value:?}"
+        );
     }
 }
 
@@ -111,7 +138,11 @@ fn the_emulator_thread_hands_the_screen_whole_nes_frames() {
     while emu.state() != CoreState::Ready && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(emu.state(), CoreState::Ready, "FCEUmm never finished loading");
+    assert_eq!(
+        emu.state(),
+        CoreState::Ready,
+        "FCEUmm never finished loading"
+    );
     emu.set_speed(Speed::Normal);
     while !emu.has_published() && std::time::Instant::now() < deadline {
         sink.device_drain();
@@ -119,5 +150,9 @@ fn the_emulator_thread_hands_the_screen_whole_nes_frames() {
     }
     let frame = emu.latest_frame().expect("no frame was published");
     let (w, h) = slot_store::Platform::Nes.canvas();
-    assert_eq!(frame.len(), (w * h * 4) as usize, "a frame is not the NES canvas");
+    assert_eq!(
+        frame.len(),
+        (w * h * 4) as usize,
+        "a frame is not the NES canvas"
+    );
 }

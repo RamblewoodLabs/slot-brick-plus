@@ -57,8 +57,14 @@ pub fn label_fit_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Ve
             let px = if fx < 0.0 || fy < 0.0 || fx >= dw || fy >= dh {
                 fill
             } else {
-                let (x0, y0) = ((x as f32 - dx).max(0.0) / scale, (y as f32 - dy).max(0.0) / scale);
-                let (x1, y1) = (((x + 1) as f32 - dx).min(dw) / scale, ((y + 1) as f32 - dy).min(dh) / scale);
+                let (x0, y0) = (
+                    (x as f32 - dx).max(0.0) / scale,
+                    (y as f32 - dy).max(0.0) / scale,
+                );
+                let (x1, y1) = (
+                    ((x + 1) as f32 - dx).min(dw) / scale,
+                    ((y + 1) as f32 - dy).min(dh) / scale,
+                );
                 box_average(src, sw, sh, x0, y0, x1, y1)
             };
             out[((y * w + x) * 4) as usize..][..4].copy_from_slice(&px);

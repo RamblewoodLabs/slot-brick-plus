@@ -202,9 +202,16 @@ fn a_line_naming_a_core_the_platform_cannot_run_is_dropped() {
 fn the_picker_board_has_exactly_two_sockets() {
     assert_eq!(Core::PICKER, [Core::Mgba, Core::Gpsp]);
     for (i, core) in Core::PICKER.iter().enumerate() {
-        assert_eq!(core.index(), i, "{core:?}'s faces are looked up by its index");
+        assert_eq!(
+            core.index(),
+            i,
+            "{core:?}'s faces are looked up by its index"
+        );
     }
-    assert!(!Core::Fceumm.runs(Platform::Gba), "the NES core never gets a GBA socket");
+    assert!(
+        !Core::Fceumm.runs(Platform::Gba),
+        "the NES core never gets a GBA socket"
+    );
 }
 
 #[test]
@@ -220,5 +227,9 @@ fn a_nes_game_runs_on_fceumm_and_never_on_the_gba_cores() {
     let d = tempdir().unwrap();
     std::fs::create_dir_all(d.path().join("Config")).unwrap();
     write_selected_core(d.path(), "Zelda", Core::Mgba).unwrap();
-    assert_eq!(core_for_platform(d.path(), "Zelda", Platform::Nes), Core::Fceumm, "a stale choice is ignored");
+    assert_eq!(
+        core_for_platform(d.path(), "Zelda", Platform::Nes),
+        Core::Fceumm,
+        "a stale choice is ignored"
+    );
 }

@@ -21,7 +21,9 @@ pub fn path(root: &Path, url: &str) -> Option<PathBuf> {
     let name = tail.rsplit('/').next()?;
     let ok = name.len() <= 64
         && name.ends_with(".png")
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
         && !name.starts_with('.');
     ok.then(|| root.join(DIR).join(name))
 }
@@ -42,17 +44,23 @@ pub fn prefetch(root: &Path, urls: Vec<String>) {
         return;
     }
     let urls: Vec<String> = wanted.iter().map(|(u, _)| u.clone()).collect();
-    let spawned = std::thread::Builder::new().name("slot-badges".into()).spawn(move || {
-        let mut fetched = 0;
-        for (url, path) in &wanted {
-            match fetch(url, path) {
-                Ok(()) => fetched += 1,
-                Err(e) => eprintln!("slot: badge {url}: {e}"),
+    let spawned = std::thread::Builder::new()
+        .name("slot-badges".into())
+        .spawn(move || {
+            let mut fetched = 0;
+            for (url, path) in &wanted {
+                match fetch(url, path) {
+                    Ok(()) => fetched += 1,
+                    Err(e) => eprintln!("slot: badge {url}: {e}"),
+                }
+                FETCHING
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_or_insert_with(HashSet::new)
+                    .remove(url);
             }
-            FETCHING.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashSet::new).remove(url);
-        }
-        eprintln!("slot: badges: {fetched} of {} fetched", wanted.len());
-    });
+            eprintln!("slot: badges: {fetched} of {} fetched", wanted.len());
+        });
     if spawned.is_err() {
         let mut busy = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
         for url in &urls {
@@ -65,7 +73,9 @@ pub fn prefetch(root: &Path, urls: Vec<String>) {
 pub fn ensure(root: &Path, urls: &[String]) -> usize {
     let mut saved = 0;
     for url in urls {
-        let Some(path) = path(root, url) else { continue };
+        let Some(path) = path(root, url) else {
+            continue;
+        };
         if path.exists() {
             continue;
         }
@@ -113,7 +123,14 @@ mod tests {
             path(root, "https://media.retroachievements.org/Badge/12345.png"),
             Some(PathBuf::from("/r/System/Cache/Badges/12345.png"))
         );
-        assert_eq!(path(root, "https://media.retroachievements.org/Badge/12345_lock.png").is_some(), true);
+        assert_eq!(
+            path(
+                root,
+                "https://media.retroachievements.org/Badge/12345_lock.png"
+            )
+            .is_some(),
+            true
+        );
         let ra = "https://media.retroachievements.org/Badge/";
         for bad in [
             "http://media.retroachievements.org/Badge/1.png".to_string(),

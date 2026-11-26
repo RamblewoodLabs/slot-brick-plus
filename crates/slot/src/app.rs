@@ -8,11 +8,10 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Outline,
-    FavoritesSort, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
-    StateRing, Theme,
-    AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
-    VOLUME_MAX,
+    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, FavoritesSort, GbPalette,
+    Outline, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
+    StateRing, Theme, AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS,
+    RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
@@ -535,7 +534,11 @@ const BADGE_WAIT: Millis = 1500;
 
 fn shelves_of(carts: Vec<Cart>) -> Vec<(ShelfKind, Shelf)> {
     let mut rows: Vec<(ShelfKind, Vec<Cart>)> = std::iter::once((ShelfKind::Favorites, Vec::new()))
-        .chain(Platform::ALL.iter().map(|p| (ShelfKind::System(*p), Vec::new())))
+        .chain(
+            Platform::ALL
+                .iter()
+                .map(|p| (ShelfKind::System(*p), Vec::new())),
+        )
         .collect();
     for cart in carts {
         if let Some((_, row)) = rows
@@ -891,7 +894,8 @@ impl App {
         }
         // Hidden systems have no shelf; with every system that has games hidden, all are shown,
         // unless the Favorites shelf is the one left on purpose.
-        let show_favorites = self.state.show_favorites && self.library.any_favorite(&self.all_carts);
+        let show_favorites =
+            self.state.show_favorites && self.library.any_favorite(&self.all_carts);
         let any_system_shown = self.all_carts.iter().any(|c| self.state.shows(c.platform));
         let shown: Vec<Cart> = if any_system_shown {
             self.all_carts
@@ -1392,29 +1396,31 @@ impl App {
     }
 
     fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
-        let matches = |cart: &Cart| {
-            cart.stem == stem && platform.is_none_or(|want| cart.platform == want)
-        };
-        let on_system = self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-            if platform.is_some() && kind.system() != platform {
-                return None;
-            }
-            if platform.is_none() && kind == &ShelfKind::Favorites {
-                return None;
-            }
-            shelf
-                .carts
-                .iter()
-                .position(matches)
-                .map(|i| (at, i))
-        });
-        on_system.or_else(|| {
-            self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-                if *kind != ShelfKind::Favorites {
+        let matches =
+            |cart: &Cart| cart.stem == stem && platform.is_none_or(|want| cart.platform == want);
+        let on_system = self
+            .shelves
+            .iter()
+            .enumerate()
+            .find_map(|(at, (kind, shelf))| {
+                if platform.is_some() && kind.system() != platform {
+                    return None;
+                }
+                if platform.is_none() && kind == &ShelfKind::Favorites {
                     return None;
                 }
                 shelf.carts.iter().position(matches).map(|i| (at, i))
-            })
+            });
+        on_system.or_else(|| {
+            self.shelves
+                .iter()
+                .enumerate()
+                .find_map(|(at, (kind, shelf))| {
+                    if *kind != ShelfKind::Favorites {
+                        return None;
+                    }
+                    shelf.carts.iter().position(matches).map(|i| (at, i))
+                })
         })
     }
 
@@ -1616,7 +1622,15 @@ impl App {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
-            | QuickRow::ShowGw => row
+            | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
@@ -3093,6 +3107,14 @@ impl App {
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
             | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -3356,7 +3378,15 @@ impl App {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
-            | QuickRow::ShowGw => {
+            | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };

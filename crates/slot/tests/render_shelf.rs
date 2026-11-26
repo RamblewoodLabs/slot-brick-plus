@@ -146,9 +146,19 @@ fn start_opens_the_cart_menu_on_every_cart_and_the_picker_only_from_a_gba_one() 
     let_it_hop(&mut untouched);
     let plain = shot(&untouched, &mut c, "gb-plain");
     let after = shot(&pressed, &mut c, "gb-after-start");
-    assert!(pressed.cart_menu().is_some(), "START opened no cart menu on a Game Boy cart");
-    assert_eq!(pressed.core_picker(), None, "a Game Boy cart opened the GBA picker");
-    assert!(after != plain, "the cart menu opened and the panel showed the same shelf");
+    assert!(
+        pressed.cart_menu().is_some(),
+        "START opened no cart menu on a Game Boy cart"
+    );
+    assert_eq!(
+        pressed.core_picker(),
+        None,
+        "a Game Boy cart opened the GBA picker"
+    );
+    assert!(
+        after != plain,
+        "the cart menu opened and the panel showed the same shelf"
+    );
 
     let d = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
     let twin = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
@@ -163,8 +173,15 @@ fn start_opens_the_cart_menu_on_every_cart_and_the_picker_only_from_a_gba_one() 
     let_it_hop(&mut untouched);
     let plain = shot(&untouched, &mut c, "gba-plain");
     let after = shot(&pressed, &mut c, "gba-after-start");
-    assert_eq!(pressed.core_picker(), Some(Core::Mgba), "EMULATOR stopped opening the picker");
-    assert!(after != plain, "the picker opened and the panel showed the same shelf");
+    assert_eq!(
+        pressed.core_picker(),
+        Some(Core::Mgba),
+        "EMULATOR stopped opening the picker"
+    );
+    assert!(
+        after != plain,
+        "the picker opened and the panel showed the same shelf"
+    );
 }
 
 #[test]

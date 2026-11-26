@@ -18,7 +18,11 @@ const INK: [u8; 3] = [0xf6, 0xf4, 0xef];
 /// The card: the name on one line, shrunk to fit, on a rounded dark ground as wide as it needs.
 pub fn title_card_face(name: &str) -> UndoFace {
     let Some(font) = text::label_font() else {
-        return UndoFace { rgba: Vec::new(), w: 0, h: 0 };
+        return UndoFace {
+            rgba: Vec::new(),
+            w: 0,
+            h: 0,
+        };
     };
     let room = (CARD_MAX_W - 2 * PAD_X) as f32;
     let layout = text::fit(font, name, room, 1, PX, MIN_PX);
@@ -52,7 +56,12 @@ fn rounded(w: u32, h: u32) -> Vec<u8> {
 
 /// The card, centred across the screen and in the room between the selected cart's foot and the
 /// slot. Drawn before the shelf, so where the room is short the cart stays on top.
-pub fn draw_title_card(card: Option<(TexId, u32, u32)>, cart_foot: f32, alpha: f32, out: &mut Vec<Draw>) {
+pub fn draw_title_card(
+    card: Option<(TexId, u32, u32)>,
+    cart_foot: f32,
+    alpha: f32,
+    out: &mut Vec<Draw>,
+) {
     let (Some((tex, w, h)), true) = (card, alpha > 0.0) else {
         return;
     };

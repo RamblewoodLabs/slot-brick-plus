@@ -194,8 +194,14 @@ fn colour_correction_flips_on_either_arrow_and_saves_for_its_own_system_only() {
     ] {
         press(&mut a, btn);
         let s = read_slot_state(d.path());
-        assert_eq!(s.colour_correction_gba, want, "{btn:?} never reached the card");
-        assert!(!s.colour_correction_gb, "{btn:?} changed the Game Boys' too");
+        assert_eq!(
+            s.colour_correction_gba, want,
+            "{btn:?} never reached the card"
+        );
+        assert!(
+            !s.colour_correction_gb,
+            "{btn:?} changed the Game Boys' too"
+        );
         assert_eq!(
             a.quick_value(QuickRow::GbaColourCorrection),
             Some(QuickValue::flag(want))
@@ -204,7 +210,10 @@ fn colour_correction_flips_on_either_arrow_and_saves_for_its_own_system_only() {
     open_at(&mut a, QuickRow::GbColourCorrection);
     press(&mut a, Btn::Right);
     let s = read_slot_state(d.path());
-    assert_eq!((s.colour_correction_gb, s.colour_correction_gba), (true, false));
+    assert_eq!(
+        (s.colour_correction_gb, s.colour_correction_gba),
+        (true, false)
+    );
 }
 
 #[test]
@@ -267,7 +276,10 @@ fn autosave_under_saving_and_low_battery_shutdown_in_system_step_and_save() {
     assert_eq!(card(&d), (0, 10));
     press(&mut a, Btn::Right);
     assert_eq!(card(&d), (0, 0));
-    assert_eq!(a.quick_value(QuickRow::BatteryShutdown), Some(QuickValue::Off));
+    assert_eq!(
+        a.quick_value(QuickRow::BatteryShutdown),
+        Some(QuickValue::Off)
+    );
 }
 
 #[test]
@@ -276,9 +288,19 @@ fn screen_opens_a_page_per_system_each_with_its_own_page_and_b_comes_back_up() {
     open_at(&mut a, QuickRow::Screen);
     press(&mut a, Btn::A);
     assert_eq!(a.quick_menu(), Some(QuickRow::ScreenGb));
-    for want in [QuickRow::ScreenGba, QuickRow::ScreenNes, QuickRow::ScreenSnes, QuickRow::ScreenPs1, QuickRow::ScreenGb] {
+    for want in [
+        QuickRow::ScreenGba,
+        QuickRow::ScreenNes,
+        QuickRow::ScreenSnes,
+        QuickRow::ScreenPs1,
+        QuickRow::ScreenGb,
+    ] {
         press(&mut a, Btn::Down);
-        assert_eq!(a.quick_menu(), Some(want), "the page did not wrap on itself");
+        assert_eq!(
+            a.quick_menu(),
+            Some(want),
+            "the page did not wrap on itself"
+        );
     }
     press(&mut a, Btn::A);
     assert_eq!(a.quick_menu(), Some(QuickRow::GbShader));
@@ -290,7 +312,11 @@ fn screen_opens_a_page_per_system_each_with_its_own_page_and_b_comes_back_up() {
         QuickRow::GbShader,
     ] {
         press(&mut a, Btn::Down);
-        assert_eq!(a.quick_menu(), Some(want), "the Game Boy page did not wrap on itself");
+        assert_eq!(
+            a.quick_menu(),
+            Some(want),
+            "the Game Boy page did not wrap on itself"
+        );
     }
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::ScreenGb));
@@ -305,7 +331,11 @@ fn screen_opens_a_page_per_system_each_with_its_own_page_and_b_comes_back_up() {
         press(&mut a, Btn::A);
         assert_eq!(a.quick_menu(), Some(first));
         press(&mut a, Btn::B);
-        assert_eq!(a.quick_menu(), Some(system), "B did not come back to {system:?}");
+        assert_eq!(
+            a.quick_menu(),
+            Some(system),
+            "B did not come back to {system:?}"
+        );
     }
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::Screen));
@@ -320,7 +350,11 @@ fn nes_and_snes_shaders_are_set_from_their_own_pages() {
     assert_eq!(a.quick_value(QuickRow::NesShader), Some(QuickValue::Off));
     press(&mut a, Btn::Right);
     assert_eq!(read_slot_state(d.path()).shader_nes, Shader::Grid);
-    assert_eq!(read_slot_state(d.path()).shader_snes, Shader::Off, "the SNES took the NES one");
+    assert_eq!(
+        read_slot_state(d.path()).shader_snes,
+        Shader::Off,
+        "the SNES took the NES one"
+    );
     open_at(&mut a, QuickRow::SnesShader);
     press(&mut a, Btn::Left);
     assert_eq!(read_slot_state(d.path()).shader_snes, Shader::Grid);
@@ -407,12 +441,17 @@ fn about_opens_a_page_and_its_label_row_opens_the_label() {
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::AboutLabel));
     press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::About), "B from the page goes back to System");
+    assert_eq!(
+        a.quick_menu(),
+        Some(QuickRow::About),
+        "B from the page goes back to System"
+    );
 }
 
 /// What an About row says, as the menu prints it.
 fn about_text(a: &App, row: QuickRow) -> String {
-    a.named_text(row.named().expect("an About row reads a text")).to_string()
+    a.named_text(row.named().expect("an About row reads a text"))
+        .to_string()
 }
 
 #[test]
@@ -421,10 +460,16 @@ fn about_says_the_version_the_build_the_firmware_and_the_cards_space() {
     let before = std::fs::read(d.path().join("Config/slot.state")).unwrap();
     open_at(&mut a, QuickRow::About);
     press(&mut a, Btn::A);
-    assert_eq!(about_text(&a, QuickRow::AboutVersion), slot_ui::PORT_VERSION.to_lowercase());
+    assert_eq!(
+        about_text(&a, QuickRow::AboutVersion),
+        slot_ui::PORT_VERSION.to_lowercase()
+    );
     // Built without SLOT_CHANNEL (as releases are): a release.
     assert_eq!(about_text(&a, QuickRow::AboutBuild), "Release");
-    assert!(about_text(&a, QuickRow::AboutDevice).starts_with("TrimUI Brick") || about_text(&a, QuickRow::AboutDevice) == "PC");
+    assert!(
+        about_text(&a, QuickRow::AboutDevice).starts_with("TrimUI Brick")
+            || about_text(&a, QuickRow::AboutDevice) == "PC"
+    );
     assert_eq!(about_text(&a, QuickRow::AboutFirmware), "Stock");
     let card = about_text(&a, QuickRow::AboutCard);
     assert!(card.contains('/') && card.ends_with(" GB free"), "{card}");
@@ -436,7 +481,10 @@ fn about_says_the_version_the_build_the_firmware_and_the_cards_space() {
             assert_eq!(a.quick_menu(), Some(row), "{btn:?} on {row:?}");
         }
     }
-    assert_eq!(std::fs::read(d.path().join("Config/slot.state")).unwrap(), before);
+    assert_eq!(
+        std::fs::read(d.path().join("Config/slot.state")).unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -608,7 +656,7 @@ fn the_legend_says_change_on_a_value_row_and_open_on_a_row_that_opens() {
     }
 }
 
-#[cfg(feature="brick")]
+#[cfg(feature = "brick")]
 #[test]
 fn cart_art_does_nothing_while_wifi_is_off_and_achievements_still_open() {
     let (_d, mut a, _) = on_carousel();
@@ -644,7 +692,14 @@ fn the_arrows_stand_only_around_the_selected_rows_value() {
         "rumble's ON is not grey"
     );
     // Beside Auto Clock (on a Brick, on the Clock page; else on System, with About).
-    open_at(&mut a, QuickRow::AutoClock.page().last().copied().unwrap_or(QuickRow::About));
+    open_at(
+        &mut a,
+        QuickRow::AutoClock
+            .page()
+            .last()
+            .copied()
+            .unwrap_or(QuickRow::About),
+    );
     let out = frame(&a);
     assert!(drawn(&out, 500), "the date and time is not grey");
 
@@ -743,29 +798,39 @@ fn gb_palettes_flips_on_either_arrow_and_saves() {
     }
 }
 
-#[cfg(feature="brick")]
+#[cfg(feature = "brick")]
 #[test]
 fn wifi_keeps_navigation_inside_overlay_and_b_returns_to_its_row() {
-    let (_d,mut a,_)=on_carousel();open_at(&mut a,QuickRow::Wifi);press(&mut a,Btn::A);
-    press(&mut a,Btn::Down);
-    assert_eq!(a.quick_menu(),Some(QuickRow::Wifi));
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::Wifi);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::Down);
+    assert_eq!(a.quick_menu(), Some(QuickRow::Wifi));
     // Status may still be running. B first cancels it, then closes the overlay.
     for i in 0..100 {
-        a.tick_ms(5000+i*10);press(&mut a,Btn::B);press(&mut a,Btn::Down);
-        if a.quick_menu()==Some(QuickRow::CartArt){return}
+        a.tick_ms(5000 + i * 10);
+        press(&mut a, Btn::B);
+        press(&mut a, Btn::Down);
+        if a.quick_menu() == Some(QuickRow::CartArt) {
+            return;
+        }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     panic!("Wi-Fi overlay did not return to settings");
 }
 
-#[cfg(feature="brick")]
+#[cfg(feature = "brick")]
 #[test]
 fn wifi_status_finishes_before_a_pending_sleep_request() {
-    let (_d,mut a,_)=on_carousel();open_at(&mut a,QuickRow::Wifi);press(&mut a,Btn::A);
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::Wifi);
+    press(&mut a, Btn::A);
     a.apply(Action::PowerTap);
     for i in 0..100 {
-        a.tick_ms(5000+i*10);
-        if matches!(a.phase(),Phase::Doze{..}) {return}
+        a.tick_ms(5000 + i * 10);
+        if matches!(a.phase(), Phase::Doze { .. }) {
+            return;
+        }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     panic!("Pending sleep was not completed after the Wi-Fi worker stopped");
@@ -788,10 +853,18 @@ fn an_overlay_row_steps_through_off_and_the_overlays_there_are_and_saves_each() 
         (Btn::Left, Some("SP.png"), "SP"),
     ] {
         press(&mut a, btn);
-        assert_eq!(read_slot_state(d.path()).overlay(Platform::Gba), want, "{btn:?}");
+        assert_eq!(
+            read_slot_state(d.path()).overlay(Platform::Gba),
+            want,
+            "{btn:?}"
+        );
         assert_eq!(a.overlay_text(Platform::Gba), shown);
     }
-    assert_eq!(read_slot_state(d.path()).overlay(Platform::Gb), None, "the Game Boy took the GBA's");
+    assert_eq!(
+        read_slot_state(d.path()).overlay(Platform::Gb),
+        None,
+        "the Game Boy took the GBA's"
+    );
 }
 
 #[test]
@@ -808,35 +881,69 @@ fn reset_settings_asks_once_then_puts_every_setting_back() {
     open_at(&mut a, QuickRow::ResetSettings);
     assert_eq!(a.quick_value(QuickRow::ResetSettings), None);
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_value(QuickRow::ResetSettings), Some(QuickValue::ResetAsk));
+    assert_eq!(
+        a.quick_value(QuickRow::ResetSettings),
+        Some(QuickValue::ResetAsk)
+    );
     assert!(!read_slot_state(d.path()).rumble, "asked, not done");
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_value(QuickRow::ResetSettings), Some(QuickValue::ResetDone));
+    assert_eq!(
+        a.quick_value(QuickRow::ResetSettings),
+        Some(QuickValue::ResetDone)
+    );
     let s = read_slot_state(d.path());
     assert!(s.rumble);
-    assert_eq!((s.ff_speed, s.shader_gba), (SlotState::default().ff_speed, SlotState::default().shader_gba));
-    assert_eq!((s.brightness, s.utc_offset_min, s.clock_set), (8, 60, true), "the levels and the clock stay");
-    assert_eq!(std::fs::read_to_string(d.path().join("Config/font.txt")).unwrap().trim(), "Slot");
+    assert_eq!(
+        (s.ff_speed, s.shader_gba),
+        (
+            SlotState::default().ff_speed,
+            SlotState::default().shader_gba
+        )
+    );
+    assert_eq!(
+        (s.brightness, s.utc_offset_min, s.clock_set),
+        (8, 60, true),
+        "the levels and the clock stay"
+    );
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("Config/font.txt"))
+            .unwrap()
+            .trim(),
+        "Slot"
+    );
     // A third A does nothing more; moving off clears the row.
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_value(QuickRow::ResetSettings), Some(QuickValue::ResetDone));
+    assert_eq!(
+        a.quick_value(QuickRow::ResetSettings),
+        Some(QuickValue::ResetDone)
+    );
     press(&mut a, Btn::Down);
     assert_eq!(a.quick_value(QuickRow::ResetSettings), None);
 }
 
 #[test]
 fn reset_settings_asked_and_then_left_changes_nothing() {
-    let (d, mut a, _) = on_carousel_with(SlotState { rumble: false, ..SlotState::default() });
+    let (d, mut a, _) = on_carousel_with(SlotState {
+        rumble: false,
+        ..SlotState::default()
+    });
     open_at(&mut a, QuickRow::ResetSettings);
     press(&mut a, Btn::A);
     press(&mut a, Btn::Up);
     press(&mut a, Btn::Down);
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_value(QuickRow::ResetSettings), Some(QuickValue::ResetAsk));
+    assert_eq!(
+        a.quick_value(QuickRow::ResetSettings),
+        Some(QuickValue::ResetAsk)
+    );
     press(&mut a, Btn::B);
     open_at(&mut a, QuickRow::ResetSettings);
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_value(QuickRow::ResetSettings), Some(QuickValue::ResetAsk), "asked again, from the start");
+    assert_eq!(
+        a.quick_value(QuickRow::ResetSettings),
+        Some(QuickValue::ResetAsk),
+        "asked again, from the start"
+    );
     assert!(!read_slot_state(d.path()).rumble);
 }
 
@@ -851,14 +958,36 @@ fn the_menu_pops_as_it_is_used_and_is_quiet_when_nothing_happens() {
         }
         a.take_sfx()
     };
-    assert_eq!(heard(&mut a, None), Some(Sfx::Menu(MenuSound::Open)), "HOME opens the menu");
-    assert_eq!(heard(&mut a, Some(Btn::Down)), Some(Sfx::Menu(MenuSound::Move)));
-    assert_eq!(heard(&mut a, Some(Btn::A)), Some(Sfx::Menu(MenuSound::Open)), "a page opens");
-    assert_eq!(heard(&mut a, Some(Btn::Right)), Some(Sfx::Menu(MenuSound::Change)), "Fast Forward steps");
-    assert_eq!(heard(&mut a, Some(Btn::B)), Some(Sfx::Menu(MenuSound::Back)));
+    assert_eq!(
+        heard(&mut a, None),
+        Some(Sfx::Menu(MenuSound::Open)),
+        "HOME opens the menu"
+    );
+    assert_eq!(
+        heard(&mut a, Some(Btn::Down)),
+        Some(Sfx::Menu(MenuSound::Move))
+    );
+    assert_eq!(
+        heard(&mut a, Some(Btn::A)),
+        Some(Sfx::Menu(MenuSound::Open)),
+        "a page opens"
+    );
+    assert_eq!(
+        heard(&mut a, Some(Btn::Right)),
+        Some(Sfx::Menu(MenuSound::Change)),
+        "Fast Forward steps"
+    );
+    assert_eq!(
+        heard(&mut a, Some(Btn::B)),
+        Some(Sfx::Menu(MenuSound::Back))
+    );
     // A row that opens has no value to change: Left and Right do nothing, and say nothing.
     assert_eq!(heard(&mut a, Some(Btn::Right)), None);
-    assert_eq!(heard(&mut a, Some(Btn::B)), Some(Sfx::Menu(MenuSound::Back)), "the menu closes");
+    assert_eq!(
+        heard(&mut a, Some(Btn::B)),
+        Some(Sfx::Menu(MenuSound::Back)),
+        "the menu closes"
+    );
     assert!(matches!(a.phase(), Phase::Shelf));
 }
 
@@ -872,7 +1001,11 @@ fn menu_sounds_off_quiets_the_menu_from_then_on() {
     assert_eq!(a.take_sfx(), None, "turned off, it is quiet at once");
     for btn in [Btn::Up, Btn::Down] {
         press(&mut a, btn);
-        assert_eq!(a.take_sfx(), None, "{btn:?} made a sound with Menu Sounds off");
+        assert_eq!(
+            a.take_sfx(),
+            None,
+            "{btn:?} made a sound with Menu Sounds off"
+        );
     }
     while a.quick_menu().is_some() {
         press(&mut a, Btn::B);
@@ -888,15 +1021,28 @@ fn system_sounds_has_a_switch_for_each_kind_of_sound_and_each_is_kept() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::SystemSounds);
     press(&mut a, Btn::A);
-    assert_eq!(a.quick_menu(), Some(QuickRow::SoundVolume), "System Sounds opens on its volume");
-    for row in QuickRow::SOUNDS.into_iter().filter(|r| *r != QuickRow::SoundVolume) {
+    assert_eq!(
+        a.quick_menu(),
+        Some(QuickRow::SoundVolume),
+        "System Sounds opens on its volume"
+    );
+    for row in QuickRow::SOUNDS
+        .into_iter()
+        .filter(|r| *r != QuickRow::SoundVolume)
+    {
         open_at(&mut a, row);
-        assert_eq!(a.quick_value(row), Some(QuickValue::On), "{row:?} starts on");
+        assert_eq!(
+            a.quick_value(row),
+            Some(QuickValue::On),
+            "{row:?} starts on"
+        );
         press(&mut a, Btn::Left);
         assert_eq!(a.quick_value(row), Some(QuickValue::Off), "{row:?}");
     }
     let s = read_slot_state(d.path());
-    assert!(!s.menu_sounds && !s.sound_star && !s.sound_cart && !s.sound_cart_open && !s.sound_label);
+    assert!(
+        !s.menu_sounds && !s.sound_star && !s.sound_cart && !s.sound_cart_open && !s.sound_label
+    );
     // Each kind is quiet once off: the star here, the cart going in below.
     while a.quick_menu().is_some() {
         press(&mut a, Btn::B);
@@ -915,7 +1061,10 @@ fn system_sounds_has_a_switch_for_each_kind_of_sound_and_each_is_kept() {
 fn the_sounds_volume_steps_by_ten_percent_and_stops_at_each_end() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::SoundVolume);
-    let shown = |a: &App| a.named_text(QuickRow::SoundVolume.named().unwrap()).to_string();
+    let shown = |a: &App| {
+        a.named_text(QuickRow::SoundVolume.named().unwrap())
+            .to_string()
+    };
     assert_eq!(shown(&a), "100%");
     press(&mut a, Btn::Right);
     assert_eq!(shown(&a), "100%", "it stops at 100%");
@@ -937,15 +1086,26 @@ fn the_sounds_volume_says_nothing_past_either_end() {
     open_at(&mut a, QuickRow::SoundVolume);
     a.take_sfx();
     press(&mut a, Btn::Right);
-    assert_eq!(a.take_sfx(), None, "Right at 100% changed nothing, and made a sound");
+    assert_eq!(
+        a.take_sfx(),
+        None,
+        "Right at 100% changed nothing, and made a sound"
+    );
     press(&mut a, Btn::Left);
     assert_eq!(a.take_sfx(), Some(Sfx::Menu(MenuSound::Change)));
 }
 
 #[test]
 fn every_row_that_reads_a_name_has_a_number_of_its_own() {
-    let mut seen: Vec<usize> = QuickRow::ALL.into_iter().filter_map(QuickRow::named).collect();
-    assert!(seen.iter().all(|n| *n < QuickRow::NAMED), "{seen:?} against {}", QuickRow::NAMED);
+    let mut seen: Vec<usize> = QuickRow::ALL
+        .into_iter()
+        .filter_map(QuickRow::named)
+        .collect();
+    assert!(
+        seen.iter().all(|n| *n < QuickRow::NAMED),
+        "{seen:?} against {}",
+        QuickRow::NAMED
+    );
     let n = seen.len();
     seen.sort();
     seen.dedup();

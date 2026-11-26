@@ -89,18 +89,34 @@ impl StickPad {
 
     fn settle(&mut self) -> Option<u8> {
         let held = |bit: u8, along: i16, pressed: bool| {
-            let past = if self.bits & bit != 0 { Self::RELEASE } else { Self::PRESS };
-            if pressed { along > past } else { along < -past }
+            let past = if self.bits & bit != 0 {
+                Self::RELEASE
+            } else {
+                Self::PRESS
+            };
+            if pressed {
+                along > past
+            } else {
+                along < -past
+            }
         };
         let mut bits = 0;
         if self.to_game {
             self.bits = 0;
             return Some(0);
         }
-        if held(1, self.y, false) { bits |= 1; }
-        if held(2, self.x, true) { bits |= 2; }
-        if held(4, self.y, true) { bits |= 4; }
-        if held(8, self.x, false) { bits |= 8; }
+        if held(1, self.y, false) {
+            bits |= 1;
+        }
+        if held(2, self.x, true) {
+            bits |= 2;
+        }
+        if held(4, self.y, true) {
+            bits |= 4;
+        }
+        if held(8, self.x, false) {
+            bits |= 8;
+        }
         self.bits = bits;
         Some(bits)
     }
@@ -109,11 +125,21 @@ impl StickPad {
 // TrimUI exposes rear L2/R2 as ABS_Z/ABS_RZ (SDL axes 2/5).
 // Released is negative; require a positive excursion and use hysteresis.
 fn trigger_event(held: &mut [bool; 2], axis: u8, value: i16) -> Option<RawEvent> {
-    let (i, btn) = match axis { 2 => (0, Btn::L2), 5 => (1, Btn::R2), _ => return None };
+    let (i, btn) = match axis {
+        2 => (0, Btn::L2),
+        5 => (1, Btn::R2),
+        _ => return None,
+    };
     let down = if held[i] { value > 4000 } else { value > 16000 };
-    if down == held[i] { return None; }
+    if down == held[i] {
+        return None;
+    }
     held[i] = down;
-    Some(if down { RawEvent::Down(btn) } else { RawEvent::Up(btn) })
+    Some(if down {
+        RawEvent::Down(btn)
+    } else {
+        RawEvent::Up(btn)
+    })
 }
 
 // SDL_Event's ABI is 56 bytes and requires pointer alignment on aarch64.
@@ -186,7 +212,11 @@ pub struct SdlPad {
 impl SdlPad {
     /// SDL is there to load: stock firmware.
     fn available() -> bool {
-        unsafe { Library::new("libSDL2-2.0.so.0").or_else(|_| Library::new("libSDL2.so")).is_ok() }
+        unsafe {
+            Library::new("libSDL2-2.0.so.0")
+                .or_else(|_| Library::new("libSDL2.so"))
+                .is_ok()
+        }
     }
 
     fn open(root: &Path) -> Result<Self, String> {
@@ -240,7 +270,10 @@ impl SdlPad {
                 }
             }
             if count() > 0 {
-                eprintln!("slot: Brick joystick found after {} ms", started.elapsed().as_millis());
+                eprintln!(
+                    "slot: Brick joystick found after {} ms",
+                    started.elapsed().as_millis()
+                );
             }
             if count() < 1 {
                 quit(JOYSTICK);
@@ -362,7 +395,9 @@ impl InputSource for SdlPad {
                         *stick = StickPad::default();
                     }
                     for (i, btn) in [Btn::L2, Btn::R2].into_iter().enumerate() {
-                        if self.triggers[i] { out.push(RawEvent::Up(btn)); }
+                        if self.triggers[i] {
+                            out.push(RawEvent::Up(btn));
+                        }
                     }
                     self.triggers = [false; 2];
                     self.hat = 0;
@@ -400,11 +435,19 @@ mod tests {
     fn a_stick_handed_to_the_game_lets_go_of_the_d_pad_and_presses_nothing() {
         let mut s = StickPad::default();
         assert_eq!(s.axis(0, 30000), Some(2));
-        assert_eq!(s.hand_to_game(true), Some(0), "the right press was not let go");
+        assert_eq!(
+            s.hand_to_game(true),
+            Some(0),
+            "the right press was not let go"
+        );
         assert_eq!(s.axis(1, -30000), Some(0));
         assert_eq!(s.position(), (30000, -30000));
         assert_eq!(s.hand_to_game(true), None);
-        assert_eq!(s.hand_to_game(false), Some(1 | 2), "back as the D-pad, where it stands");
+        assert_eq!(
+            s.hand_to_game(false),
+            Some(1 | 2),
+            "back as the D-pad, where it stands"
+        );
     }
     #[test]
     fn the_stick_presses_past_half_way_and_lets_go_under_a_quarter() {
@@ -435,9 +478,15 @@ mod tests {
         let mut held = [false; 2];
         for (axis, btn) in [(2, Btn::L2), (5, Btn::R2)] {
             assert_eq!(trigger_event(&mut held, axis, -32768), None);
-            assert_eq!(trigger_event(&mut held, axis, 32767), Some(RawEvent::Down(btn)));
+            assert_eq!(
+                trigger_event(&mut held, axis, 32767),
+                Some(RawEvent::Down(btn))
+            );
             assert_eq!(trigger_event(&mut held, axis, 32767), None);
-            assert_eq!(trigger_event(&mut held, axis, -32768), Some(RawEvent::Up(btn)));
+            assert_eq!(
+                trigger_event(&mut held, axis, -32768),
+                Some(RawEvent::Up(btn))
+            );
         }
         assert_eq!(trigger_event(&mut held, 0, 32767), None);
     }

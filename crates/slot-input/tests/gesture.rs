@@ -520,7 +520,9 @@ fn x_under_select_reaches_the_game() {
 #[test]
 fn unmatched_wake_release_does_not_sleep_again() {
     let mut g = slot_input::Gestures::new();
-    assert!(g.feed(slot_input::RawEvent::Up(slot_input::Btn::Power), 100).is_empty());
+    assert!(g
+        .feed(slot_input::RawEvent::Up(slot_input::Btn::Power), 100)
+        .is_empty());
 }
 
 #[test]
@@ -533,10 +535,19 @@ fn brick_home_shortcuts_consume_presses_releases_and_hold() {
             assert_eq!(g.feed(RawEvent::Down(button), 10), vec![action]);
             assert!(g.feed(RawEvent::Down(button), 20).is_empty());
             assert!(g.tick(MENU_HOLD_MS + 50).is_empty());
-            let releases = if home_first {[Btn::Menu,button]} else {[button,Btn::Menu]};
-            for b in releases { assert!(g.feed(RawEvent::Up(b), MENU_HOLD_MS + 100).is_empty()); }
+            let releases = if home_first {
+                [Btn::Menu, button]
+            } else {
+                [button, Btn::Menu]
+            };
+            for b in releases {
+                assert!(g.feed(RawEvent::Up(b), MENU_HOLD_MS + 100).is_empty());
+            }
             // Normal B still reaches the game after the chord.
-            assert_eq!(g.feed(RawEvent::Down(Btn::B), 2000), vec![Action::GbaDown(Btn::B)]);
+            assert_eq!(
+                g.feed(RawEvent::Down(Btn::B), 2000),
+                vec![Action::GbaDown(Btn::B)]
+            );
         }
     }
 }
@@ -547,14 +558,23 @@ fn brick_picture_shortcut_shares_the_colour_correction_button() {
     // Same button as Y (colour correction) and A (shaders).
     let mut g = Gestures::brick();
     assert!(g.feed(RawEvent::Down(Btn::Select), 0).is_empty());
-    assert_eq!(g.feed(RawEvent::Down(Btn::Y), 10), vec![Action::ColourCorrectionToggle]);
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::Y), 10),
+        vec![Action::ColourCorrectionToggle]
+    );
     assert!(g.feed(RawEvent::Up(Btn::Y), 30).is_empty());
-    assert_eq!(g.feed(RawEvent::Down(Btn::X), 40), vec![Action::PictureToggle]);
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::X), 40),
+        vec![Action::PictureToggle]
+    );
     assert!(g.feed(RawEvent::Up(Btn::X), 60).is_empty());
     assert!(g.feed(RawEvent::Up(Btn::Select), 80).is_empty());
     assert!(g.tick(2000).is_empty());
     assert!(g.feed(RawEvent::Down(Btn::Select), 3000).is_empty());
-    assert_eq!(g.feed(RawEvent::Down(Btn::X), 3010), vec![Action::PictureToggle]);
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::X), 3010),
+        vec![Action::PictureToggle]
+    );
 }
 
 #[test]
@@ -562,7 +582,9 @@ fn brick_menu_x_no_longer_changes_the_picture() {
     use slot_input::{Action, Btn, Gestures, RawEvent};
     let mut g = Gestures::brick();
     assert!(g.feed(RawEvent::Down(Btn::Menu), 0).is_empty());
-    assert!(!g.feed(RawEvent::Down(Btn::X), 10).contains(&Action::PictureToggle));
+    assert!(!g
+        .feed(RawEvent::Down(Btn::X), 10)
+        .contains(&Action::PictureToggle));
 }
 
 #[test]
@@ -570,16 +592,34 @@ fn brick_home_and_a_shoulder_step_the_overlay_and_cost_the_game_and_the_menu_not
     use slot_input::{Action, Btn, Gestures, RawEvent};
     let mut g = Gestures::brick();
     assert!(g.feed(RawEvent::Down(Btn::Menu), 0).is_empty());
-    assert_eq!(g.feed(RawEvent::Down(Btn::R1), 10), vec![Action::OverlayNext]);
-    assert!(g.feed(RawEvent::Up(Btn::R1), 30).is_empty(), "the game saw R1 let go");
-    assert_eq!(g.feed(RawEvent::Down(Btn::L1), 40), vec![Action::OverlayPrev]);
-    assert!(g.feed(RawEvent::Up(Btn::L1), 60).is_empty(), "the game saw L1 let go");
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::R1), 10),
+        vec![Action::OverlayNext]
+    );
+    assert!(
+        g.feed(RawEvent::Up(Btn::R1), 30).is_empty(),
+        "the game saw R1 let go"
+    );
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::L1), 40),
+        vec![Action::OverlayPrev]
+    );
+    assert!(
+        g.feed(RawEvent::Up(Btn::L1), 60).is_empty(),
+        "the game saw L1 let go"
+    );
     let out = g.feed(RawEvent::Up(Btn::Menu), 80);
-    assert!(!out.contains(&Action::QuickMenu) && !out.contains(&Action::GameMenu), "Home still opened a menu: {out:?}");
+    assert!(
+        !out.contains(&Action::QuickMenu) && !out.contains(&Action::GameMenu),
+        "Home still opened a menu: {out:?}"
+    );
     // Long held, Home with a shoulder is still not an eject.
     assert!(g.tick(5000).iter().all(|a| *a != Action::Eject));
     // L1 alone is the game's again.
-    assert_eq!(g.feed(RawEvent::Down(Btn::L1), 6000), vec![Action::GbaDown(Btn::L1)]);
+    assert_eq!(
+        g.feed(RawEvent::Down(Btn::L1), 6000),
+        vec![Action::GbaDown(Btn::L1)]
+    );
 }
 
 #[test]
@@ -595,6 +635,9 @@ fn a_playstation_game_gets_its_triggers_and_home_moves_rewind_and_fast_forward()
     assert_eq!(g.feed(Up(R2), 1_400), vec![FfStop]);
     assert_eq!(g.feed(Down(L2), 1_500), vec![RewindStart]);
     assert_eq!(g.feed(Up(L2), 1_800), vec![RewindStop]);
-    assert!(g.feed(Up(Menu), 1_900).is_empty(), "HOME used in a chord still opened the menu");
+    assert!(
+        g.feed(Up(Menu), 1_900).is_empty(),
+        "HOME used in a chord still opened the menu"
+    );
     assert!(g.tick(5_000).is_empty());
 }

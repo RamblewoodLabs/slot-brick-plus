@@ -53,7 +53,10 @@ pub fn save(root: &Path, account: &Account) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     // A newline in either would write a second field into the file.
-    if [&account.user, &account.token].iter().any(|v| v.contains(['\n', '\r'])) {
+    if [&account.user, &account.token]
+        .iter()
+        .any(|v| v.contains(['\n', '\r']))
+    {
         return Err(std::io::Error::other("bad user name or token"));
     }
     let text = format!(
@@ -88,11 +91,16 @@ impl Http {
 impl slot_cheevos::Http for Http {
     fn send(&self, request: &slot_cheevos::HttpRequest) -> Result<(u16, Vec<u8>), String> {
         // Every request carries the login token: never in the clear.
-        let (tls, server, path) = net::split_url(&request.url).ok_or_else(|| format!("unsupported URL {}", request.url))?;
+        let (tls, server, path) = net::split_url(&request.url)
+            .ok_or_else(|| format!("unsupported URL {}", request.url))?;
         if !tls {
             return Err(format!("refused, not HTTPS: {}", request.url));
         }
-        let method = if request.post.is_some() { "POST" } else { "GET" };
+        let method = if request.post.is_some() {
+            "POST"
+        } else {
+            "GET"
+        };
         let live = net::send(&net::Request {
             tls,
             server: &server,
@@ -105,7 +113,10 @@ impl slot_cheevos::Http for Http {
             limit: 4 << 20,
         })
         .map(|reply| (reply.status, reply.body));
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
         crate::offline_ra::exchange(&self.root, request.post.as_deref(), live, now)
     }
 }
@@ -157,7 +168,9 @@ fn login2(form: &str) -> Result<(Profile, Option<String>), String> {
 
 fn parse_login(body: &str, status: u16, ms: u128) -> Result<(Profile, Option<String>), String> {
     if json_bool(body, "Success") != Some(true) {
-        return Err(json_str(body, "Error").unwrap_or_else(|| format!("RetroAchievements said {status}")));
+        return Err(
+            json_str(body, "Error").unwrap_or_else(|| format!("RetroAchievements said {status}"))
+        );
     }
     let profile = Profile {
         user: json_str(body, "User").ok_or("the server sent no user name")?,
@@ -199,7 +212,9 @@ fn json_str(body: &str, key: &str) -> Option<String> {
 
 fn json_num(body: &str, key: &str) -> Option<i64> {
     let raw = json_raw(body, key)?;
-    let end = raw.find(|c: char| !(c.is_ascii_digit() || c == '-')).unwrap_or(raw.len());
+    let end = raw
+        .find(|c: char| !(c.is_ascii_digit() || c == '-'))
+        .unwrap_or(raw.len());
     raw[..end].parse().ok()
 }
 
@@ -222,25 +237,44 @@ mod tests {
     fn a_login_reply_gives_the_profile_and_token() {
         let body = r#"{"Success":true,"User":"Benni","AvatarUrl":"x","Token":"abc\/123","Score":1234,"SoftcoreScore":56,"Messages":0,"Permissions":1,"AccountType":"Registered"}"#;
         let (p, token) = parse_login(body, 200, 80).unwrap();
-        assert_eq!(p, Profile { user: "Benni".into(), score: 1234, softcore: 56, ms: 80 });
+        assert_eq!(
+            p,
+            Profile {
+                user: "Benni".into(),
+                score: 1234,
+                softcore: 56,
+                ms: 80
+            }
+        );
         assert_eq!(token.as_deref(), Some("abc/123"));
     }
 
     #[test]
     fn a_refusal_says_why() {
         let body = r#"{"Success":false,"Status":401,"Code":"invalid_credentials","Error":"Invalid user\/password combination. Please try again."}"#;
-        assert_eq!(parse_login(body, 401, 1).unwrap_err(), "Invalid user/password combination. Please try again.");
-        assert_eq!(parse_login("<html>", 502, 1).unwrap_err(), "RetroAchievements said 502");
+        assert_eq!(
+            parse_login(body, 401, 1).unwrap_err(),
+            "Invalid user/password combination. Please try again."
+        );
+        assert_eq!(
+            parse_login("<html>", 502, 1).unwrap_err(),
+            "RetroAchievements said 502"
+        );
     }
 
     #[test]
     fn the_account_round_trips_and_logs_out() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(load(d.path()), None);
-        let a = Account { user: "Benni".into(), token: "t0k3n".into() };
+        let a = Account {
+            user: "Benni".into(),
+            token: "t0k3n".into(),
+        };
         save(d.path(), &a).unwrap();
         assert_eq!(load(d.path()), Some(a));
-        assert!(!std::fs::read_to_string(file(d.path())).unwrap().contains("password"));
+        assert!(!std::fs::read_to_string(file(d.path()))
+            .unwrap()
+            .contains("password"));
         forget(d.path()).unwrap();
         assert_eq!(load(d.path()), None);
         forget(d.path()).unwrap();

@@ -86,7 +86,13 @@ pub(crate) fn nes_cart_depth(shell: NesShell) -> &'static [u8] {
         NesShell::Nes => &NES,
         NesShell::Famicom => &FAMICOM,
     };
-    lock.get_or_init(|| depth_map(nes_cart_mask(shell), NES_CART_W as usize, NES_CART_H as usize))
+    lock.get_or_init(|| {
+        depth_map(
+            nes_cart_mask(shell),
+            NES_CART_W as usize,
+            NES_CART_H as usize,
+        )
+    })
 }
 
 /// NES: the full-height grip, the label recess and its arrow; nothing moulded in. Famicom: the
@@ -125,7 +131,11 @@ pub(crate) fn snes_cart_depth(shell: SnesShell) -> &'static [u8] {
         SnesShell::Pal => &PAL,
     };
     lock.get_or_init(|| {
-        depth_map(snes_cart_mask(shell), SNES_CART_W as usize, SNES_CART_H as usize)
+        depth_map(
+            snes_cart_mask(shell),
+            SNES_CART_W as usize,
+            SNES_CART_H as usize,
+        )
     })
 }
 

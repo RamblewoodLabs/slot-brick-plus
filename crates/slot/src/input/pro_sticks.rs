@@ -50,7 +50,11 @@ pub struct Axis {
 
 impl Default for Axis {
     fn default() -> Self {
-        Axis { centre: None, min: MIN, max: MAX }
+        Axis {
+            centre: None,
+            min: MIN,
+            max: MAX,
+        }
     }
 }
 
@@ -62,7 +66,11 @@ impl Axis {
         let raw = i32::from(raw.min(4095));
         let centre = *self
             .centre
-            .get_or_insert(if (raw - CENTRE).abs() <= CENTRE_SLACK { raw } else { CENTRE });
+            .get_or_insert(if (raw - CENTRE).abs() <= CENTRE_SLACK {
+                raw
+            } else {
+                CENTRE
+            });
         self.min = self.min.min(raw).min(centre - 1);
         self.max = self.max.max(raw).max(centre + 1);
         let along = match raw >= centre {
@@ -75,7 +83,11 @@ impl Axis {
 
 /// A stick's position with the dead zone round its centre taken out.
 pub fn dead_zoned(x: i32, y: i32) -> (i16, i16) {
-    let (x2, y2, r2) = (i64::from(x).pow(2), i64::from(y).pow(2), i64::from(DEAD_ZONE).pow(2));
+    let (x2, y2, r2) = (
+        i64::from(x).pow(2),
+        i64::from(y).pow(2),
+        i64::from(DEAD_ZONE).pow(2),
+    );
     match x2 + y2 < r2 {
         true => (0, 0),
         false => (x as i16, y as i16),
@@ -94,7 +106,11 @@ impl ProSticks {
     pub fn open() -> Option<ProSticks> {
         let fd = unsafe { libc::open(BUS.as_ptr(), libc::O_RDWR) };
         if fd < 0 {
-            eprintln!("slot: Brick Pro sticks: {}: {}", BUS.to_string_lossy(), std::io::Error::last_os_error());
+            eprintln!(
+                "slot: Brick Pro sticks: {}: {}",
+                BUS.to_string_lossy(),
+                std::io::Error::last_os_error()
+            );
             return None;
         }
         // SAFETY: `fd` was just opened and is owned by nothing else.
@@ -105,7 +121,12 @@ impl ProSticks {
             libc::ioctl(bus.as_raw_fd(), I2C_RETRIES, 1 as libc::c_ulong);
         }
         eprintln!("slot: Brick Pro sticks read from {}", BUS.to_string_lossy());
-        Some(ProSticks { bus, left: Default::default(), right: Default::default(), errors: 0 })
+        Some(ProSticks {
+            bus,
+            left: Default::default(),
+            right: Default::default(),
+            errors: 0,
+        })
     }
 
     /// Both sticks, -32767..32767 across then down: None when they could not be read (and,
@@ -124,7 +145,14 @@ impl ProSticks {
             (Err(e), _) | (_, Err(e)) => {
                 self.errors += 1;
                 if self.errors == 1 || self.errors == GIVE_UP {
-                    eprintln!("slot: Brick Pro sticks: {e}{}", if self.errors == GIVE_UP { "; giving up" } else { "" });
+                    eprintln!(
+                        "slot: Brick Pro sticks: {e}{}",
+                        if self.errors == GIVE_UP {
+                            "; giving up"
+                        } else {
+                            ""
+                        }
+                    );
                 }
                 None
             }
@@ -136,15 +164,31 @@ impl ProSticks {
         let mut register = [REGISTER];
         let mut data = [0u8; 4];
         let mut msgs = [
-            I2cMsg { addr, flags: 0, len: 1, buf: register.as_mut_ptr() },
-            I2cMsg { addr, flags: I2C_M_RD, len: data.len() as u16, buf: data.as_mut_ptr() },
+            I2cMsg {
+                addr,
+                flags: 0,
+                len: 1,
+                buf: register.as_mut_ptr(),
+            },
+            I2cMsg {
+                addr,
+                flags: I2C_M_RD,
+                len: data.len() as u16,
+                buf: data.as_mut_ptr(),
+            },
         ];
-        let mut rdwr = I2cRdwr { msgs: msgs.as_mut_ptr(), nmsgs: msgs.len() as u32 };
+        let mut rdwr = I2cRdwr {
+            msgs: msgs.as_mut_ptr(),
+            nmsgs: msgs.len() as u32,
+        };
         // SAFETY: the messages and their buffers outlive the call, and their lengths are theirs.
         if unsafe { libc::ioctl(self.bus.as_raw_fd(), I2C_RDWR, &mut rdwr) } < 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok((u16::from_be_bytes([data[0], data[1]]), u16::from_be_bytes([data[2], data[3]])))
+        Ok((
+            u16::from_be_bytes([data[0], data[1]]),
+            u16::from_be_bytes([data[2], data[3]]),
+        ))
     }
 }
 
@@ -156,7 +200,11 @@ mod tests {
     fn an_axis_is_centred_on_its_first_reading_and_inverted_as_trimui_reports_it() {
         let mut a = Axis::default();
         assert_eq!(a.position(2000), 0, "the first reading is the centre");
-        assert_eq!(a.position(2750), -32767, "TrimUI's top of the range is full tilt one way");
+        assert_eq!(
+            a.position(2750),
+            -32767,
+            "TrimUI's top of the range is full tilt one way"
+        );
         assert_eq!(a.position(1450), 32767, "and its bottom the other");
         assert_eq!(a.position(2000 + 375), -16383, "half way");
     }
@@ -173,7 +221,11 @@ mod tests {
         let mut a = Axis::default();
         a.position(2048);
         assert_eq!(a.position(3000), -32767);
-        assert_eq!(a.position(2750), -(2750 - 2048) * 32767 / (3000 - 2048), "full tilt is now further");
+        assert_eq!(
+            a.position(2750),
+            -(2750 - 2048) * 32767 / (3000 - 2048),
+            "full tilt is now further"
+        );
         assert_eq!(a.position(4095), -32767, "and never more than full tilt");
     }
 

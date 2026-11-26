@@ -180,18 +180,40 @@ pub fn footer_plate(out: &mut Vec<Draw>, height: f32) {
             y: PLATE_TOP - PLATE_FADE + PLATE_FADE * at,
             w: OUT_W as f32,
             h: PLATE_FADE / PLATE_STEPS as f32,
-            colour: [0.0, 0.0, 0.0, PLATE_INK[3] * (at + 1.0) / PLATE_STEPS as f32],
+            colour: [
+                0.0,
+                0.0,
+                0.0,
+                PLATE_INK[3] * (at + 1.0) / PLATE_STEPS as f32,
+            ],
         });
     }
-    out.push(Draw::Rect { x: 0.0, y: PLATE_TOP, w: OUT_W as f32, h: height - PLATE_TOP, colour: PLATE_INK });
+    out.push(Draw::Rect {
+        x: 0.0,
+        y: PLATE_TOP,
+        w: OUT_W as f32,
+        h: height - PLATE_TOP,
+        colour: PLATE_INK,
+    });
 }
 
 /// A screen's caption: one line, centred, as wide as the screen will take.
 pub fn caption_face(words: &str) -> UndoFace {
     let Some(font) = text::label_font() else {
-        return UndoFace { rgba: Vec::new(), w: 0, h: 0 };
+        return UndoFace {
+            rgba: Vec::new(),
+            w: 0,
+            h: 0,
+        };
     };
-    let layout = text::fit(font, words, OUT_W as f32 - 48.0, 1, CAPTION_PX, CAPTION_MIN_PX);
+    let layout = text::fit(
+        font,
+        words,
+        OUT_W as f32 - 48.0,
+        1,
+        CAPTION_PX,
+        CAPTION_MIN_PX,
+    );
     let set = layout
         .lines
         .iter()
@@ -200,7 +222,11 @@ pub fn caption_face(words: &str) -> UndoFace {
     let w = (set.ceil() as u32).max(1);
     let mut rgba = vec![0u8; (w * CAPTION_H * 4) as usize];
     text::draw_centred(&mut rgba, w, CAPTION_H, &layout, INK);
-    UndoFace { rgba, w, h: CAPTION_H }
+    UndoFace {
+        rgba,
+        w,
+        h: CAPTION_H,
+    }
 }
 
 pub fn title_face(text: &str) -> UndoFace {
@@ -236,7 +262,15 @@ pub fn caret_hint_face(up: bool, label: &str) -> UndoFace {
     let w = CAP + CAP_GAP + band_width(label) + EDGE;
     let mut rgba = vec![0u8; (w * HINT_H * 4) as usize];
     let glyph = if up { UP_CARET } else { DOWN_CARET };
-    blit(&mut rgba, w, &glyph_cap(glyph), CAP, CAP, 0, (HINT_H - CAP) / 2);
+    blit(
+        &mut rgba,
+        w,
+        &glyph_cap(glyph),
+        CAP,
+        CAP,
+        0,
+        (HINT_H - CAP) / 2,
+    );
     let text_w = band_width(label);
     let mut band = vec![0u8; (text_w * HINT_H * 4) as usize];
     if let Some(font) = text::label_font() {

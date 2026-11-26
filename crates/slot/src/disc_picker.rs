@@ -37,7 +37,15 @@ impl DiscPicker {
     /// The fan opens on disc `at` (from 0): the one put in last.
     pub fn open(stem: String, discs: Vec<PathBuf>, at: usize, clean: bool, now: Millis) -> Self {
         let selected = at.min(discs.len().saturating_sub(1));
-        DiscPicker { stem, discs, clean, selected, shown: selected as f32, opened: now, close: None }
+        DiscPicker {
+            stem,
+            discs,
+            clean,
+            selected,
+            shown: selected as f32,
+            opened: now,
+            close: None,
+        }
     }
 
     pub fn selected(&self) -> usize {
@@ -127,7 +135,13 @@ mod tests {
     use super::*;
 
     fn picker() -> DiscPicker {
-        DiscPicker::open("FF7".into(), vec!["1".into(), "2".into(), "3".into()], 0, false, 0)
+        DiscPicker::open(
+            "FF7".into(),
+            vec!["1".into(), "2".into(), "3".into()],
+            0,
+            false,
+            0,
+        )
     }
 
     #[test]
@@ -150,6 +164,9 @@ mod tests {
         let mut out = Vec::new();
         let faces = [TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3)];
         p.draw(&faces, None, OPEN_MS, &mut out);
-        assert!(matches!(out.last(), Some(Draw::Turned { tex, .. }) if *tex == faces[1]), "disc 2 is not in front");
+        assert!(
+            matches!(out.last(), Some(Draw::Turned { tex, .. }) if *tex == faces[1]),
+            "disc 2 is not in front"
+        );
     }
 }

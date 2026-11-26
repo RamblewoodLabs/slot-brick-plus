@@ -43,7 +43,11 @@ fn tags(name: &str) -> Vec<String> {
         match (c, &mut cur) {
             ('(' | '[', _) => cur = Some(String::new()),
             (')' | ']', Some(t)) => {
-                out.extend(t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+                out.extend(
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty()),
+                );
                 cur = None;
             }
             (c, Some(t)) => t.push(c),
@@ -99,7 +103,15 @@ fn regions(name: &str) -> Vec<Region> {
 }
 
 const UNWANTED: [&str; 9] = [
-    "Beta", "Proto", "Demo", "Sample", "Kiosk", "Pirate", "Unl", "Hack", "Aftermarket",
+    "Beta",
+    "Proto",
+    "Demo",
+    "Sample",
+    "Kiosk",
+    "Pirate",
+    "Unl",
+    "Hack",
+    "Aftermarket",
 ];
 /// Re-releases: fine, but the original cartridge is preferred.
 const REISSUE: [&str; 4] = ["Virtual Console", "Switch Online", "Alternate", "Promo"];
@@ -181,7 +193,11 @@ fn matching<'a>(stem: &str, names: &'a [String], longer: bool) -> Option<&'a str
         .filter(|n| !hack || is_hack(&tags(n)))
         .map(|n| (n, title_key(n)))
         .collect();
-    let same: Vec<&String> = keyed.iter().filter(|(_, k)| *k == key).map(|(n, _)| *n).collect();
+    let same: Vec<&String> = keyed
+        .iter()
+        .filter(|(_, k)| *k == key)
+        .map(|(n, _)| *n)
+        .collect();
     if !same.is_empty() {
         return pick(same);
     }
@@ -196,5 +212,10 @@ fn matching<'a>(stem: &str, names: &'a [String], longer: bool) -> Option<&'a str
         .map(|(n, k)| (*n, k.len() - key.len()))
         .collect();
     let closest = near.iter().map(|(_, d)| *d).min()?;
-    pick(near.into_iter().filter(|(_, d)| *d == closest).map(|(n, _)| n).collect())
+    pick(
+        near.into_iter()
+            .filter(|(_, d)| *d == closest)
+            .map(|(n, _)| n)
+            .collect(),
+    )
 }

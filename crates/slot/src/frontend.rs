@@ -48,7 +48,7 @@ pub struct Frontend {
     wake_guard: Option<Instant>,
     last_input: Instant,
     last_render: Instant,
-    rendered_effects: (f32,f32,f32,Option<f32>),
+    rendered_effects: (f32, f32, f32, Option<f32>),
     draws: Vec<Draw>,
     polaroid_texes: Vec<TexId>,
     title_tex: Option<TexId>,
@@ -97,7 +97,10 @@ struct RebuildFaces {
 struct OverlayTex {
     picture: Option<TexId>,
     /// The overlay being read, and where it will come back.
-    reading: Option<(std::path::PathBuf, std::sync::mpsc::Receiver<Option<crate::overlay::Overlay>>)>,
+    reading: Option<(
+        std::path::PathBuf,
+        std::sync::mpsc::Receiver<Option<crate::overlay::Overlay>>,
+    )>,
     /// An overlay that could not be used, so it is not read again every frame.
     refused: Option<std::path::PathBuf>,
     texts: [[Option<TexId>; 2]; QuickRow::NAMED],
@@ -150,7 +153,9 @@ impl Scroll {
             let to = ((y * room + pad) * 4) as usize;
             let want = (ink * 4) as usize;
             let src_end = from.saturating_add(want).min(self.whole.rgba.len());
-            let n = src_end.saturating_sub(from).min(out.len().saturating_sub(to));
+            let n = src_end
+                .saturating_sub(from)
+                .min(out.len().saturating_sub(to));
             if n > 0 {
                 out[to..to + n].copy_from_slice(&self.whole.rgba[from..from + n]);
             }
@@ -185,7 +190,11 @@ fn shortened_value_face(text: &str, lit: bool, room: u32) -> slot_ui::UndoFace {
     while lo < hi {
         let mid = (lo + hi).div_ceil(2);
         let cut: String = chars[..mid].iter().collect::<String>() + "...";
-        if quick_value_face(&cut, lit).w <= room { lo = mid } else { hi = mid - 1 }
+        if quick_value_face(&cut, lit).w <= room {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
     }
     quick_value_face(&(chars[..lo].iter().collect::<String>() + "..."), lit)
 }
@@ -196,7 +205,9 @@ fn sync_named_texts(app: &mut App, compositor: &mut Compositor, tex: &mut Overla
     if app.quick_menu().is_none() {
         return;
     }
-    let carets = *tex.carets.get_or_insert_with(|| (quick_caret_face(false).w, quick_caret_face(true).w));
+    let carets = *tex
+        .carets
+        .get_or_insert_with(|| (quick_caret_face(false).w, quick_caret_face(true).w));
     let lit_row = app.quick_menu();
     for row in QuickRow::ALL {
         let Some(i) = row.named() else {
@@ -215,13 +226,24 @@ fn sync_named_texts(app: &mut App, compositor: &mut Compositor, tex: &mut Overla
                 None => draw(),
             };
             let label_w = quick_label_face(row).w;
-            let dim = in_own(&mut || shortened_value_face(&text, false, slot_ui::quick_value_room(label_w, None)));
+            let dim = in_own(&mut || {
+                shortened_value_face(&text, false, slot_ui::quick_value_room(label_w, None))
+            });
             let room = slot_ui::quick_value_room(label_w, Some(carets));
             let whole = in_own(&mut || quick_value_face(&text, true));
             let (lit, scroll) = match whole.w > room {
                 true => {
-                    let scroll = Scroll { whole, room, since: std::time::Instant::now(), at: Some(0) };
-                    let piece = slot_ui::UndoFace { rgba: scroll.piece(0), w: room, h: scroll.whole.h };
+                    let scroll = Scroll {
+                        whole,
+                        room,
+                        since: std::time::Instant::now(),
+                        at: Some(0),
+                    };
+                    let piece = slot_ui::UndoFace {
+                        rgba: scroll.piece(0),
+                        w: room,
+                        h: scroll.whole.h,
+                    };
                     (piece, Some(scroll))
                 }
                 false => (whole, None),
@@ -230,7 +252,11 @@ fn sync_named_texts(app: &mut App, compositor: &mut Compositor, tex: &mut Overla
             let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
             let dim = upload(compositor, &mut tex.texts[i][0], dim);
             let lit = upload(compositor, &mut tex.texts[i][1], lit);
-            app.set_named_text_faces(i, text, [(dim, dim_size.0, dim_size.1), (lit, lit_size.0, lit_size.1)]);
+            app.set_named_text_faces(
+                i,
+                text,
+                [(dim, dim_size.0, dim_size.1), (lit, lit_size.0, lit_size.1)],
+            );
         }
         // A long name moves along only while its row is the lit one, starting from its start.
         let (Some(scroll), Some(id)) = (&mut tex.scrolls[i], tex.texts[i][1]) else {
@@ -291,8 +317,18 @@ fn sync_overlay(app: &mut App, compositor: &mut Compositor, tex: &mut OverlayTex
     tex.reading = None;
     match read {
         Some(overlay) => {
-            let id = upload_rgba(compositor, &mut tex.picture, overlay.w, overlay.h, &overlay.rgba);
-            eprintln!("slot: overlay {} (window {:?})", path.display(), overlay.window);
+            let id = upload_rgba(
+                compositor,
+                &mut tex.picture,
+                overlay.w,
+                overlay.h,
+                &overlay.rgba,
+            );
+            eprintln!(
+                "slot: overlay {} (window {:?})",
+                path.display(),
+                overlay.window
+            );
             app.set_overlay(path, id, overlay.window);
         }
         None => {
@@ -375,7 +411,7 @@ impl Frontend {
             wake_guard: None,
             last_input: now,
             last_render: now,
-            rendered_effects: (0.0,0.0,0.0,None),
+            rendered_effects: (0.0, 0.0, 0.0, None),
             draws: Vec::new(),
             polaroid_texes: Vec::new(),
             title_tex: None,
@@ -442,12 +478,19 @@ impl Frontend {
         Self::upload_paper(compositor);
         crate::boot_times::mark("  paper");
         #[cfg(feature = "brick")]
-        slot_ui::upload_slot_art(|w,h,rgba|compositor.create_texture(w,h,rgba));
+        slot_ui::upload_slot_art(|w, h, rgba| compositor.create_texture(w, h, rgba));
         crate::boot_times::mark("  slot art");
         if self.rebuild.is_none() {
             self.cart_faces.sync(self.session.app_mut(), compositor);
         }
-        crate::boot_times::mark(&format!("  cart faces synced (label rebuild {})", if self.rebuild.is_some() { "running, skipped" } else { "none" }));
+        crate::boot_times::mark(&format!(
+            "  cart faces synced (label rebuild {})",
+            if self.rebuild.is_some() {
+                "running, skipped"
+            } else {
+                "none"
+            }
+        ));
         let icons = Icon::ALL
             .iter()
             .map(|i| {
@@ -484,7 +527,9 @@ impl Frontend {
         let disc = compositor.create_texture(disc.w, disc.h, &disc.rgba);
         self.session.app_mut().set_disc_shadow(disc);
         for platform in slot_store::Platform::ALL {
-            let Some(face) = slot_ui::shell_png::shadow(platform) else { continue };
+            let Some(face) = slot_ui::shell_png::shadow(platform) else {
+                continue;
+            };
             let id = compositor.create_texture(face.w, face.h, &face.rgba);
             self.session.app_mut().set_png_shadow(platform, id);
         }
@@ -494,17 +539,29 @@ impl Frontend {
         // The shelf's Wi-Fi symbol, in its three states; which one shows is the app's to say.
         let wifi = [Icon::Wifi, Icon::WifiNoRoute, Icon::WifiOff].map(|icon| {
             let face = icon_face(icon, slot_ui::WIFI_PX, HUD_INK);
-            (compositor.create_texture(face.w, face.h, &face.rgba), face.w, face.h)
+            (
+                compositor.create_texture(face.w, face.h, &face.rgba),
+                face.w,
+                face.h,
+            )
         });
         self.session.app_mut().set_wifi_faces(wifi);
         // Beside it, while a newer Slot is out.
         let update = icon_face(Icon::Update, slot_ui::WIFI_PX, HUD_INK);
-        let update = (compositor.create_texture(update.w, update.h, &update.rgba), update.w, update.h);
+        let update = (
+            compositor.create_texture(update.w, update.h, &update.rgba),
+            update.w,
+            update.h,
+        );
         self.session.app_mut().set_update_face(update);
         // A favorite's star, gold with a lit side and a shaded one, outlined so it shows on any
         // plastic.
         let star = slot_ui::star_face(STAR_PX, STAR_INK, STAR_LIGHT, STAR_SHADE);
-        let star = (compositor.create_texture(star.w, star.h, &star.rgba), star.w, star.h);
+        let star = (
+            compositor.create_texture(star.w, star.h, &star.rgba),
+            star.w,
+            star.h,
+        );
         self.session.app_mut().set_star_face(star);
         crate::boot_times::mark("  shadows and HUD icons");
         self.upload_wallpaper(compositor);
@@ -651,7 +708,10 @@ impl Frontend {
         // Y sits on its own, above the legend rather than in it: it is about the cart's label
         // and not about the core being picked.
         let search = hint_face("Y", "Search");
-        let face = (compositor.create_texture(search.w, search.h, &search.rgba), search.w);
+        let face = (
+            compositor.create_texture(search.w, search.h, &search.rgba),
+            search.w,
+        );
         self.session.app_mut().set_core_search_face(face);
         crate::boot_times::mark("  core picker");
         let roles = menu_faces(compositor, LinkRow::ALL.iter().map(|r| r.text()));
@@ -683,34 +743,50 @@ impl Frontend {
     fn upload_cart_menu_faces(&mut self, compositor: &mut Compositor) {
         use slot_ui::{cart_menu_label_face, cart_menu_value_face, CartRow};
         let mut up = |f: UndoFace| (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h);
-        let labels = CartRow::ALL.iter().map(|r| up(cart_menu_label_face(*r))).collect();
+        let labels = CartRow::ALL
+            .iter()
+            .map(|r| up(cart_menu_label_face(*r)))
+            .collect();
         let mut values = |names: Vec<&str>| -> Vec<[(TexId, u32, u32); 2]> {
             names
                 .into_iter()
                 .map(|n| [false, true].map(|lit| up(cart_menu_value_face(n, lit))))
                 .collect()
         };
-        let mut colour_names: Vec<&str> = slot_ui::colour_choices().iter().map(|(n, _)| *n).collect();
+        let mut colour_names: Vec<&str> =
+            slot_ui::colour_choices().iter().map(|(n, _)| *n).collect();
         // A colour picked elsewhere (Cart Studio) shows as Custom, after all the named ones.
         colour_names.push("Custom");
         let colours = values(colour_names);
-        let finishes = values(slot_ui::FINISHES.iter().map(|f| slot_ui::finish_name(*f)).collect());
+        let finishes = values(
+            slot_ui::FINISHES
+                .iter()
+                .map(|f| slot_ui::finish_name(*f))
+                .collect(),
+        );
         let shapes = values(
-            slot_ui::SHAPES.iter().chain(&slot_ui::SNES_SHAPES).chain(&slot_ui::NES_SHAPES).copied().collect(),
+            slot_ui::SHAPES
+                .iter()
+                .chain(&slot_ui::SNES_SHAPES)
+                .chain(&slot_ui::NES_SHAPES)
+                .copied()
+                .collect(),
         );
         let carets = [false, true].map(|right| up(quick_caret_face(right)));
         let legend = slot_ui::cart_menu_legend_faces().map(|f| {
             let (tex, w, _) = up(f);
             (tex, w)
         });
-        self.session.app_mut().set_cart_menu_faces(slot_ui::CartMenuFaces {
-            labels,
-            colours,
-            finishes,
-            shapes,
-            carets,
-            legend,
-        });
+        self.session
+            .app_mut()
+            .set_cart_menu_faces(slot_ui::CartMenuFaces {
+                labels,
+                colours,
+                finishes,
+                shapes,
+                carets,
+                legend,
+            });
     }
 
     fn upload_wallpaper(&mut self, compositor: &mut Compositor) {
@@ -749,33 +825,71 @@ impl Frontend {
     #[cfg(feature = "brick")]
     pub fn power_mode(&self) -> crate::brick_power::Mode {
         use crate::brick_power::Mode;
-        if matches!(self.app().phase(),Phase::Doze{..}) {return Mode::Standby}
-        if self.rebuild.is_some() || self.app().link_active() || self.session.actually_fast_forwarding() || self.session.actually_rewinding() {return Mode::Boost}
+        if matches!(self.app().phase(), Phase::Doze { .. }) {
+            return Mode::Standby;
+        }
+        if self.rebuild.is_some()
+            || self.app().link_active()
+            || self.session.actually_fast_forwarding()
+            || self.session.actually_rewinding()
+        {
+            return Mode::Boost;
+        }
         match self.app().phase() {
-            Phase::Playing{..} if self.session.observed_speed()==Some(crate::emu::Speed::Normal)=>Mode::Game,
-            Phase::Shelf|Phase::QuickMenu{..} if self.last_input.elapsed()>Duration::from_secs(2)=>Mode::Menu,
-            _=>Mode::Boost,
+            Phase::Playing { .. }
+                if self.session.observed_speed() == Some(crate::emu::Speed::Normal) =>
+            {
+                Mode::Game
+            }
+            Phase::Shelf | Phase::QuickMenu { .. }
+                if self.last_input.elapsed() > Duration::from_secs(2) =>
+            {
+                Mode::Menu
+            }
+            _ => Mode::Boost,
         }
     }
     #[cfg(feature = "brick")]
-    pub fn audio_underruns(&self)->u64 {self.session.audio_ring().underruns()}
+    pub fn audio_underruns(&self) -> u64 {
+        self.session.audio_ring().underruns()
+    }
     #[cfg(feature = "brick")]
-    pub fn needs_render(&self)->bool {
-        if self.app().wifi.as_ref().map(|w|w.dirty).unwrap_or(false) {return true}
-        if self.app().sheet_dirty() {return true}
-        if self.app().banner_active() {return true}
-        if self.render_effects()!=self.rendered_effects {return true}
-        if self.rebuild.is_some() || !matches!(self.app().phase(),Phase::Shelf|Phase::QuickMenu{..}) || self.last_input.elapsed()<Duration::from_secs(2) || self.last_render.elapsed()>=Duration::from_secs(1) {return true}
-        let mut probe=Vec::new();self.app().draw(&mut probe);
-        probe!=self.draws
+    pub fn needs_render(&self) -> bool {
+        if self.app().wifi.as_ref().map(|w| w.dirty).unwrap_or(false) {
+            return true;
+        }
+        if self.app().sheet_dirty() {
+            return true;
+        }
+        if self.app().banner_active() {
+            return true;
+        }
+        if self.render_effects() != self.rendered_effects {
+            return true;
+        }
+        if self.rebuild.is_some()
+            || !matches!(self.app().phase(), Phase::Shelf | Phase::QuickMenu { .. })
+            || self.last_input.elapsed() < Duration::from_secs(2)
+            || self.last_render.elapsed() >= Duration::from_secs(1)
+        {
+            return true;
+        }
+        let mut probe = Vec::new();
+        self.app().draw(&mut probe);
+        probe != self.draws
     }
 
-    fn render_effects(&self)->(f32,f32,f32,Option<f32>) {
-        (self.app().screen_power(),self.app().screen_shake(),self.app().frame_lift(),self.app().frame_split())
+    fn render_effects(&self) -> (f32, f32, f32, Option<f32>) {
+        (
+            self.app().screen_power(),
+            self.app().screen_shake(),
+            self.app().frame_lift(),
+            self.app().frame_split(),
+        )
     }
     pub fn render(&mut self, compositor: &mut Compositor, window: (u32, u32)) {
-        self.last_render=Instant::now();
-        self.rendered_effects=self.render_effects();
+        self.last_render = Instant::now();
+        self.rendered_effects = self.render_effects();
         compositor.fit(window);
         self.compose(compositor);
         compositor.end_frame(window);
@@ -809,16 +923,27 @@ impl Frontend {
         self.cart_faces.sync(self.session.app_mut(), compositor);
         self.cart_turns.sync(self.session.app_mut(), compositor);
         #[cfg(feature = "brick")]
-        if let Some(wifi)=&mut self.session.app_mut().wifi {
+        if let Some(wifi) = &mut self.session.app_mut().wifi {
             if wifi.dirty {
-                let f=wifi.render();
-                let tex=match self.wifi_tex {Some(id)=>{compositor.update_texture(id,f.w,f.h,&f.rgba);id},None=>compositor.create_texture(f.w,f.h,&f.rgba)};
-                self.wifi_tex=Some(tex);wifi.face=Some(tex);wifi.dirty=false;
+                let f = wifi.render();
+                let tex = match self.wifi_tex {
+                    Some(id) => {
+                        compositor.update_texture(id, f.w, f.h, &f.rgba);
+                        id
+                    }
+                    None => compositor.create_texture(f.w, f.h, &f.rgba),
+                };
+                self.wifi_tex = Some(tex);
+                wifi.face = Some(tex);
+                wifi.dirty = false;
             }
         }
         if let Some(face) = self.session.app_mut().pip_render() {
             let tex = match self.pip_tex {
-                Some(id) => { compositor.update_texture(id, face.w, face.h, &face.rgba); id }
+                Some(id) => {
+                    compositor.update_texture(id, face.w, face.h, &face.rgba);
+                    id
+                }
                 None => compositor.create_texture(face.w, face.h, &face.rgba),
             };
             self.pip_tex = Some(tex);
@@ -845,7 +970,11 @@ impl Frontend {
         sync_named_texts(self.session.app_mut(), compositor, &mut self.overlay_tex);
         sync_overlay(self.session.app_mut(), compositor, &mut self.overlay_tex);
         sync_label_grid(self.session.app_mut(), compositor, &mut self.label_grid_tex);
-        sync_label_adjust(self.session.app_mut(), compositor, &mut self.label_adjust_tex);
+        sync_label_adjust(
+            self.session.app_mut(),
+            compositor,
+            &mut self.label_adjust_tex,
+        );
         sync_peel(self.session.app_mut(), compositor, &mut self.peel_tex);
         sync_core_picker(
             self.session.app_mut(),
@@ -953,12 +1082,20 @@ impl Frontend {
         let mut events = input.poll(now);
         self.session.set_stick(input.stick());
         if !events.is_empty() {
-            self.last_input=Instant::now();
+            self.last_input = Instant::now();
             #[cfg(feature = "brick")]
-            {self.woke_untouched=false;}
+            {
+                self.woke_untouched = false;
+            }
         }
         if self.wake_guard.is_some_and(|until| Instant::now() < until) {
-            events.retain(|e| !matches!(e, slot_input::RawEvent::Down(slot_input::Btn::Power) | slot_input::RawEvent::Up(slot_input::Btn::Power)));
+            events.retain(|e| {
+                !matches!(
+                    e,
+                    slot_input::RawEvent::Down(slot_input::Btn::Power)
+                        | slot_input::RawEvent::Up(slot_input::Btn::Power)
+                )
+            });
         }
         if self.rebuild.is_some() {
             return;
@@ -972,7 +1109,9 @@ impl Frontend {
     #[cfg(feature = "brick")]
     pub fn prepare_sleep(&mut self) -> bool {
         self.session.app_mut().settle_saves();
-        self.session.observed_speed().is_none_or(|s| s == crate::emu::Speed::Paused)
+        self.session
+            .observed_speed()
+            .is_none_or(|s| s == crate::emu::Speed::Paused)
     }
 
     #[cfg(feature = "brick")]
@@ -998,9 +1137,16 @@ impl Frontend {
             Phase::Playing { .. } => IDLE_GAME,
             _ => return,
         };
-        let limit = if self.woke_untouched {limit.min(IDLE_AFTER_WAKE)} else {limit};
+        let limit = if self.woke_untouched {
+            limit.min(IDLE_AFTER_WAKE)
+        } else {
+            limit
+        };
         if self.last_input.elapsed() >= limit {
-            eprintln!("slot: idle for {}s; sleeping", self.last_input.elapsed().as_secs());
+            eprintln!(
+                "slot: idle for {}s; sleeping",
+                self.last_input.elapsed().as_secs()
+            );
             self.woke_untouched = false;
             self.session.app_mut().idle_doze();
         }
@@ -1171,10 +1317,13 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
     let title_card = app.title_card_text();
     if title_card != clocks.title_card {
         clocks.title_card = title_card.clone();
-        let face = title_card.map(|text| slot_ui::title_card_face(&text)).filter(|f| f.w > 0).map(|face| {
-            let (w, h) = (face.w, face.h);
-            (upload(compositor, &mut clocks.title_card_tex, face), w, h)
-        });
+        let face = title_card
+            .map(|text| slot_ui::title_card_face(&text))
+            .filter(|f| f.w > 0)
+            .map(|face| {
+                let (w, h) = (face.w, face.h);
+                (upload(compositor, &mut clocks.title_card_tex, face), w, h)
+            });
         app.set_title_card_face(face);
     }
     let battery_shown = app
@@ -1205,7 +1354,9 @@ fn sync_disc_faces(app: &mut App, compositor: &mut Compositor, clocks: &mut Cloc
         .iter()
         .zip(clocks.discs.iter_mut())
         .map(|((cart, number), slot)| {
-            let art = root.as_deref().and_then(|r| crate::label_cache::label_art(r, cart));
+            let art = root
+                .as_deref()
+                .and_then(|r| crate::label_cache::label_art(r, cart));
             let face = slot_ui::disc_face(cart, art, Some(*number));
             upload_rgba(compositor, slot, face.w, face.h, &face.rgba)
         })
@@ -1275,7 +1426,9 @@ fn sync_label_adjust(app: &mut App, compositor: &mut Compositor, tex: &mut Label
     if app.label_adjust_built() == Some((source.as_path(), words.as_str())) {
         return;
     }
-    let same_picture = app.label_adjust_built().is_some_and(|(built, _)| built == source);
+    let same_picture = app
+        .label_adjust_built()
+        .is_some_and(|(built, _)| built == source);
     let caption = face(compositor, &mut tex.caption, slot_ui::caption_face(&words));
     if same_picture {
         // Only the frame moved: the picture and the cart are the ones already uploaded.
@@ -1284,14 +1437,21 @@ fn sync_label_adjust(app: &mut App, compositor: &mut Compositor, tex: &mut Label
         }
         return;
     }
-    let Some((rgba, w, h)) =
-        std::fs::read(&source).ok().and_then(|png| crate::cart_art::label_picture(&png, ADJUST_TEX_MAX))
+    let Some((rgba, w, h)) = std::fs::read(&source)
+        .ok()
+        .and_then(|png| crate::cart_art::label_picture(&png, ADJUST_TEX_MAX))
     else {
         return;
     };
     let picture = upload_rgba(compositor, &mut tex.picture, w, h, &rgba);
     let (face_rgba, _) = slot_ui::cart_cutout_face(&cart);
-    let cart_tex = upload_rgba(compositor, &mut tex.cart, face_rgba.w, face_rgba.h, &face_rgba.rgba);
+    let cart_tex = upload_rgba(
+        compositor,
+        &mut tex.cart,
+        face_rgba.w,
+        face_rgba.h,
+        &face_rgba.rgba,
+    );
     let mut legend = [(picture, 0u32); 5];
     for (i, hint) in slot_ui::label_adjust_legend_faces().into_iter().enumerate() {
         let (id, lw, _) = face(compositor, &mut tex.legend[i], hint);
@@ -1318,7 +1478,13 @@ const PEEL_UPLOADS: usize = 8;
 /// first of them sets it off.
 fn sync_peel(app: &mut App, compositor: &mut Compositor, tex: &mut PeelTex) {
     if let Some((curls, shadow)) = app.peel_unbaked() {
-        tex.shadow_id = Some(upload_rgba(compositor, &mut tex.shadow, shadow.w, shadow.h, &shadow.rgba));
+        tex.shadow_id = Some(upload_rgba(
+            compositor,
+            &mut tex.shadow,
+            shadow.w,
+            shadow.h,
+            &shadow.rgba,
+        ));
         tex.curls.resize(curls.len().max(tex.curls.len()), None);
         (tex.pending, tex.sent) = (curls, 0);
     }
@@ -1331,7 +1497,9 @@ fn sync_peel(app: &mut App, compositor: &mut Compositor, tex: &mut PeelTex) {
         upload_rgba(compositor, &mut tex.curls[i], c.w, c.h, &c.rgba);
     }
     tex.sent = upto;
-    let ids = (0..tex.pending.len()).map(|i| if i < upto { tex.curls[i] } else { None }).collect();
+    let ids = (0..tex.pending.len())
+        .map(|i| if i < upto { tex.curls[i] } else { None })
+        .collect();
     app.set_peel_faces(ids, shadow);
     if upto == tex.pending.len() {
         // All up: the pictures themselves are no longer needed.
@@ -1373,8 +1541,11 @@ fn sync_label_grid(app: &mut App, compositor: &mut Compositor, tex: &mut LabelGr
         return;
     }
     let query = app.label_grid_query().unwrap_or_default();
-    let heading =
-        if query.is_empty() { "FIND A LABEL".to_string() } else { format!("FIND A LABEL \u{b7} {query}") };
+    let heading = if query.is_empty() {
+        "FIND A LABEL".to_string()
+    } else {
+        format!("FIND A LABEL \u{b7} {query}")
+    };
     let title = face(compositor, &mut tex.title, slot_ui::title_face(&heading));
     let caption = face(compositor, &mut tex.caption, slot_ui::caption_face(&words));
     let mut legend = [(caption.0, 0u32); 3];
@@ -1387,18 +1558,34 @@ fn sync_label_grid(app: &mut App, compositor: &mut Compositor, tex: &mut LabelGr
         .map(|i| {
             let png = std::fs::read(paths.get(i)?).ok()?;
             let (rgba, w, h) = crate::cart_art::label_picture(&png, GRID_TEX_MAX)?;
-            Some((upload_rgba(compositor, &mut tex.cells[i], w, h, &rgba), w, h))
+            Some((
+                upload_rgba(compositor, &mut tex.cells[i], w, h, &rgba),
+                w,
+                h,
+            ))
         })
         .collect();
     app.set_label_grid_faces((page, paths.len()), words, title, caption, cells, legend);
 }
 
 /// Uploads a face and keeps its size, which is what the views are drawn from.
-fn face(compositor: &mut Compositor, slot: &mut Option<TexId>, f: slot_ui::UndoFace) -> (TexId, u32, u32) {
+fn face(
+    compositor: &mut Compositor,
+    slot: &mut Option<TexId>,
+    f: slot_ui::UndoFace,
+) -> (TexId, u32, u32) {
     let (w, h) = (f.w.max(1), f.h.max(1));
     // No font: a clear pixel, so there is still a texture to point at.
-    let rgba = if f.rgba.is_empty() { vec![0; 4] } else { f.rgba };
-    let (w, h) = if rgba.len() as u32 == w * h * 4 { (w, h) } else { (1, 1) };
+    let rgba = if f.rgba.is_empty() {
+        vec![0; 4]
+    } else {
+        f.rgba
+    };
+    let (w, h) = if rgba.len() as u32 == w * h * 4 {
+        (w, h)
+    } else {
+        (1, 1)
+    };
     (upload_rgba(compositor, slot, w, h, &rgba), w, h)
 }
 
@@ -1420,7 +1607,10 @@ fn sync_core_picker(
     if app.take_core_faces_stale() {
         (*asked, *built) = (None, None);
     }
-    let cart = app.selected_stem().and_then(|stem| app.carts().find(|c| c.stem == stem)).cloned();
+    let cart = app
+        .selected_stem()
+        .and_then(|stem| app.carts().find(|c| c.stem == stem))
+        .cloned();
     let highlighted = cart.as_ref().map(crate::face_builder::face_key);
     if let Some(cart) = cart {
         if *asked != highlighted {
@@ -1475,59 +1665,82 @@ fn platform_root_has(root: &std::path::Path, name: &str) -> bool {
     root.join(name).exists()
 }
 
-#[cfg(all(test,feature="brick"))]
+#[cfg(all(test, feature = "brick"))]
 mod power_render_tests {
     use super::*;
-    fn booted(dir:&std::path::Path)->Frontend {
+    fn booted(dir: &std::path::Path) -> Frontend {
         crate::root::ensure(dir);
-        let mut state=slot_store::SlotState::default();state.clock_set=true;
-        slot_store::write_slot_state(dir,&state).unwrap();
+        let mut state = slot_store::SlotState::default();
+        state.clock_set = true;
+        slot_store::write_slot_state(dir, &state).unwrap();
         Frontend::boot(Box::new(slot_power::SimPlatform::at(dir.into())))
     }
     #[test]
     fn idle_shelf_dozes_after_limit_only() {
-        let dir=tempfile::tempdir().unwrap();let mut f=booted(dir.path());
-        assert!(matches!(f.app().phase(),Phase::Shelf));
-        f.last_input=Instant::now()-Duration::from_secs(4*60);f.idle_sleep();
-        assert!(matches!(f.app().phase(),Phase::Shelf),"4 minutes is not yet idle");
-        f.last_input=Instant::now()-Duration::from_secs(5*60+1);f.idle_sleep();
-        assert!(matches!(f.app().phase(),Phase::Doze{..}));
+        let dir = tempfile::tempdir().unwrap();
+        let mut f = booted(dir.path());
+        assert!(matches!(f.app().phase(), Phase::Shelf));
+        f.last_input = Instant::now() - Duration::from_secs(4 * 60);
+        f.idle_sleep();
+        assert!(
+            matches!(f.app().phase(), Phase::Shelf),
+            "4 minutes is not yet idle"
+        );
+        f.last_input = Instant::now() - Duration::from_secs(5 * 60 + 1);
+        f.idle_sleep();
+        assert!(matches!(f.app().phase(), Phase::Doze { .. }));
     }
     #[test]
     fn untouched_wake_sleeps_again_quickly() {
-        let dir=tempfile::tempdir().unwrap();let mut f=booted(dir.path());
-        f.woke_untouched=true;
-        f.last_input=Instant::now()-Duration::from_secs(60);f.idle_sleep();
-        assert!(matches!(f.app().phase(),Phase::Shelf));
-        f.last_input=Instant::now()-Duration::from_secs(91);f.idle_sleep();
-        assert!(matches!(f.app().phase(),Phase::Doze{..}));
+        let dir = tempfile::tempdir().unwrap();
+        let mut f = booted(dir.path());
+        f.woke_untouched = true;
+        f.last_input = Instant::now() - Duration::from_secs(60);
+        f.idle_sleep();
+        assert!(matches!(f.app().phase(), Phase::Shelf));
+        f.last_input = Instant::now() - Duration::from_secs(91);
+        f.idle_sleep();
+        assert!(matches!(f.app().phase(), Phase::Doze { .. }));
     }
     #[test]
     fn auto_sleep_can_be_disabled() {
-        let dir=tempfile::tempdir().unwrap();crate::root::ensure(dir.path());
-        std::fs::write(dir.path().join("DISABLE_AUTO_SLEEP"),"").unwrap();
-        let mut f=booted(dir.path());
-        f.last_input=Instant::now()-Duration::from_secs(3600);f.idle_sleep();
-        assert!(matches!(f.app().phase(),Phase::Shelf));
+        let dir = tempfile::tempdir().unwrap();
+        crate::root::ensure(dir.path());
+        std::fs::write(dir.path().join("DISABLE_AUTO_SLEEP"), "").unwrap();
+        let mut f = booted(dir.path());
+        f.last_input = Instant::now() - Duration::from_secs(3600);
+        f.idle_sleep();
+        assert!(matches!(f.app().phase(), Phase::Shelf));
     }
     #[test]
     fn idle_redraw_gate_preserves_input_effects_and_periodic_refresh() {
-        let dir=tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         crate::root::ensure(dir.path());
-        let mut state=slot_store::SlotState::default();state.clock_set=true;
-        slot_store::write_slot_state(dir.path(),&state).unwrap();
-        let mut f=Frontend::boot(Box::new(slot_power::SimPlatform::at(dir.path().into())));
-        assert!(matches!(f.app().phase(),Phase::Shelf));
-        f.last_input=Instant::now()-Duration::from_secs(3);
-        f.last_render=Instant::now();f.rendered_effects=f.render_effects();
-        let mut scene=vec![];f.app().draw(&mut scene);f.draws=scene;
-        assert!(!f.needs_render(),"unchanged shelf should not redraw");
-        f.last_input=Instant::now();assert!(f.needs_render(),"input must redraw immediately");
-        f.last_input=Instant::now()-Duration::from_secs(3);
-        f.rendered_effects.0=-1.0;assert!(f.needs_render(),"screen transitions must animate");
-        f.rendered_effects=f.render_effects();f.last_render=Instant::now()-Duration::from_secs(2);
-        assert!(f.needs_render(),"clock and asynchronous artwork must refresh");
-        f.last_render=Instant::now();f.draws.clear();
-        assert!(f.needs_render(),"changed drawing commands must redraw");
+        let mut state = slot_store::SlotState::default();
+        state.clock_set = true;
+        slot_store::write_slot_state(dir.path(), &state).unwrap();
+        let mut f = Frontend::boot(Box::new(slot_power::SimPlatform::at(dir.path().into())));
+        assert!(matches!(f.app().phase(), Phase::Shelf));
+        f.last_input = Instant::now() - Duration::from_secs(3);
+        f.last_render = Instant::now();
+        f.rendered_effects = f.render_effects();
+        let mut scene = vec![];
+        f.app().draw(&mut scene);
+        f.draws = scene;
+        assert!(!f.needs_render(), "unchanged shelf should not redraw");
+        f.last_input = Instant::now();
+        assert!(f.needs_render(), "input must redraw immediately");
+        f.last_input = Instant::now() - Duration::from_secs(3);
+        f.rendered_effects.0 = -1.0;
+        assert!(f.needs_render(), "screen transitions must animate");
+        f.rendered_effects = f.render_effects();
+        f.last_render = Instant::now() - Duration::from_secs(2);
+        assert!(
+            f.needs_render(),
+            "clock and asynchronous artwork must refresh"
+        );
+        f.last_render = Instant::now();
+        f.draws.clear();
+        assert!(f.needs_render(), "changed drawing commands must redraw");
     }
 }

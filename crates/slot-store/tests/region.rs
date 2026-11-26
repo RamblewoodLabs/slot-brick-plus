@@ -1,6 +1,12 @@
 use slot_store::region::{nes_famicom_board, nes_mapper, snes_destination, snes_pal_or_japan};
 
-fn snes_rom(dir: &tempfile::TempDir, name: &str, hirom: bool, copier: bool, destination: u8) -> std::path::PathBuf {
+fn snes_rom(
+    dir: &tempfile::TempDir,
+    name: &str,
+    hirom: bool,
+    copier: bool,
+    destination: u8,
+) -> std::path::PathBuf {
     let mut rom = vec![0u8; 0x10000];
     let at = if hirom { 0xffc0 } else { 0x7fc0 };
     rom[at + 0x15] = if hirom { 0x21 } else { 0x20 };
@@ -17,12 +23,30 @@ fn snes_rom(dir: &tempfile::TempDir, name: &str, hirom: bool, copier: bool, dest
 #[test]
 fn a_snes_rom_says_where_it_was_sold() {
     let d = tempfile::tempdir().unwrap();
-    assert_eq!(snes_destination(&snes_rom(&d, "lo.sfc", false, false, 0x02)), Some(0x02));
-    assert_eq!(snes_destination(&snes_rom(&d, "hi.sfc", true, false, 0x09)), Some(0x09));
-    assert_eq!(snes_destination(&snes_rom(&d, "smc.smc", true, true, 0x00)), Some(0x00));
-    assert_eq!(snes_pal_or_japan(&snes_rom(&d, "eu.sfc", false, false, 0x02)), Some(true));
-    assert_eq!(snes_pal_or_japan(&snes_rom(&d, "jp.sfc", true, false, 0x00)), Some(true));
-    assert_eq!(snes_pal_or_japan(&snes_rom(&d, "us.sfc", false, false, 0x01)), Some(false));
+    assert_eq!(
+        snes_destination(&snes_rom(&d, "lo.sfc", false, false, 0x02)),
+        Some(0x02)
+    );
+    assert_eq!(
+        snes_destination(&snes_rom(&d, "hi.sfc", true, false, 0x09)),
+        Some(0x09)
+    );
+    assert_eq!(
+        snes_destination(&snes_rom(&d, "smc.smc", true, true, 0x00)),
+        Some(0x00)
+    );
+    assert_eq!(
+        snes_pal_or_japan(&snes_rom(&d, "eu.sfc", false, false, 0x02)),
+        Some(true)
+    );
+    assert_eq!(
+        snes_pal_or_japan(&snes_rom(&d, "jp.sfc", true, false, 0x00)),
+        Some(true)
+    );
+    assert_eq!(
+        snes_pal_or_japan(&snes_rom(&d, "us.sfc", false, false, 0x01)),
+        Some(false)
+    );
     let blank = d.path().join("blank.sfc");
     std::fs::write(&blank, [0u8; 0x200]).unwrap();
     assert_eq!(snes_pal_or_japan(&blank), None);
@@ -43,7 +67,11 @@ fn a_nes_rom_on_a_famicom_only_board_is_spotted() {
     assert_eq!(nes_mapper(&rom("vrc6.nes", 0x80, 0x10, &[])), Some(24));
     assert!(nes_famicom_board(&rom("vrc6b.nes", 0x80, 0x10, &[])));
     assert!(!nes_famicom_board(&rom("mmc3.nes", 0x40, 0x00, &[])));
-    assert_eq!(nes_mapper(&rom("dude.nes", 0x40, b'D', b"ude!")), Some(4), "dumper text read as a mapper");
+    assert_eq!(
+        nes_mapper(&rom("dude.nes", 0x40, b'D', b"ude!")),
+        Some(4),
+        "dumper text read as a mapper"
+    );
     let junk = d.path().join("junk.nes");
     std::fs::write(&junk, b"not a rom").unwrap();
     assert_eq!(nes_mapper(&junk), None);
@@ -53,7 +81,12 @@ fn a_nes_rom_on_a_famicom_only_board_is_spotted() {
 fn a_nes_games_famicom_label_is_found_beside_its_nes_one() {
     let d = tempfile::tempdir().unwrap();
     let root = d.path();
-    for dir in ["Games/NES", "Labels/NES/Famicom", "Games/GBA", "Labels/GBA/Famicom"] {
+    for dir in [
+        "Games/NES",
+        "Labels/NES/Famicom",
+        "Games/GBA",
+        "Labels/GBA/Famicom",
+    ] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
     std::fs::write(root.join("Games/NES/Rockman (Japan).nes"), b"NES\x1a").unwrap();
@@ -64,8 +97,17 @@ fn a_nes_games_famicom_label_is_found_beside_its_nes_one() {
     let carts = slot_store::scan(root).unwrap();
     let nes = carts.iter().find(|c| c.stem == "Rockman (Japan)").unwrap();
     assert!(nes.label.is_some());
-    assert_eq!(nes.famicom_label.as_deref(), Some(root.join("Labels/NES/Famicom/rockman (japan).png").as_path()));
+    assert_eq!(
+        nes.famicom_label.as_deref(),
+        Some(
+            root.join("Labels/NES/Famicom/rockman (japan).png")
+                .as_path()
+        )
+    );
     let gba = carts.iter().find(|c| c.stem == "Emerald").unwrap();
     assert_eq!(gba.famicom_label, None, "a GBA game took a Famicom label");
-    assert_eq!(slot_store::labels_of(root, slot_store::Platform::Nes, "Rockman (Japan)"), (nes.label.clone(), nes.famicom_label.clone()));
+    assert_eq!(
+        slot_store::labels_of(root, slot_store::Platform::Nes, "Rockman (Japan)"),
+        (nes.label.clone(), nes.famicom_label.clone())
+    );
 }

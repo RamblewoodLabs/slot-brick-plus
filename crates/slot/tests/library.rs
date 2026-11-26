@@ -3,11 +3,17 @@ mod common;
 use common::{app_booting_at, tmp_root_with_carts, write_gb_cart};
 use slot::app::{App, Phase};
 use slot_input::{Action, Btn};
-use slot_store::{read_slot_state, write_slot_state, Library, LibrarySort, Platform, ShelfKind, SlotState, LIBRARY_FILE};
+use slot_store::{
+    read_slot_state, write_slot_state, Library, LibrarySort, Platform, ShelfKind, SlotState,
+    LIBRARY_FILE,
+};
 use slot_ui::QuickRow;
 
 fn order(a: &App) -> String {
-    a.system_carts().map(|c| c.stem.as_str()).collect::<Vec<_>>().join(" ")
+    a.system_carts()
+        .map(|c| c.stem.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn fav_order(a: &App) -> String {
@@ -26,7 +32,14 @@ fn write_stub(d: &tempfile::TempDir, platform: Platform, stem: &str) {
 
 fn library_app(library: &str, state: SlotState) -> (tempfile::TempDir, App) {
     let d = tmp_root_with_carts(&["Alpha", "Beta", "Gamma"]);
-    write_slot_state(d.path(), &SlotState { clock_set: true, ..state }).unwrap();
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            ..state
+        },
+    )
+    .unwrap();
     std::fs::write(d.path().join(LIBRARY_FILE), library).unwrap();
     let (a, _) = app_booting_at(d.path(), 1_800_000_000);
     assert!(matches!(a.phase(), Phase::Shelf), "{:?}", a.phase());
@@ -48,12 +61,21 @@ fn select_steps_the_shelf_through_its_orders_and_names_each() {
     a.apply(Action::GbaDown(Btn::Select));
     assert_eq!(order(&a), "Alpha Beta Gamma");
     a.settle_saves();
-    assert_eq!(slot_store::read_slot_state(d.path()).library_sort, LibrarySort::Az);
+    assert_eq!(
+        slot_store::read_slot_state(d.path()).library_sort,
+        LibrarySort::Az
+    );
 }
 
 #[test]
 fn the_order_chosen_is_kept_and_the_selected_game_stays_selected() {
-    let (_d, mut a) = library_app(PLAYED, SlotState { library_sort: LibrarySort::MostPlayed, ..SlotState::default() });
+    let (_d, mut a) = library_app(
+        PLAYED,
+        SlotState {
+            library_sort: LibrarySort::MostPlayed,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(order(&a), "Beta Gamma Alpha");
     a.apply(Action::GbaDown(Btn::Right));
     a.apply(Action::GbaUp(Btn::Right));
@@ -69,17 +91,39 @@ fn y_stars_a_favorite_and_favorites_only_shows_just_those() {
     a.apply(Action::GbaDown(Btn::Y));
     a.settle_saves();
     std::thread::sleep(std::time::Duration::from_millis(100));
-    assert!(Library::read(d.path()).get(slot_store::Platform::Gba, "Alpha").favorite);
-    let (_d2, b) = library_app("GBA\tGamma\t0\t0\t1\n", SlotState { favorites_only: true, ..SlotState::default() });
+    assert!(
+        Library::read(d.path())
+            .get(slot_store::Platform::Gba, "Alpha")
+            .favorite
+    );
+    let (_d2, b) = library_app(
+        "GBA\tGamma\t0\t0\t1\n",
+        SlotState {
+            favorites_only: true,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(order(&b), "Gamma");
     // With no favorites at all, Favorites still shows every game rather than none.
-    let (_d3, c) = library_app("", SlotState { favorites_only: true, ..SlotState::default() });
+    let (_d3, c) = library_app(
+        "",
+        SlotState {
+            favorites_only: true,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(order(&c), "Alpha Beta Gamma");
 }
 
 #[test]
 fn the_shelf_prints_how_long_the_selected_game_was_played() {
-    let (_d, mut a) = library_app(PLAYED, SlotState { library_sort: LibrarySort::MostPlayed, ..SlotState::default() });
+    let (_d, mut a) = library_app(
+        PLAYED,
+        SlotState {
+            library_sort: LibrarySort::MostPlayed,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(a.played_text().as_deref(), Some("150M"));
     a.apply(Action::GbaDown(Btn::Right));
     a.apply(Action::GbaUp(Btn::Right));
@@ -88,7 +132,14 @@ fn the_shelf_prints_how_long_the_selected_game_was_played() {
     a.apply(Action::GbaDown(Btn::Right));
     a.apply(Action::GbaUp(Btn::Right));
     assert_eq!(a.played_text(), None, "Alpha was never played");
-    let (_d2, b) = library_app(PLAYED, SlotState { library_sort: LibrarySort::MostPlayed, play_time_hours: true, ..SlotState::default() });
+    let (_d2, b) = library_app(
+        PLAYED,
+        SlotState {
+            library_sort: LibrarySort::MostPlayed,
+            play_time_hours: true,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(b.played_text().as_deref(), Some("2H30M"));
 }
 
@@ -99,7 +150,13 @@ fn the_title_card_names_the_selected_game_unless_turned_off() {
     a.apply(Action::GbaDown(Btn::Right));
     a.apply(Action::GbaUp(Btn::Right));
     assert_eq!(a.title_card_text().as_deref(), Some("Beta"));
-    let (_d2, b) = library_app("", SlotState { title_card: false, ..SlotState::default() });
+    let (_d2, b) = library_app(
+        "",
+        SlotState {
+            title_card: false,
+            ..SlotState::default()
+        },
+    );
     assert_eq!(b.title_card_text(), None);
 }
 
@@ -138,7 +195,14 @@ fn open_systems_at(a: &mut App, row: QuickRow) {
 fn two_systems(state: SlotState) -> (tempfile::TempDir, App) {
     let d = tmp_root_with_carts(&["Alpha", "Beta"]);
     write_gb_cart(&d, "Pocket", "POCKET");
-    write_slot_state(d.path(), &SlotState { clock_set: true, ..state }).unwrap();
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            ..state
+        },
+    )
+    .unwrap();
     let (a, _) = app_booting_at(d.path(), 1_800_000_000);
     (d, a)
 }
@@ -148,9 +212,15 @@ fn a_hidden_system_has_no_shelf_and_stays_hidden() {
     let (d, mut a) = two_systems(SlotState::default());
     assert_eq!(order(&a), "Alpha Beta Pocket");
     open_systems_at(&mut a, QuickRow::ShowGba);
-    assert_eq!(a.quick_value(QuickRow::ShowGba), Some(slot_ui::QuickValue::On));
+    assert_eq!(
+        a.quick_value(QuickRow::ShowGba),
+        Some(slot_ui::QuickValue::On)
+    );
     press(&mut a, Btn::Right);
-    assert_eq!(a.quick_value(QuickRow::ShowGba), Some(slot_ui::QuickValue::Off));
+    assert_eq!(
+        a.quick_value(QuickRow::ShowGba),
+        Some(slot_ui::QuickValue::Off)
+    );
     assert_eq!(order(&a), "Pocket");
     assert!(!read_slot_state(d.path()).shows(Platform::Gba));
     // Back on the shelf, the Game Boy's is the one there is.
@@ -170,7 +240,10 @@ fn the_last_system_with_games_cannot_be_hidden() {
     let (d, mut a) = two_systems(state);
     open_systems_at(&mut a, QuickRow::ShowGb);
     press(&mut a, Btn::Right);
-    assert_eq!(a.quick_value(QuickRow::ShowGb), Some(slot_ui::QuickValue::On));
+    assert_eq!(
+        a.quick_value(QuickRow::ShowGb),
+        Some(slot_ui::QuickValue::On)
+    );
     assert_eq!(order(&a), "Pocket");
     assert!(read_slot_state(d.path()).shows(Platform::Gb));
     // A system with no games can be hidden all the same.
@@ -195,14 +268,28 @@ fn with_every_system_that_has_games_hidden_all_are_shown() {
 
 #[test]
 fn favorites_only_counts_the_favorites_on_shown_systems() {
-    let mut state = SlotState { favorites_only: true, ..SlotState::default() };
+    let mut state = SlotState {
+        favorites_only: true,
+        ..SlotState::default()
+    };
     state.hidden_systems[Platform::Gb.index()] = true;
     let d = tmp_root_with_carts(&["Alpha", "Beta"]);
     write_gb_cart(&d, "Pocket", "POCKET");
-    write_slot_state(d.path(), &SlotState { clock_set: true, ..state }).unwrap();
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            ..state
+        },
+    )
+    .unwrap();
     std::fs::write(d.path().join(LIBRARY_FILE), "GB\tPocket\t0\t0\t1\n").unwrap();
     let (a, _) = app_booting_at(d.path(), 1_800_000_000);
-    assert_eq!(order(&a), "Alpha Beta", "the only favorite is on a hidden shelf");
+    assert_eq!(
+        order(&a),
+        "Alpha Beta",
+        "the only favorite is on a hidden shelf"
+    );
     // The combined Favorites shelf still holds it, even though its system is hidden.
     assert_eq!(fav_order(&a), "GB:Pocket");
 }
@@ -215,7 +302,14 @@ fn mixed_favorites_app(library: &str, state: SlotState) -> (tempfile::TempDir, A
     write_stub(&d, Platform::Intv, "Astrosmash");
     write_stub(&d, Platform::Arcade, "mslug");
     write_stub(&d, Platform::Gw, "donkykong");
-    write_slot_state(d.path(), &SlotState { clock_set: true, ..state }).unwrap();
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            clock_set: true,
+            ..state
+        },
+    )
+    .unwrap();
     std::fs::write(d.path().join(LIBRARY_FILE), library).unwrap();
     let (a, _) = app_booting_at(d.path(), 1_800_000_000);
     (d, a)
@@ -239,14 +333,23 @@ fn a_favorites_shelf_holds_starred_games_of_every_system() {
     );
     let (_d, mut a) = mixed_favorites_app(library, SlotState::default());
     go_favorites(&mut a);
-    assert_eq!(fav_order(&a), "INTV:Astrosmash MD:Sonic SNES:Zelda ARCADE:mslug GBA:Alpha GW:donkykong");
+    assert_eq!(
+        fav_order(&a),
+        "INTV:Astrosmash MD:Sonic SNES:Zelda ARCADE:mslug GBA:Alpha GW:donkykong"
+    );
     // SELECT on Favorites: last played (Zelda 80, Sonic 50, mslug 10, the rest never).
     a.apply(Action::GbaDown(Btn::Select));
     assert_eq!(a.slot_text().as_deref(), Some("LAST PLAYED"));
-    assert_eq!(fav_order(&a), "SNES:Zelda MD:Sonic ARCADE:mslug GBA:Alpha INTV:Astrosmash GW:donkykong");
+    assert_eq!(
+        fav_order(&a),
+        "SNES:Zelda MD:Sonic ARCADE:mslug GBA:Alpha INTV:Astrosmash GW:donkykong"
+    );
     a.apply(Action::GbaDown(Btn::Select));
     assert_eq!(a.slot_text().as_deref(), Some("ADDED"));
-    assert_eq!(fav_order(&a), "INTV:Astrosmash MD:Sonic SNES:Zelda ARCADE:mslug GBA:Alpha GW:donkykong");
+    assert_eq!(
+        fav_order(&a),
+        "INTV:Astrosmash MD:Sonic SNES:Zelda ARCADE:mslug GBA:Alpha GW:donkykong"
+    );
 }
 
 #[test]
@@ -270,9 +373,15 @@ fn the_favorites_shelf_can_be_hidden_from_systems_and_stays_hidden() {
     go_favorites(&mut a);
     assert_eq!(fav_order(&a), "GBA:Alpha");
     open_systems_at(&mut a, QuickRow::ShowFavorites);
-    assert_eq!(a.quick_value(QuickRow::ShowFavorites), Some(slot_ui::QuickValue::On));
+    assert_eq!(
+        a.quick_value(QuickRow::ShowFavorites),
+        Some(slot_ui::QuickValue::On)
+    );
     press(&mut a, Btn::Right);
-    assert_eq!(a.quick_value(QuickRow::ShowFavorites), Some(slot_ui::QuickValue::Off));
+    assert_eq!(
+        a.quick_value(QuickRow::ShowFavorites),
+        Some(slot_ui::QuickValue::Off)
+    );
     assert!(a.favorite_carts().next().is_none());
     assert!(!read_slot_state(d.path()).show_favorites);
     let (_d2, b) = mixed_favorites_app(library, read_slot_state(d.path()));
@@ -285,7 +394,15 @@ fn all_systems_can_be_hidden_when_the_favorites_shelf_remains() {
     let library = "GBA\tAlpha\t0\t0\t1\nMD\tSonic\t0\t0\t1\n";
     let mut state = SlotState::default();
     // Hide every system that will have games; Favorites stays.
-    for p in [Platform::Gba, Platform::Gb, Platform::Md, Platform::Snes, Platform::Intv, Platform::Arcade, Platform::Gw] {
+    for p in [
+        Platform::Gba,
+        Platform::Gb,
+        Platform::Md,
+        Platform::Snes,
+        Platform::Intv,
+        Platform::Arcade,
+        Platform::Gw,
+    ] {
         state.hidden_systems[p.index()] = true;
     }
     let (_d, a) = mixed_favorites_app(library, state);
@@ -296,7 +413,8 @@ fn all_systems_can_be_hidden_when_the_favorites_shelf_remains() {
 
 #[test]
 fn launching_from_the_favorites_shelf_keeps_the_games_own_platform() {
-    let library = "MD\tSonic\t0\t0\t1\nGBA\tAlpha\t0\t0\t1\nFAVADD\tMD\tSonic\t20\nFAVADD\tGBA\tAlpha\t10\n";
+    let library =
+        "MD\tSonic\t0\t0\t1\nGBA\tAlpha\t0\t0\t1\nFAVADD\tMD\tSonic\t20\nFAVADD\tGBA\tAlpha\t10\n";
     let (_d, mut a) = mixed_favorites_app(library, SlotState::default());
     go_favorites(&mut a);
     assert_eq!(a.selected_cart().map(|c| c.platform), Some(Platform::Md));

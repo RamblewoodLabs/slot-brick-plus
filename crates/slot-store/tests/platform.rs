@@ -7,7 +7,8 @@ fn every_platform_has_a_directory() {
         names,
         vec![
             "GBA", "GB", "GBC", "NES", "SNES", "PS1", "MD", "SMS", "GG", "ARCADE", "PCE", "A2600",
-            "INTV", "LYNX", "A7800", "GW",
+            "INTV", "LYNX", "A7800", "GW", "COLECO", "A5200", "A800", "VECTREX", "32X", "N64",
+            "NDS", "PSP",
         ]
     );
 }
@@ -33,6 +34,14 @@ fn every_platform_is_a_shelf_of_its_own() {
             Platform::Lynx,
             Platform::A7800,
             Platform::Gw,
+            Platform::Coleco,
+            Platform::A5200,
+            Platform::A800,
+            Platform::Vectrex,
+            Platform::S32x,
+            Platform::N64,
+            Platform::Nds,
+            Platform::Psp,
         ]
     );
     for (i, p) in Platform::ALL.iter().enumerate() {

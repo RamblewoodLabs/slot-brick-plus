@@ -112,7 +112,10 @@ fn the_playstation_shelf_takes_no_archives() {
     assert!(Platform::ALL
         .iter()
         .filter(|p| !p.def().archive_is_rom)
-        .all(|p| { p.takes_archives() == (*p != Platform::Ps1) }));
+        .all(|p| {
+            // Discs, and DS cards too big to unpack into the device's memory, are kept as files.
+            p.takes_archives() == !matches!(p, Platform::Ps1 | Platform::Nds | Platform::Psp)
+        }));
 }
 
 fn gb_rom(cgb: u8) -> Vec<u8> {

@@ -13,13 +13,20 @@ fn sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 fn main() {
-    let mut files = vec![Path::new("shim/slot_cheevos.c").to_path_buf(), Path::new("shim/chd_reader.c").to_path_buf()];
+    let mut files = vec![
+        Path::new("shim/slot_cheevos.c").to_path_buf(),
+        Path::new("shim/chd_reader.c").to_path_buf(),
+    ];
     sources(Path::new("rcheevos/src"), &mut files);
     // libchdr and the decompressors it needs (see libchdr/README.slot), for .chd discs.
     sources(Path::new("libchdr/src"), &mut files);
     files.extend(
-        ["libchdr/deps/lzma-26.02/src/LzmaDec.c", "libchdr/deps/zstd-1.5.7/zstddeclib.c", "libchdr/deps/miniz-3.1.2/miniz.c"]
-            .map(|f| Path::new(f).to_path_buf()),
+        [
+            "libchdr/deps/lzma-26.02/src/LzmaDec.c",
+            "libchdr/deps/zstd-1.5.7/zstddeclib.c",
+            "libchdr/deps/miniz-3.1.2/miniz.c",
+        ]
+        .map(|f| Path::new(f).to_path_buf()),
     );
     files.sort();
     let mut build = cc::Build::new();

@@ -24,8 +24,7 @@ fn built_in() -> Option<&'static Font> {
 /// Uses `bytes` (a TTF or OTF) for all text from now on. False when they are not a font, or
 /// one was set already.
 pub fn set_label_font(bytes: &[u8]) -> bool {
-    Font::from_bytes(bytes, FontSettings::default())
-        .is_ok_and(|font| CHOSEN.set(font).is_ok())
+    Font::from_bytes(bytes, FontSettings::default()).is_ok_and(|font| CHOSEN.set(font).is_ok())
 }
 
 thread_local! {
@@ -34,7 +33,10 @@ thread_local! {
 }
 
 pub fn label_font() -> Option<&'static Font> {
-    FOR_NOW.with(|f| f.get()).or_else(|| CHOSEN.get()).or_else(built_in)
+    FOR_NOW
+        .with(|f| f.get())
+        .or_else(|| CHOSEN.get())
+        .or_else(built_in)
 }
 
 /// `draw`, with its text in `font` (the Font row names each font in itself).
@@ -47,7 +49,9 @@ pub fn in_font<T>(font: &'static Font, draw: impl FnOnce() -> T) -> T {
 
 /// A font to draw in for as long as Slot runs, or None if `bytes` are not one.
 pub fn leak_font(bytes: &[u8]) -> Option<&'static Font> {
-    Font::from_bytes(bytes, FontSettings::default()).ok().map(|f| &*Box::leak(Box::new(f)))
+    Font::from_bytes(bytes, FontSettings::default())
+        .ok()
+        .map(|f| &*Box::leak(Box::new(f)))
 }
 
 /// The font `ch` is drawn in: `font`, or the built-in one where `font` has no such character,

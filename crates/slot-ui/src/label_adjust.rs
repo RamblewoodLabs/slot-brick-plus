@@ -3,7 +3,9 @@
 //! the cart will wear it. The d-pad moves the picture, L and the d-pad stretch it, R evens its
 //! shape back up and Y puts it back. Nothing is cut until A.
 use crate::draw::{Draw, TexId, OUT_H, OUT_W};
-use crate::plate::{centred_hints, footer_plate, hint_face, UndoFace, CAPTION_Y, HINT_H, LEGEND_GAP, LEGEND_Y};
+use crate::plate::{
+    centred_hints, footer_plate, hint_face, UndoFace, CAPTION_Y, HINT_H, LEGEND_GAP, LEGEND_Y,
+};
 use crate::slot_chrome::opening;
 
 /// The slot is drawn as large as this, and the cart around it at whatever size that comes to:
@@ -53,35 +55,78 @@ pub struct LabelAdjustView {
 
 impl LabelAdjustView {
     pub fn draw(&self, out: &mut Vec<Draw>) {
-        out.push(Draw::Rect { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, colour: opening() });
+        out.push(Draw::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: OUT_W as f32,
+            h: OUT_H as f32,
+            colour: opening(),
+        });
         if let Some((tex, x, y, w, h)) = self.picture {
-            out.push(Draw::Tex { x, y, w, h, tex, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x,
+                y,
+                w,
+                h,
+                tex,
+                alpha: 1.0,
+            });
         }
         // Everything but the slot, darkened, in four pieces around it. The cart covers most of
         // this; what is left is the picture spilling out past the cart's own edges.
         let (fx, fy, fw, fh) = self.frame;
         let (sw, sh) = (OUT_W as f32, OUT_H as f32);
-        for (x, y, w, h) in
-            [(0.0, 0.0, sw, fy), (0.0, fy + fh, sw, sh - fy - fh), (0.0, fy, fx, fh), (fx + fw, fy, sw - fx - fw, fh)]
-        {
+        for (x, y, w, h) in [
+            (0.0, 0.0, sw, fy),
+            (0.0, fy + fh, sw, sh - fy - fh),
+            (0.0, fy, fx, fh),
+            (fx + fw, fy, sw - fx - fw, fh),
+        ] {
             if w > 0.0 && h > 0.0 {
-                out.push(Draw::Rect { x, y, w, h, colour: SHADE });
+                out.push(Draw::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    colour: SHADE,
+                });
             }
         }
         // The cart last: solid in the slot, where nothing covers the picture, and near enough
         // solid elsewhere that the rest of it only ghosts through.
         if let Some((tex, x, y, w, h)) = self.cart {
-            out.push(Draw::Tex { x, y, w, h, tex, alpha: CART_ALPHA });
+            out.push(Draw::Tex {
+                x,
+                y,
+                w,
+                h,
+                tex,
+                alpha: CART_ALPHA,
+            });
         }
         // The cart runs on behind the words, so they get ground of their own to sit on.
         footer_plate(out, OUT_H as f32);
         if let Some((tex, w, h)) = self.caption {
             let x = ((OUT_W as f32 - w as f32) / 2.0).round();
-            out.push(Draw::Tex { x, y: CAPTION_Y, w: w as f32, h: h as f32, tex, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x,
+                y: CAPTION_Y,
+                w: w as f32,
+                h: h as f32,
+                tex,
+                alpha: 1.0,
+            });
         }
         if let Some(legend) = self.legend {
             for (tex, w, x) in centred_hints(&legend, LEGEND_GAP) {
-                out.push(Draw::Tex { x, y: LEGEND_Y, w: w as f32, h: HINT_H as f32, tex, alpha: 1.0 });
+                out.push(Draw::Tex {
+                    x,
+                    y: LEGEND_Y,
+                    w: w as f32,
+                    h: HINT_H as f32,
+                    tex,
+                    alpha: 1.0,
+                });
             }
         }
     }

@@ -279,7 +279,12 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
     );
     let mut text = text;
     for platform in Platform::ALL {
-        let _ = writeln!(text, "overlay_{}={}", platform_key(platform), s.overlay(platform).unwrap_or(""));
+        let _ = writeln!(
+            text,
+            "overlay_{}={}",
+            platform_key(platform),
+            s.overlay(platform).unwrap_or("")
+        );
     }
     for (key, on) in [
         ("menu_sounds", s.menu_sounds),
@@ -293,7 +298,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
         let _ = writeln!(text, "{key}={}", on as u8);
     }
     let _ = writeln!(text, "sound_volume={}", s.sound_volume);
-    let hidden: Vec<String> = Platform::ALL.into_iter().filter(|p| s.hidden_systems[p.index()]).map(platform_key).collect();
+    let hidden: Vec<String> = Platform::ALL
+        .into_iter()
+        .filter(|p| s.hidden_systems[p.index()])
+        .map(platform_key)
+        .collect();
     let _ = writeln!(text, "hidden_systems={}", hidden.join(","));
     let _ = writeln!(text, "show_favorites={}", s.show_favorites as u8);
     let _ = writeln!(text, "favorites_sort={}", s.favorites_sort.name());
@@ -383,7 +392,9 @@ fn parse(text: &str) -> Option<SlotState> {
             "sound_cart" => sound_cart = flag(value),
             "sound_cart_open" => sound_cart_open = flag(value),
             "sound_label" => sound_label = flag(value),
-            "sound_volume" => sound_volume = level(value, 100).filter(|v| v % SOUND_VOLUME_STEP == 0),
+            "sound_volume" => {
+                sound_volume = level(value, 100).filter(|v| v % SOUND_VOLUME_STEP == 0)
+            }
             "ff_speed" => ff_speed = ff_speed_value(value),
             "ff_sound" => ff_sound = flag(value),
             // Before it was one setting for all three: it carries over to both.
@@ -408,7 +419,8 @@ fn parse(text: &str) -> Option<SlotState> {
                 // overlay_gb=<file name>: one for each system, empty for off.
                 let system = key.strip_prefix("overlay_").and_then(platform_value);
                 if let Some(platform) = system {
-                    overlays[platform.index()] = Some(value.to_string()).filter(|n| crate::overlay_name_ok(n));
+                    overlays[platform.index()] =
+                        Some(value.to_string()).filter(|n| crate::overlay_name_ok(n));
                 }
             }
         }
@@ -444,8 +456,12 @@ fn parse(text: &str) -> Option<SlotState> {
         sound_volume: sound_volume.unwrap_or(fallback.sound_volume),
         ff_speed: ff_speed.unwrap_or(fallback.ff_speed),
         ff_sound: ff_sound.unwrap_or(fallback.ff_sound),
-        colour_correction_gb: colour_correction_gb.or(colour_correction).unwrap_or(fallback.colour_correction_gb),
-        colour_correction_gba: colour_correction_gba.or(colour_correction).unwrap_or(fallback.colour_correction_gba),
+        colour_correction_gb: colour_correction_gb
+            .or(colour_correction)
+            .unwrap_or(fallback.colour_correction_gb),
+        colour_correction_gba: colour_correction_gba
+            .or(colour_correction)
+            .unwrap_or(fallback.colour_correction_gba),
         shader_gba: shader_gba.unwrap_or(fallback.shader_gba),
         shader_gb: shader_gb.unwrap_or(fallback.shader_gb),
         shader_nes: shader_nes.unwrap_or(fallback.shader_nes),

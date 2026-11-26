@@ -41,7 +41,9 @@ pub fn snes_pal_or_japan(rom: &Path) -> Option<bool> {
 
 /// Mappers only Japanese (Famicom) carts used: Konami's VRC chips, Namco 163, Jaleco, Irem,
 /// Sunsoft-3 and Taito boards that never came west.
-const FAMICOM_ONLY: &[u16] = &[18, 19, 21, 22, 23, 24, 25, 26, 65, 67, 73, 75, 80, 82, 85, 88, 95, 210];
+const FAMICOM_ONLY: &[u16] = &[
+    18, 19, 21, 22, 23, 24, 25, 26, 65, 67, 73, 75, 80, 82, 85, 88, 95, 210,
+];
 
 /// The iNES mapper number, None when the file has no iNES header.
 pub fn nes_mapper(rom: &Path) -> Option<u16> {
@@ -52,7 +54,11 @@ pub fn nes_mapper(rom: &Path) -> Option<u16> {
     }
     let nes2 = h[7] & 0x0c == 0x08;
     // An old dumper's text in bytes 7..16 ("DiskDude!") is no mapper: only the low nibble counts.
-    let high = if nes2 || h[12..].iter().all(|b| *b == 0) { h[7] & 0xf0 } else { 0 };
+    let high = if nes2 || h[12..].iter().all(|b| *b == 0) {
+        h[7] & 0xf0
+    } else {
+        0
+    };
     let mut mapper = (h[6] >> 4) as u16 | high as u16;
     if nes2 {
         mapper |= ((h[8] & 0x0f) as u16) << 8;

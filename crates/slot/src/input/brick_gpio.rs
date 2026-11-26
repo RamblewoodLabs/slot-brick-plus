@@ -151,7 +151,10 @@ impl GpioInput {
         for &(pin, _) in input.pins {
             input.set_input(pin);
         }
-        eprintln!("slot: {} buttons read from GPIO", if pro { "Brick Pro" } else { "Brick" });
+        eprintln!(
+            "slot: {} buttons read from GPIO",
+            if pro { "Brick Pro" } else { "Brick" }
+        );
         Ok(input)
     }
 
@@ -214,11 +217,18 @@ fn held_of(pins: &[(u32, Btn)], pressed: impl Fn(u32) -> bool) -> u32 {
         .fold(0, |held, &(_, btn)| held | bit_of(btn))
 }
 
-const DPAD: [(u8, Btn); 4] = [(1, Btn::Up), (2, Btn::Right), (4, Btn::Down), (8, Btn::Left)];
+const DPAD: [(u8, Btn); 4] = [
+    (1, Btn::Up),
+    (2, Btn::Right),
+    (4, Btn::Down),
+    (8, Btn::Left),
+];
 
 /// The D-pad buttons in `held`, as hat bits (super::brick::hat_events).
 fn hat_of(held: u32) -> u8 {
-    DPAD.iter().filter(|&&(_, btn)| held & bit_of(btn) != 0).fold(0, |hat, &(bit, _)| hat | bit)
+    DPAD.iter()
+        .filter(|&&(_, btn)| held & bit_of(btn) != 0)
+        .fold(0, |hat, &(bit, _)| hat | bit)
 }
 
 fn dpad_bits() -> u32 {
@@ -276,45 +286,79 @@ mod tests {
     fn each_pin_is_one_button_and_every_button_is_known() {
         for pins in [&BRICK_PINS[..], &PRO_PINS[..]] {
             for (i, (pin, btn)) in pins.iter().enumerate() {
-                assert!(pins[i + 1..].iter().all(|(p, _)| p != pin), "pin {pin} twice");
+                assert!(
+                    pins[i + 1..].iter().all(|(p, _)| p != pin),
+                    "pin {pin} twice"
+                );
                 assert!(BUTTONS.contains(btn), "{btn:?} is not in BUTTONS");
             }
         }
         // The Brick's buttons each on a pin of their own; the Pro's two Menu keys share one.
         for btn in BUTTONS {
-            assert_eq!(BRICK_PINS.iter().filter(|(_, b)| *b == btn).count(), 1, "{btn:?} on the Brick");
-            assert!(PRO_PINS.iter().any(|(_, b)| *b == btn), "{btn:?} on the Brick Pro");
+            assert_eq!(
+                BRICK_PINS.iter().filter(|(_, b)| *b == btn).count(),
+                1,
+                "{btn:?} on the Brick"
+            );
+            assert!(
+                PRO_PINS.iter().any(|(_, b)| *b == btn),
+                "{btn:?} on the Brick Pro"
+            );
         }
     }
 
     #[test]
     fn the_brick_pro_has_its_own_pins_for_select_start_menu_and_the_left_shoulders() {
-        let pin = |pins: &[(u32, Btn)], btn: Btn| pins.iter().filter(|(_, b)| *b == btn).map(|(p, _)| *p).collect::<Vec<_>>();
+        let pin = |pins: &[(u32, Btn)], btn: Btn| {
+            pins.iter()
+                .filter(|(_, b)| *b == btn)
+                .map(|(p, _)| *p)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(pin(&PRO_PINS, Btn::Select), [237]);
         assert_eq!(pin(&PRO_PINS, Btn::Start), [238]);
         assert_eq!(pin(&PRO_PINS, Btn::Menu), [236, 242]);
-        assert_eq!((pin(&PRO_PINS, Btn::L1), pin(&PRO_PINS, Btn::L2)), (vec![34], vec![36]));
-        assert_eq!(pin(&BRICK_PINS, Btn::Start), [240], "the Brick's are as they were");
+        assert_eq!(
+            (pin(&PRO_PINS, Btn::L1), pin(&PRO_PINS, Btn::L2)),
+            (vec![34], vec![36])
+        );
+        assert_eq!(
+            pin(&BRICK_PINS, Btn::Start),
+            [240],
+            "the Brick's are as they were"
+        );
     }
 
     #[test]
     fn either_menu_key_is_menu_and_both_together_one_press() {
         let held = held_of(&PRO_PINS, |p| p == 236 || p == 242);
         assert_eq!(held, bit_of(Btn::Menu));
-        assert_eq!(changes(0, held).collect::<Vec<_>>(), vec![RawEvent::Down(Btn::Menu)]);
+        assert_eq!(
+            changes(0, held).collect::<Vec<_>>(),
+            vec![RawEvent::Down(Btn::Menu)]
+        );
     }
 
     #[test]
     fn a_change_of_buttons_is_presses_and_releases() {
         let (a, b) = (bit_of(Btn::A), bit_of(Btn::B));
-        assert_eq!(changes(0, a).collect::<Vec<_>>(), vec![RawEvent::Down(Btn::A)]);
-        assert_eq!(changes(a, b).collect::<Vec<_>>(), vec![RawEvent::Up(Btn::A), RawEvent::Down(Btn::B)]);
+        assert_eq!(
+            changes(0, a).collect::<Vec<_>>(),
+            vec![RawEvent::Down(Btn::A)]
+        );
+        assert_eq!(
+            changes(a, b).collect::<Vec<_>>(),
+            vec![RawEvent::Up(Btn::A), RawEvent::Down(Btn::B)]
+        );
         assert_eq!(changes(b, b).count(), 0);
     }
 
     #[test]
     fn the_d_pad_pins_are_its_hat_bits() {
-        assert_eq!(hat_of(bit_of(Btn::Up) | bit_of(Btn::Left) | bit_of(Btn::A)), 1 | 8);
+        assert_eq!(
+            hat_of(bit_of(Btn::Up) | bit_of(Btn::Left) | bit_of(Btn::A)),
+            1 | 8
+        );
         assert_eq!(dpad_bits() & bit_of(Btn::A), 0);
     }
 }

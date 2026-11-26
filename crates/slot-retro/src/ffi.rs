@@ -20,6 +20,9 @@ pub const GET_LOG_INTERFACE: c_uint = 27;
 pub const GET_SAVE_DIRECTORY: c_uint = 31;
 pub const SET_AUDIO_BUFFER_STATUS_CALLBACK: c_uint = 62;
 pub const SET_NETPACKET_INTERFACE: c_uint = 78;
+pub const SET_HW_RENDER: c_uint = 14;
+pub const SET_GEOMETRY: c_uint = 37;
+pub const GET_PREFERRED_HW_RENDER: c_uint = 56;
 /// 36 | RETRO_ENVIRONMENT_EXPERIMENTAL
 pub const SET_MEMORY_MAPS: c_uint = 36 | 0x10000;
 

@@ -9,6 +9,7 @@ use libloading::Library;
 
 use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
+use crate::hw;
 use crate::link::Link;
 use crate::rumble::Rumble;
 
@@ -59,6 +60,15 @@ struct Host {
     /// For a disc-based core: how it swaps discs, and how it is told the disc to start on.
     disk: Option<DiskControl>,
     initial_disc: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
+    /// A GPU core's GLES context and framebuffer (SET_HW_RENDER), made while its game loads.
+    gl: Option<Box<hw::Gl>>,
+    /// The largest frame the GPU core draws (its max geometry), the framebuffer's size.
+    hw_max: (u32, u32),
+    /// The d-pad steers the left analog stick and is not sent as a d-pad: an N64 or PSP game
+    /// on a handheld without sticks.
+    dpad_stick: bool,
+    /// The stick last frame was the d-pad's, so letting go of the d-pad centres it.
+    stick_from_dpad: bool,
 }
 
 thread_local! {
@@ -256,6 +266,33 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let control = std::ptr::read(data as *const DiskControl);
             with_host(|h| h.disk = Some(control)).is_some()
         }
+        SET_HW_RENDER => {
+            if data.is_null() {
+                return false;
+            }
+            let cb = &mut *(data as *mut hw::HwRenderCallback);
+            let Some(request) = hw::Request::from_callback(cb) else {
+                return false;
+            };
+            let Some(gl) = hw::Gl::create(request) else {
+                eprintln!(
+                    "slot-retro: no GLES {} context for the core",
+                    if request.gles3 { 3 } else { 2 }
+                );
+                return false;
+            };
+            cb.get_current_framebuffer = Some(hw_current_framebuffer);
+            cb.get_proc_address = Some(hw_proc_address);
+            with_host(|h| h.gl = Some(Box::new(gl))).is_some()
+        }
+        GET_PREFERRED_HW_RENDER => {
+            if data.is_null() || !hw::preload() {
+                return false;
+            }
+            *(data as *mut c_uint) = hw::CONTEXT_OPENGLES3;
+            true
+        }
+        SET_GEOMETRY => true,
         SET_MEMORY_MAPS => {
             if data.is_null() {
                 return false;
@@ -264,7 +301,8 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let list = if map.descriptors.is_null() {
                 Vec::new()
             } else {
-                std::slice::from_raw_parts(map.descriptors, map.num_descriptors.min(256) as usize).to_vec()
+                std::slice::from_raw_parts(map.descriptors, map.num_descriptors.min(256) as usize)
+                    .to_vec()
             };
             with_host(|h| h.memory_map = list).is_some()
         }
@@ -366,6 +404,42 @@ unsafe fn report_audio_status(skip: bool) {
     status(true, if skip { 0 } else { 100 }, skip);
 }
 
+unsafe extern "C" fn hw_current_framebuffer() -> usize {
+    with_host(|h| {
+        let (w, hgt) = h.hw_max;
+        h.gl.as_mut()
+            .map_or(0, |gl| gl.framebuffer(w, hgt) as usize)
+    })
+    .unwrap_or(0)
+}
+
+unsafe extern "C" fn hw_proc_address(name: *const c_char) -> hw::ProcAddress {
+    if name.is_null() {
+        return None;
+    }
+    hw::proc_address(std::ffi::CStr::from_ptr(name))
+}
+
+/// A pad with its d-pad taken off, and the left stick it pushes, all the way (diagonals too).
+fn dpad_to_stick(pad: u16) -> (u16, (i16, i16)) {
+    const UP: u16 = 1 << 4;
+    const DOWN: u16 = 1 << 5;
+    const LEFT: u16 = 1 << 6;
+    const RIGHT: u16 = 1 << 7;
+    let axis = |neg: u16, pos: u16| match (pad & neg != 0, pad & pos != 0) {
+        (true, false) => -0x7fff,
+        (false, true) => 0x7fff,
+        _ => 0,
+    };
+    (
+        pad & !(UP | DOWN | LEFT | RIGHT),
+        (axis(LEFT, RIGHT), axis(UP, DOWN)),
+    )
+}
+
+/// RETRO_HW_FRAME_BUFFER_VALID: the frame is in the GPU core's framebuffer.
+const HW_FRAME: usize = usize::MAX;
+
 unsafe extern "C" fn video_refresh(
     data: *const c_void,
     width: c_uint,
@@ -375,7 +449,32 @@ unsafe extern "C" fn video_refresh(
     if data.is_null() {
         return;
     }
-    with_host(|h| {
+    if data as usize == HW_FRAME {
+        with_host(|h| {
+            let Some(gl) = h.gl.as_mut() else {
+                return;
+            };
+            let pitch = gl.read_frame(width, height);
+            let frame = std::mem::take(&mut gl.frame);
+            let (w, hgt) = (
+                (pitch / 4) as c_uint,
+                (frame.len() / pitch.max(1)) as c_uint,
+            );
+            let format = std::mem::replace(&mut h.format, PixelFormat::Xrgb8888);
+            present(h, frame.as_ptr() as *const c_void, w, hgt, pitch);
+            h.format = format;
+            if let Some(gl) = h.gl.as_mut() {
+                gl.frame = frame;
+            }
+        });
+        return;
+    }
+    with_host(|h| present(h, data, width, height, pitch));
+}
+
+/// A frame (`pitch` bytes a row, in `h.format`) into the canvas.
+unsafe fn present(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
+    {
         if h.fill {
             fill_canvas(h, data, width, height, pitch);
             return;
@@ -419,13 +518,16 @@ unsafe extern "C" fn video_refresh(
                 h.video[o + 3] = 0;
             }
         }
-    });
+    }
 }
 
 /// Disc `at` (from 0) of an .m3u, as a core reads the list: its folder and the line as written,
 /// lines starting # left out. None for anything but an .m3u.
 fn m3u_disc(m3u: &Path, at: u32) -> Option<CString> {
-    if !m3u.extension().is_some_and(|e| e.eq_ignore_ascii_case("m3u")) {
+    if !m3u
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("m3u"))
+    {
         return None;
     }
     let text = std::fs::read_to_string(m3u).ok()?;
@@ -443,7 +545,13 @@ fn m3u_disc(m3u: &Path, at: u32) -> Option<CString> {
 }
 
 /// The frame stretched over the whole canvas, nearest pixel: no borders, whatever its size.
-unsafe fn fill_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
+unsafe fn fill_canvas(
+    h: &mut Host,
+    data: *const c_void,
+    width: c_uint,
+    height: c_uint,
+    pitch: usize,
+) {
     let (cw, ch) = (h.canvas.0 as usize, h.canvas.1 as usize);
     let (w, hgt) = (width as usize, height as usize);
     if w == 0 || hgt == 0 {
@@ -477,7 +585,13 @@ unsafe fn fill_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: 
 }
 
 /// The frame scaled whole into the canvas, nearest pixel, centred, the margins black.
-unsafe fn fit_canvas(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
+unsafe fn fit_canvas(
+    h: &mut Host,
+    data: *const c_void,
+    width: c_uint,
+    height: c_uint,
+    pitch: usize,
+) {
     let (cw, ch) = (h.canvas.0 as usize, h.canvas.1 as usize);
     let (w, hgt) = (width as usize, height as usize);
     if w == 0 || hgt == 0 || cw == 0 || ch == 0 {
@@ -517,8 +631,16 @@ unsafe fn pixel(format: PixelFormat, row: *const u8, i: usize) -> [u8; 3] {
         }
         PixelFormat::Rgb565 => {
             let p = ptr::read_unaligned((row as *const u16).add(i));
-            let (r, g, b) = (((p >> 11) & 0x1f) as u8, ((p >> 5) & 0x3f) as u8, (p & 0x1f) as u8);
-            [(b << 3) | (b >> 2), (g << 2) | (g >> 4), (r << 3) | (r >> 2)]
+            let (r, g, b) = (
+                ((p >> 11) & 0x1f) as u8,
+                ((p >> 5) & 0x3f) as u8,
+                (p & 0x1f) as u8,
+            );
+            [
+                (b << 3) | (b >> 2),
+                (g << 2) | (g >> 4),
+                (r << 3) | (r >> 2),
+            ]
         }
     }
 }
@@ -627,6 +749,11 @@ impl LibretroCore {
         self.host.fit = fit;
     }
 
+    /// The d-pad drives the left stick (see `Host::dpad_stick`).
+    pub fn set_dpad_stick(&mut self, on: bool) {
+        self.host.dpad_stick = on;
+    }
+
     pub fn set_option(&mut self, key: &str, value: &str) {
         if !self.host.declared.is_empty() {
             match self.host.declared.get(key) {
@@ -696,6 +823,10 @@ impl LibretroCore {
             fit: false,
             disk: None,
             initial_disc: None,
+            gl: None,
+            hw_max: (0, 0),
+            dpad_stick: false,
+            stick_from_dpad: false,
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -727,6 +858,11 @@ impl LibretroCore {
             return;
         }
         let _a = Active::bind(&mut self.host);
+        if let Some(gl) =
+            unsafe { with_host(|h| h.gl.as_mut().map(|g| g as *mut Box<hw::Gl>)) }.flatten()
+        {
+            unsafe { (*gl).destroy() };
+        }
         unsafe { (self.api.unload_game)() };
         self.loaded = false;
     }
@@ -757,6 +893,8 @@ impl Drop for LibretroCore {
             let _a = Active::bind(&mut self.host);
             (self.api.deinit)();
         }
+        // The GPU core's context goes after the core is done with it.
+        self.host.gl = None;
         LIVE.store(false, Ordering::SeqCst);
     }
 }
@@ -789,7 +927,10 @@ impl RetroCore for LibretroCore {
             meta: ptr::null(),
         };
         // The disc to start on, named as the core names the .m3u's discs.
-        let initial = self.wanted_disc.filter(|at| *at > 0).and_then(|at| Some((at, m3u_disc(rom, at)?)));
+        let initial = self
+            .wanted_disc
+            .filter(|at| *at > 0)
+            .and_then(|at| Some((at, m3u_disc(rom, at)?)));
         if let (Some((at, path)), Some(set)) = (&initial, self.host.initial_disc) {
             let _a = Active::bind(&mut self.host);
             if !unsafe { set(*at, path.as_ptr()) } {
@@ -813,6 +954,18 @@ impl RetroCore for LibretroCore {
             sample_rate: av.timing.sample_rate,
         };
         unsafe { (self.api.set_controller_port_device)(0, self.host.device) };
+        if self.host.gl.is_some() {
+            self.host.hw_max = (av.geometry.max_width.max(1), av.geometry.max_height.max(1));
+            let (w, h) = self.host.hw_max;
+            let reset = self.host.gl.as_mut().map(|gl| {
+                gl.framebuffer(w, h);
+                gl.request.context_reset
+            });
+            if let Some(Some(reset)) = reset {
+                let _a = Active::bind(&mut self.host);
+                unsafe { reset() };
+            }
+        }
         Ok(())
     }
 
@@ -824,7 +977,22 @@ impl RetroCore for LibretroCore {
         if !self.loaded {
             return;
         }
+        if let Some(gl) = &self.host.gl {
+            if !gl.current() {
+                return;
+            }
+        }
         self.host.inputs = [p1.0, p2.0];
+        if self.host.dpad_stick {
+            let (pad, stick) = dpad_to_stick(p1.0);
+            self.host.inputs[0] = pad;
+            if stick != (0, 0) {
+                self.host.stick = stick;
+            } else if self.host.stick_from_dpad {
+                self.host.stick = (0, 0);
+            }
+            self.host.stick_from_dpad = stick != (0, 0);
+        }
         let _a = Active::bind(&mut self.host);
         unsafe { (self.api.run)() };
     }
@@ -912,7 +1080,10 @@ impl RetroCore for LibretroCore {
     fn memory_map(&self) -> (*const c_void, u32) {
         match self.host.memory_map.is_empty() {
             true => (ptr::null(), 0),
-            false => (self.host.memory_map.as_ptr() as *const c_void, self.host.memory_map.len() as u32),
+            false => (
+                self.host.memory_map.as_ptr() as *const c_void,
+                self.host.memory_map.len() as u32,
+            ),
         }
     }
 
@@ -1015,6 +1186,10 @@ mod tests {
             fit: false,
             disk: None,
             initial_disc: None,
+            gl: None,
+            hw_max: (0, 0),
+            dpad_stick: false,
+            stick_from_dpad: false,
         })
     }
 
@@ -1887,18 +2062,39 @@ mod tests {
         // 512x448, RGB565: columns alternate white and black, odd lines are red.
         let (w, h) = (512usize, 448usize);
         let frame: Vec<u16> = (0..w * h)
-            .map(|i| match ((i / w) % 2, i % 2) { (1, _) => 0xf800, (_, 0) => 0xffff, _ => 0 })
+            .map(|i| match ((i / w) % 2, i % 2) {
+                (1, _) => 0xf800,
+                (_, 0) => 0xffff,
+                _ => 0,
+            })
             .collect();
         unsafe {
             with_host(|h| h.format = PixelFormat::Rgb565);
-            video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 2);
+            video_refresh(
+                frame.as_ptr() as *const c_void,
+                w as c_uint,
+                h as c_uint,
+                w * 2,
+            );
         }
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 256 + x) * 4..(y * 256 + x) * 4 + 3].to_vec();
-        assert_eq!(px(128, 120), vec![127, 127, 127], "a pixel pair is not averaged");
+        assert_eq!(
+            px(128, 120),
+            vec![127, 127, 127],
+            "a pixel pair is not averaged"
+        );
         assert_eq!(px(0, 8), vec![127, 127, 127], "224 lines start 8 down");
-        assert_eq!(px(128, 4), vec![0, 0, 0], "the band above the picture is not cleared");
-        assert_eq!(px(128, 233), vec![0, 0, 0], "the band below the picture is not cleared");
+        assert_eq!(
+            px(128, 4),
+            vec![0, 0, 0],
+            "the band above the picture is not cleared"
+        );
+        assert_eq!(
+            px(128, 233),
+            vec![0, 0, 0],
+            "the band below the picture is not cleared"
+        );
     }
 
     #[test]
@@ -1907,7 +2103,13 @@ mod tests {
         host.stick = (1200, -3400);
         let _active = Active::bind(&mut host);
         let read = |port, index, id| unsafe { input_state(port, DEVICE_ANALOG, index, id) };
-        assert_eq!((read(0, ANALOG_LEFT, ANALOG_X), read(0, ANALOG_LEFT, ANALOG_Y)), (1200, -3400));
+        assert_eq!(
+            (
+                read(0, ANALOG_LEFT, ANALOG_X),
+                read(0, ANALOG_LEFT, ANALOG_Y)
+            ),
+            (1200, -3400)
+        );
         assert_eq!(read(1, ANALOG_LEFT, ANALOG_X), 0, "player 2 has no stick");
         assert_eq!(read(0, 1, ANALOG_X), 0, "there is no right stick");
     }
@@ -1917,7 +2119,11 @@ mod tests {
         let d = std::env::temp_dir().join(format!("slot-m3u-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         let m3u = d.join("FF7.m3u");
-        std::fs::write(&m3u, "#EXTM3U\r\nFF7 (Disc 1).cue\r\n\r\nFF7 (Disc 2).cue\n").unwrap();
+        std::fs::write(
+            &m3u,
+            "#EXTM3U\r\nFF7 (Disc 1).cue\r\n\r\nFF7 (Disc 2).cue\n",
+        )
+        .unwrap();
         let want = format!("{}/FF7 (Disc 2).cue", d.display());
         assert_eq!(m3u_disc(&m3u, 1).unwrap().to_str().unwrap(), want);
         assert!(m3u_disc(&m3u, 2).is_none());
@@ -1934,12 +2140,29 @@ mod tests {
         let _active = Active::bind(&mut host);
         // 368x240, the left half white: it covers the canvas, its left half white.
         let (w, h) = (368usize, 240usize);
-        let frame: Vec<u8> = (0..w * h).flat_map(|i| if i % w < w / 2 { [255; 4] } else { [0; 4] }).collect();
-        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
+        let frame: Vec<u8> = (0..w * h)
+            .flat_map(|i| if i % w < w / 2 { [255; 4] } else { [0; 4] })
+            .collect();
+        unsafe {
+            video_refresh(
+                frame.as_ptr() as *const c_void,
+                w as c_uint,
+                h as c_uint,
+                w * 4,
+            )
+        };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!((px(0, 0), px(318, 479)), (255, 255), "the left half is not white to its edges");
-        assert_eq!((px(322, 0), px(639, 479)), (0, 0), "the right half is not dark to its edges");
+        assert_eq!(
+            (px(0, 0), px(318, 479)),
+            (255, 255),
+            "the left half is not white to its edges"
+        );
+        assert_eq!(
+            (px(322, 0), px(639, 479)),
+            (0, 0),
+            "the right half is not dark to its edges"
+        );
     }
 
     #[test]
@@ -1952,19 +2175,49 @@ mod tests {
         // 1280x400, white: scaled to 640x200, so black bands of 140 lines above and below.
         let (w, h) = (1280usize, 400usize);
         let frame = vec![255u8; w * h * 4];
-        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
+        unsafe {
+            video_refresh(
+                frame.as_ptr() as *const c_void,
+                w as c_uint,
+                h as c_uint,
+                w * 4,
+            )
+        };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!((px(0, 139), px(639, 340)), (0, 0), "the bands are not black");
-        assert_eq!((px(0, 140), px(639, 339)), (255, 255), "the picture does not reach both sides");
+        assert_eq!(
+            (px(0, 139), px(639, 340)),
+            (0, 0),
+            "the bands are not black"
+        );
+        assert_eq!(
+            (px(0, 140), px(639, 339)),
+            (255, 255),
+            "the picture does not reach both sides"
+        );
         // 480x650, tall: 354x480, centred across.
         let (w, h) = (480usize, 650usize);
         let frame = vec![255u8; w * h * 4];
-        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 4) };
+        unsafe {
+            video_refresh(
+                frame.as_ptr() as *const c_void,
+                w as c_uint,
+                h as c_uint,
+                w * 4,
+            )
+        };
         let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
         let px = |x: usize, y: usize| video[(y * 640 + x) * 4];
-        assert_eq!((px(0, 240), px(142, 0), px(497, 479)), (0, 0, 0), "the sides are not black");
-        assert_eq!((px(143, 0), px(496, 479)), (255, 255), "the picture does not reach top and bottom");
+        assert_eq!(
+            (px(0, 240), px(142, 0), px(497, 479)),
+            (0, 0, 0),
+            "the sides are not black"
+        );
+        assert_eq!(
+            (px(143, 0), px(496, 479)),
+            (255, 255),
+            "the picture does not reach top and bottom"
+        );
     }
 
     #[test]

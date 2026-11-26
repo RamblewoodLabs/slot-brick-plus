@@ -17,7 +17,8 @@ impl SimInput {
     pub fn new(shared: Arc<Shared>) -> Self {
         Self {
             shared,
-            stick: (slot_power::model() == slot_power::Model::BrickPro).then(super::brick::StickPad::default),
+            stick: (slot_power::model() == slot_power::Model::BrickPro)
+                .then(super::brick::StickPad::default),
             pending: Vec::new(),
             held: Vec::new(),
             exit_since: None,

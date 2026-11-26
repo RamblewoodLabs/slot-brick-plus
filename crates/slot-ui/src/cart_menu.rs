@@ -3,7 +3,9 @@
 //! the right its plastic (colour, finish: Game Boy paks) and shape can be changed. NES and SNES
 //! carts only change shape, as they came in their system's grey. A saves, B puts it all back.
 use crate::draw::{Draw, TexId, OUT_H, OUT_W};
-use crate::plate::{arrows_hint_face, centred_hints, hint_face, UndoFace, HINT_H, LEGEND_GAP, LEGEND_Y};
+use crate::plate::{
+    arrows_hint_face, centred_hints, hint_face, UndoFace, HINT_H, LEGEND_GAP, LEGEND_Y,
+};
 use crate::power_menu::{MENU_H, MENU_INK};
 use crate::shell::{shell_presets, Finish, Shell};
 use crate::slot_chrome::{edge, opening};
@@ -18,7 +20,12 @@ pub enum CartRow {
 }
 
 impl CartRow {
-    pub const ALL: [CartRow; 4] = [CartRow::Colour, CartRow::Finish, CartRow::Shape, CartRow::Reset];
+    pub const ALL: [CartRow; 4] = [
+        CartRow::Colour,
+        CartRow::Finish,
+        CartRow::Shape,
+        CartRow::Reset,
+    ];
 
     pub fn index(self) -> usize {
         self as usize
@@ -63,7 +70,13 @@ pub const SNES_SHAPES: [&str; 3] = ["Original", "US", "Europe / Japan"];
 pub const NES_SHAPES: [&str; 3] = ["Original", "NES", "Famicom"];
 
 const fn solid(name: &'static str, colour: [u8; 3]) -> (&'static str, Shell) {
-    (name, Shell { colour, finish: Finish::Solid })
+    (
+        name,
+        Shell {
+            colour,
+            finish: Finish::Solid,
+        },
+    )
 }
 
 const PLAIN: [(&str, Shell); 12] = [
@@ -87,7 +100,10 @@ pub fn colour_choices() -> Vec<(&'static str, Option<Shell>)> {
     let mut out = vec![("Original", None)];
     out.extend(PLAIN.iter().map(|(n, s)| (*n, Some(*s))));
     out.extend(
-        crate::shell::FAMICOM_NAMES.iter().zip(crate::shell::FAMICOM_SHELLS).map(|(n, s)| (*n, Some(s))),
+        crate::shell::FAMICOM_NAMES
+            .iter()
+            .zip(crate::shell::FAMICOM_SHELLS)
+            .map(|(n, s)| (*n, Some(s))),
     );
     for (name, shell) in shell_presets() {
         if !out.iter().any(|(_, s)| *s == Some(shell)) {
@@ -140,13 +156,26 @@ const CART_BOX: [f32; 4] = [20.0, 40.0, PANEL_X - 40.0, LEGEND_Y - 60.0];
 
 impl CartMenuView<'_> {
     pub fn draw(&self, out: &mut Vec<Draw>) {
-        out.push(Draw::Rect { x: 0.0, y: 0.0, w: OUT_W as f32, h: OUT_H as f32, colour: opening() });
+        out.push(Draw::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: OUT_W as f32,
+            h: OUT_H as f32,
+            colour: opening(),
+        });
         if let Some((colour, (x, y, w, h))) = self.recess {
             out.push(Draw::Rect { x, y, w, h, colour });
         }
         if let Some((tex, w, h)) = self.cart {
             let (x, y, w, h) = cart_menu_cart_at(w, h);
-            out.push(Draw::Tex { x, y, w, h, tex, alpha: 1.0 });
+            out.push(Draw::Tex {
+                x,
+                y,
+                w,
+                h,
+                tex,
+                alpha: 1.0,
+            });
         }
         let top = rows_top(self.rows.len());
         if let Some(at) = self.rows.iter().position(|r| *r == self.row) {
@@ -201,7 +230,10 @@ impl CartMenuView<'_> {
                 (4, 2)
             }
         };
-        for (i, (tex, w, x)) in centred_hints(&hints[..shown], LEGEND_GAP).into_iter().enumerate() {
+        for (i, (tex, w, x)) in centred_hints(&hints[..shown], LEGEND_GAP)
+            .into_iter()
+            .enumerate()
+        {
             let greyed = i == y_at && !self.online;
             out.push(Draw::Tex {
                 x: x.round(),
@@ -220,7 +252,12 @@ pub fn cart_menu_cart_at(w: u32, h: u32) -> crate::label_adjust::Rect {
     let [bx, by, bw, bh] = CART_BOX;
     let k = (bw / w.max(1) as f32).min(bh / h.max(1) as f32);
     let (cw, ch) = (w as f32 * k, h as f32 * k);
-    ((bx + (bw - cw) / 2.0).round(), (by + (bh - ch) / 2.0).round(), cw, ch)
+    (
+        (bx + (bw - cw) / 2.0).round(),
+        (by + (bh - ch) / 2.0).round(),
+        cw,
+        ch,
+    )
 }
 
 fn rows_top(rows: usize) -> f32 {
@@ -228,7 +265,14 @@ fn rows_top(rows: usize) -> f32 {
 }
 
 fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
-    out.push(Draw::Tex { x: x.round(), y: y.round(), w: w as f32, h: h as f32, tex, alpha: 1.0 });
+    out.push(Draw::Tex {
+        x: x.round(),
+        y: y.round(),
+        w: w as f32,
+        h: h as f32,
+        tex,
+        alpha: 1.0,
+    });
 }
 
 /// A row label: always lit.
@@ -240,7 +284,6 @@ pub fn cart_menu_label_face(row: CartRow) -> UndoFace {
 pub fn cart_menu_value_face(value: &str, lit: bool) -> UndoFace {
     text_face(value, if lit { MENU_INK } else { DIM_INK }, VALUE_W)
 }
-
 
 pub fn cart_menu_legend_faces() -> [UndoFace; 5] {
     [
@@ -254,7 +297,11 @@ pub fn cart_menu_legend_faces() -> [UndoFace; 5] {
 
 fn text_face(label: &str, colour: [u8; 3], max_w: f32) -> UndoFace {
     let Some(font) = text::label_font() else {
-        return UndoFace { rgba: Vec::new(), w: 0, h: 0 };
+        return UndoFace {
+            rgba: Vec::new(),
+            w: 0,
+            h: 0,
+        };
     };
     let layout = text::fit(font, label, max_w, 1, TEXT_PX, TEXT_MIN_PX);
     let set = layout

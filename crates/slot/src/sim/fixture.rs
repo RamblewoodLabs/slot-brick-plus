@@ -32,7 +32,11 @@ fn led_files() -> Vec<(String, &'static str)> {
         ("max_scale_lr".to_string(), "60"),
         ("effect_enable".to_string(), "0"),
     ];
-    let zones: &[&str] = if pro() { &["m", "f1", "f2", "lr", "rear"] } else { &["m", "f1", "f2", "lr"] };
+    let zones: &[&str] = if pro() {
+        &["m", "f1", "f2", "lr", "rear"]
+    } else {
+        &["m", "f1", "f2", "lr"]
+    };
     if pro() {
         files.push(("max_scale_rear".to_string(), "60"));
     }
@@ -81,7 +85,11 @@ pub fn populate() -> io::Result<()> {
     // A stand-in, holding only the name MainUI carries for its model: written every start, so
     // a kept card follows MODEL.
     let main_ui = hw(MAIN_UI);
-    let model = if pro() { "Trimui Brick Pro" } else { "Trimui Brick" };
+    let model = if pro() {
+        "Trimui Brick Pro"
+    } else {
+        "Trimui Brick"
+    };
     if let Some(dir) = main_ui.parent() {
         fs::create_dir_all(dir)?;
     }

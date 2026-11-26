@@ -163,7 +163,11 @@ fn gw_strip(root: &Path, cart: &Cart) -> Option<TurnFaces> {
     let bytes = std::fs::read(&path).ok()?;
     let built = gw_faces(&bytes);
     if built.is_none() {
-        eprintln!("slot: {}: not {} frames of the shelf face's size", path.display(), slot_ui::turn::GW_FRAMES);
+        eprintln!(
+            "slot: {}: not {} frames of the shelf face's size",
+            path.display(),
+            slot_ui::turn::GW_FRAMES
+        );
     }
     built
 }

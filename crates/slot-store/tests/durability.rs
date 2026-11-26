@@ -164,7 +164,10 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(s.rumble, "boots with the motor off");
     assert_eq!(s.ff_speed, FF_SPEED_DEFAULT);
     assert!(!s.ff_sound, "boots with fast forward audible");
-    assert!(!s.colour_correction_gb && !s.colour_correction_gba, "boots with the picture tinted");
+    assert!(
+        !s.colour_correction_gb && !s.colour_correction_gba,
+        "boots with the picture tinted"
+    );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
 }
@@ -342,7 +345,13 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
         let s = read_slot_state(d.path());
         assert_eq!(
-            (s.rumble, s.ff_speed, s.ff_sound, s.colour_correction_gb, s.colour_correction_gba),
+            (
+                s.rumble,
+                s.ff_speed,
+                s.ff_sound,
+                s.colour_correction_gb,
+                s.colour_correction_gba
+            ),
             (true, FF_SPEED_DEFAULT, false, false, false),
             "accepted {bad:?}"
         );
@@ -398,12 +407,14 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
     let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
     for (line, want) in [
         ("cart_platform=\n", None),
-        ("cart_platform=n64\n", None),
+        ("cart_platform=jaguar\n", None),
+        ("cart_platform=n64\n", Some(Platform::N64)),
         ("cart_platform=snes\n", Some(Platform::Snes)),
         ("cart_platform=nes\n", Some(Platform::Nes)),
         ("cart_platform=gameboy\n", None),
         ("cart_platform=0\n", None),
-        ("cart_platform=nds\n", None),
+        ("cart_platform=3ds\n", None),
+        ("cart_platform=nds\n", Some(Platform::Nds)),
         ("cart_platform=GBA\n", Some(Platform::Gba)),
         ("cart_platform=Gbc\n", Some(Platform::Gbc)),
     ] {
@@ -457,9 +468,16 @@ fn colour_correction_saved_as_one_setting_carries_over_to_both_systems() {
     // Before it was split, one line set it for the Game Boys and the GBA together.
     let d = tmp_root();
     let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
-    std::fs::write(d.path().join("Config/slot.state"), format!("{known}colour_correction=1\n")).unwrap();
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction=1\n"),
+    )
+    .unwrap();
     let s = read_slot_state(d.path());
-    assert_eq!((s.colour_correction_gb, s.colour_correction_gba), (true, true));
+    assert_eq!(
+        (s.colour_correction_gb, s.colour_correction_gba),
+        (true, true)
+    );
     // Once split, each keeps its own, whatever the old line says.
     std::fs::write(
         d.path().join("Config/slot.state"),
@@ -467,47 +485,83 @@ fn colour_correction_saved_as_one_setting_carries_over_to_both_systems() {
     )
     .unwrap();
     let s = read_slot_state(d.path());
-    assert_eq!((s.colour_correction_gb, s.colour_correction_gba), (false, true));
+    assert_eq!(
+        (s.colour_correction_gb, s.colour_correction_gba),
+        (false, true)
+    );
 }
 
 #[test]
 fn an_overlay_is_kept_per_system_by_name_and_a_path_is_never_taken_for_one() {
     use slot_store::Platform;
     let d = tmp_root();
-    let mut s = SlotState { clock_set: true, ..SlotState::default() };
+    let mut s = SlotState {
+        clock_set: true,
+        ..SlotState::default()
+    };
     s.set_overlay(Platform::Gb, Some("dmg-1024x768.png".into()));
     s.set_overlay(Platform::Gba, Some("GBA SP.png".into()));
     s.set_overlay(Platform::Nes, Some("../../System/slot".into()));
-    assert_eq!(s.overlay(Platform::Nes), None, "a path was taken for an overlay");
+    assert_eq!(
+        s.overlay(Platform::Nes),
+        None,
+        "a path was taken for an overlay"
+    );
     write_slot_state(d.path(), &s).unwrap();
     let back = read_slot_state(d.path());
     assert_eq!(back, s);
     assert_eq!(back.overlay(Platform::Gb), Some("dmg-1024x768.png"));
     assert_eq!(back.overlay(Platform::Gbc), None);
     let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
-    std::fs::write(d.path().join("Config/slot.state"), format!("{known}overlay_snes=../x.png\noverlay_gbc=ok.png\n")).unwrap();
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}overlay_snes=../x.png\noverlay_gbc=ok.png\n"),
+    )
+    .unwrap();
     let back = read_slot_state(d.path());
-    assert_eq!((back.overlay(Platform::Snes), back.overlay(Platform::Gbc)), (None, Some("ok.png")));
+    assert_eq!(
+        (back.overlay(Platform::Snes), back.overlay(Platform::Gbc)),
+        (None, Some("ok.png"))
+    );
 }
 
 #[test]
 fn hidden_systems_round_trip_and_a_card_from_before_them_hides_none() {
     let d = tmp_root();
-    let mut s = SlotState { clock_set: true, ..SlotState::default() };
+    let mut s = SlotState {
+        clock_set: true,
+        ..SlotState::default()
+    };
     s.hidden_systems[slot_store::Platform::Nes.index()] = true;
     s.hidden_systems[slot_store::Platform::Ps1.index()] = true;
     write_slot_state(d.path(), &s).unwrap();
     assert_eq!(read_slot_state(d.path()), s);
     let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
-    assert!(text.lines().any(|l| l == "hidden_systems=nes,ps1"), "{text:?}");
+    assert!(
+        text.lines().any(|l| l == "hidden_systems=nes,ps1"),
+        "{text:?}"
+    );
     // Without the line (an older card), or with a system it doesn't know, every shelf shows.
-    for line in ["hidden_systems=nes,ps1\n", "hidden_systems=nes, ps1,n64\n", "hidden_systems=gba\nhidden_systems=nes\n"] {
+    for line in [
+        "hidden_systems=nes,ps1\n",
+        "hidden_systems=nes, ps1,n64\n",
+        "hidden_systems=gba\nhidden_systems=nes\n",
+    ] {
         let older = text.replace("hidden_systems=nes,ps1\n", "");
         std::fs::write(d.path().join("Config/slot.state"), &older).unwrap();
-        assert_eq!(read_slot_state(d.path()).hidden_systems, [false; slot_store::Platform::ALL.len()]);
+        assert_eq!(
+            read_slot_state(d.path()).hidden_systems,
+            [false; slot_store::Platform::ALL.len()]
+        );
         std::fs::write(d.path().join("Config/slot.state"), format!("{older}{line}")).unwrap();
-        assert!(!read_slot_state(d.path()).shows(slot_store::Platform::Nes), "{line}");
-        assert!(read_slot_state(d.path()).shows(slot_store::Platform::Gba), "{line}");
+        assert!(
+            !read_slot_state(d.path()).shows(slot_store::Platform::Nes),
+            "{line}"
+        );
+        assert!(
+            read_slot_state(d.path()).shows(slot_store::Platform::Gba),
+            "{line}"
+        );
     }
 }
 
@@ -570,7 +624,13 @@ fn each_sound_switch_round_trips_on_its_own_line() {
     write_slot_state(d.path(), &s).unwrap();
     assert_eq!(read_slot_state(d.path()), s);
     let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
-    for line in ["menu_sounds=0", "sound_star=1", "sound_cart=0", "sound_cart_open=1", "sound_label=0"] {
+    for line in [
+        "menu_sounds=0",
+        "sound_star=1",
+        "sound_cart=0",
+        "sound_cart_open=1",
+        "sound_label=0",
+    ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
 }
@@ -578,12 +638,20 @@ fn each_sound_switch_round_trips_on_its_own_line() {
 #[test]
 fn the_sounds_volume_round_trips_and_a_value_off_its_steps_is_ignored() {
     let d = tmp_root();
-    let s = SlotState { clock_set: true, sound_volume: 40, ..SlotState::default() };
+    let s = SlotState {
+        clock_set: true,
+        sound_volume: 40,
+        ..SlotState::default()
+    };
     write_slot_state(d.path(), &s).unwrap();
     assert_eq!(read_slot_state(d.path()).sound_volume, 40);
     let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
     for bad in ["sound_volume=45", "sound_volume=200", "sound_volume=loud"] {
-        std::fs::write(d.path().join("Config/slot.state"), text.replace("sound_volume=40", bad)).unwrap();
+        std::fs::write(
+            d.path().join("Config/slot.state"),
+            text.replace("sound_volume=40", bad),
+        )
+        .unwrap();
         assert_eq!(read_slot_state(d.path()).sound_volume, 100, "{bad}");
     }
 }

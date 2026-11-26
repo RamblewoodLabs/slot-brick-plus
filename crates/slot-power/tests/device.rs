@@ -349,11 +349,20 @@ tmpfs /mnt/SDCARD/Slot/System/x tmpfs rw,relatime 0 0
 
 #[test]
 fn a_card_the_kernel_remounted_read_only_reads_as_read_only() {
-    assert!(slot_power::read_only_in(MOUNTS, std::path::Path::new("/mnt/SDCARD/Slot")));
+    assert!(slot_power::read_only_in(
+        MOUNTS,
+        std::path::Path::new("/mnt/SDCARD/Slot")
+    ));
 }
 
 #[test]
 fn the_closest_mount_decides_not_the_root() {
-    assert!(!slot_power::read_only_in(MOUNTS, std::path::Path::new("/mnt/other")));
-    assert!(!slot_power::read_only_in(MOUNTS, std::path::Path::new("/mnt/SDCARD/Slot/System/x")));
+    assert!(!slot_power::read_only_in(
+        MOUNTS,
+        std::path::Path::new("/mnt/other")
+    ));
+    assert!(!slot_power::read_only_in(
+        MOUNTS,
+        std::path::Path::new("/mnt/SDCARD/Slot/System/x")
+    ));
 }

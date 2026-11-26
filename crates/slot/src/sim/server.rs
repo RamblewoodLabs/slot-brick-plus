@@ -19,7 +19,7 @@ use std::time::Duration;
 use slot_input::RawEvent;
 
 use super::fixture::{json_escape, report, set};
-use super::{image, parse_btn, phase_name, Shared, panel};
+use super::{image, panel, parse_btn, phase_name, Shared};
 
 const PAGE: &str = include_str!("page.html");
 const MAX_HEAD: usize = 8192;
@@ -203,7 +203,11 @@ fn serve(mut stream: TcpStream, shared: &Shared) {
             json(&mut stream, "200 OK", state(shared))
         }
         ("POST", "/stick") => {
-            let at = |key| req.get(key).and_then(|v| v.parse::<i16>().ok()).unwrap_or(0);
+            let at = |key| {
+                req.get(key)
+                    .and_then(|v| v.parse::<i16>().ok())
+                    .unwrap_or(0)
+            };
             shared.stick(at("x"), at("y"));
             json(&mut stream, "200 OK", state(shared))
         }

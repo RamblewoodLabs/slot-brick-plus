@@ -110,6 +110,14 @@ pub enum QuickRow {
     ShowLynx,
     ShowA7800,
     ShowGw,
+    ShowColeco,
+    ShowA5200,
+    ShowA800,
+    ShowVectrex,
+    Show32x,
+    ShowN64,
+    ShowNds,
+    ShowPsp,
     ShowFavorites,
 }
 
@@ -117,7 +125,7 @@ impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 96] = [
+    pub const ALL: [QuickRow; 104] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -213,6 +221,14 @@ impl QuickRow {
         QuickRow::ShowLynx,
         QuickRow::ShowA7800,
         QuickRow::ShowGw,
+        QuickRow::ShowColeco,
+        QuickRow::ShowA5200,
+        QuickRow::ShowA800,
+        QuickRow::ShowVectrex,
+        QuickRow::Show32x,
+        QuickRow::ShowN64,
+        QuickRow::ShowNds,
+        QuickRow::ShowPsp,
         QuickRow::ShowFavorites,
     ];
 
@@ -362,7 +378,7 @@ impl QuickRow {
         QuickRow::LibraryPlayTime,
     ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
-    pub const SYSTEMS: [QuickRow; 17] = [
+    pub const SYSTEMS: [QuickRow; 25] = [
         QuickRow::ShowFavorites,
         QuickRow::ShowGba,
         QuickRow::ShowGb,
@@ -380,6 +396,14 @@ impl QuickRow {
         QuickRow::ShowLynx,
         QuickRow::ShowA7800,
         QuickRow::ShowGw,
+        QuickRow::ShowColeco,
+        QuickRow::ShowA5200,
+        QuickRow::ShowA800,
+        QuickRow::ShowVectrex,
+        QuickRow::Show32x,
+        QuickRow::ShowN64,
+        QuickRow::ShowNds,
+        QuickRow::ShowPsp,
     ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
@@ -483,6 +507,14 @@ impl QuickRow {
             QuickRow::ShowLynx => Platform::Lynx,
             QuickRow::ShowA7800 => Platform::A7800,
             QuickRow::ShowGw => Platform::Gw,
+            QuickRow::ShowColeco => Platform::Coleco,
+            QuickRow::ShowA5200 => Platform::A5200,
+            QuickRow::ShowA800 => Platform::A800,
+            QuickRow::ShowVectrex => Platform::Vectrex,
+            QuickRow::Show32x => Platform::S32x,
+            QuickRow::ShowN64 => Platform::N64,
+            QuickRow::ShowNds => Platform::Nds,
+            QuickRow::ShowPsp => Platform::Psp,
             _ => return None,
         })
     }
@@ -585,7 +617,15 @@ impl QuickRow {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
-            | QuickRow::ShowGw => &QuickRow::SYSTEMS,
+            | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp => &QuickRow::SYSTEMS,
             QuickRow::SoundVolume
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
@@ -710,6 +750,14 @@ impl QuickRow {
             QuickRow::ShowLynx => "Atari Lynx",
             QuickRow::ShowA7800 => "Atari 7800",
             QuickRow::ShowGw => "Game & Watch",
+            QuickRow::ShowColeco => "ColecoVision",
+            QuickRow::ShowA5200 => "Atari 5200",
+            QuickRow::ShowA800 => "Atari 800",
+            QuickRow::ShowVectrex => "Vectrex",
+            QuickRow::Show32x => "Sega 32X",
+            QuickRow::ShowN64 => "Nintendo 64",
+            QuickRow::ShowNds => "Nintendo DS",
+            QuickRow::ShowPsp => "PSP",
             QuickRow::ResetSettings => "Reset Settings",
             QuickRow::AboutVersion => "Version",
             QuickRow::AboutBuild => "Build",
@@ -1282,7 +1330,10 @@ mod layout_tests {
         assert!(fav.pitch >= QUICK_PITCH - 0.5);
         let y0 = fav.row_top(QuickRow::ShowFavorites);
         let y1 = fav.row_top(QuickRow::ShowGba);
-        assert!((y1 - y0 - fav.pitch).abs() < 0.1, "rows should sit a pitch apart");
+        assert!(
+            (y1 - y0 - fav.pitch).abs() < 0.1,
+            "rows should sit a pitch apart"
+        );
         let last_visible = QuickRow::SYSTEMS[fav.visible - 1];
         let bottom = fav.row_top(last_visible) + TYPE_DROP + MENU_H as f32;
         assert!(
@@ -1292,7 +1343,10 @@ mod layout_tests {
 
         let gw = page_layout(QuickRow::ShowGw);
         assert!(gw.shows(QuickRow::ShowGw));
-        assert!(!gw.shows(QuickRow::ShowFavorites), "the first row should have scrolled off");
+        assert!(
+            !gw.shows(QuickRow::ShowFavorites),
+            "the first row should have scrolled off"
+        );
         let gw_bottom = gw.row_top(QuickRow::ShowGw) + TYPE_DROP + MENU_H as f32;
         assert!(
             gw_bottom <= LEGEND_Y,
@@ -1306,7 +1360,10 @@ mod layout_tests {
         let leds = page_layout(QuickRow::SYSTEM[0]);
         assert_eq!(leds.start, 0);
         assert_eq!(leds.visible, QuickRow::SYSTEM.len());
-        assert!(leds.shows(QuickRow::About), "About should stay on a short System page");
+        assert!(
+            leds.shows(QuickRow::About),
+            "About should stay on a short System page"
+        );
         assert!(
             leds.pitch + 0.5 >= MENU_H as f32,
             "short pages should not drop below the type height, got {}",

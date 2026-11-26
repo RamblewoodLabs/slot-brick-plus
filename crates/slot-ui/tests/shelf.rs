@@ -489,8 +489,15 @@ fn a_newer_slot_shows_left_of_the_wifi_symbol_and_alone_takes_its_place() {
             .expect("drawn")
     };
     let alone = x_of(true, false, wifi);
-    assert_eq!(x_of(true, true, wifi), alone, "the Wi-Fi symbol stays where it was");
-    assert!(x_of(true, true, update) <= alone - 18.0, "the update symbol sits left of it");
+    assert_eq!(
+        x_of(true, true, wifi),
+        alone,
+        "the Wi-Fi symbol stays where it was"
+    );
+    assert!(
+        x_of(true, true, update) <= alone - 18.0,
+        "the update symbol sits left of it"
+    );
     assert_eq!(x_of(false, true, update), alone);
 }
 
