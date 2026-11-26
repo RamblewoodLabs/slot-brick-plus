@@ -55,20 +55,112 @@ pub enum FavoritesSort {
     Added,
     /// The game played last first; games never played after, A–Z.
     Recent,
+    /// The most played first; games never played after, A–Z.
+    MostPlayed,
 }
 
 impl FavoritesSort {
-    pub const ALL: [FavoritesSort; 2] = [FavoritesSort::Added, FavoritesSort::Recent];
+    pub const ALL: [FavoritesSort; 3] = [FavoritesSort::Added, FavoritesSort::Recent, FavoritesSort::MostPlayed];
 
     pub fn name(self) -> &'static str {
         match self {
             FavoritesSort::Added => "added",
             FavoritesSort::Recent => "recent",
+            FavoritesSort::MostPlayed => "most",
+        }
+    }
+
+    /// What the shelf's filter pill and the slot say.
+    pub fn label(self) -> &'static str {
+        match self {
+            FavoritesSort::Added => "ADDED",
+            FavoritesSort::Recent => "LAST PLAYED",
+            FavoritesSort::MostPlayed => "MOST PLAYED",
         }
     }
 
     pub fn parse(value: &str) -> Option<FavoritesSort> {
         FavoritesSort::ALL.into_iter().find(|s| s.name() == value)
+    }
+}
+
+/// What a system's shelf shows, picked with SELECT and kept for each shelf: every game in an
+/// order (A–Z, last played, most played), or one of the filters made from the offline rankings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShelfView {
+    Az,
+    Recent,
+    MostPlayed,
+    /// The best rated hundred, best first (community user scores, weighted by how many rated).
+    Top100,
+    /// The hundred the most people rated, most first.
+    Popular,
+    /// The games on the system's best-selling list, best seller first.
+    BestSelling,
+    /// The games the platform holder published, A–Z.
+    FirstParty,
+}
+
+/// The most games a ranked filter keeps.
+pub const RANKED_MAX: usize = 100;
+
+impl ShelfView {
+    pub const ALL: [ShelfView; 7] = [
+        ShelfView::Az,
+        ShelfView::Recent,
+        ShelfView::MostPlayed,
+        ShelfView::Top100,
+        ShelfView::Popular,
+        ShelfView::BestSelling,
+        ShelfView::FirstParty,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ShelfView::Az => "az",
+            ShelfView::Recent => "recent",
+            ShelfView::MostPlayed => "most",
+            ShelfView::Top100 => "top100",
+            ShelfView::Popular => "popular",
+            ShelfView::BestSelling => "sales",
+            ShelfView::FirstParty => "first",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<ShelfView> {
+        ShelfView::ALL.into_iter().find(|s| s.name() == value)
+    }
+
+    /// What the shelf's filter pill and the slot say.
+    pub fn label(self) -> &'static str {
+        match self {
+            ShelfView::Az => "A–Z",
+            ShelfView::Recent => "LAST PLAYED",
+            ShelfView::MostPlayed => "MOST PLAYED",
+            ShelfView::Top100 => "TOP 100",
+            ShelfView::Popular => "POPULAR",
+            ShelfView::BestSelling => "BEST SELLING",
+            ShelfView::FirstParty => "FIRST PARTY",
+        }
+    }
+
+    /// HOME → Library → Sort By, for a shelf that has not picked its own.
+    pub fn from_sort(sort: LibrarySort) -> ShelfView {
+        match sort {
+            LibrarySort::Az => ShelfView::Az,
+            LibrarySort::Recent => ShelfView::Recent,
+            LibrarySort::MostPlayed => ShelfView::MostPlayed,
+        }
+    }
+
+    /// Only some games, in the rankings' order: the shelf numbers them.
+    pub fn ranked(self) -> bool {
+        matches!(self, ShelfView::Top100 | ShelfView::Popular | ShelfView::BestSelling)
+    }
+
+    /// Played order: the game just played may move.
+    pub fn by_play(self) -> bool {
+        matches!(self, ShelfView::Recent | ShelfView::MostPlayed)
     }
 }
 
@@ -180,6 +272,49 @@ pub fn arrange(carts: &mut Vec<Cart>, sort: LibrarySort, favorites_only: bool, l
     }
 }
 
+/// `carts`, in A–Z order, as `view` shows them; only the favorites when `favorites_only`.
+/// A filter keeps one cart a game (clones and regions share a rank) and at most RANKED_MAX.
+pub fn arrange_view(carts: &mut Vec<Cart>, view: ShelfView, favorites_only: bool, library: &Library) {
+    let pick: fn(&crate::Rank) -> u32 = match view {
+        ShelfView::Az => return arrange(carts, LibrarySort::Az, favorites_only, library),
+        ShelfView::Recent => return arrange(carts, LibrarySort::Recent, favorites_only, library),
+        ShelfView::MostPlayed => return arrange(carts, LibrarySort::MostPlayed, favorites_only, library),
+        ShelfView::FirstParty => {
+            arrange(carts, LibrarySort::Az, favorites_only, library);
+            carts.retain(|c| crate::rank(c.platform, &c.stem).first);
+            return;
+        }
+        ShelfView::Top100 => |r| r.top,
+        ShelfView::Popular => |r| r.pop,
+        ShelfView::BestSelling => |r| r.sales,
+    };
+    arrange(carts, LibrarySort::Az, favorites_only, library);
+    let mut ranked: Vec<(u32, Cart)> = carts
+        .drain(..)
+        .filter_map(|c| {
+            let at = pick(&crate::rank(c.platform, &c.stem));
+            (at > 0).then_some((at, c))
+        })
+        .collect();
+    ranked.sort_by_key(|(at, _)| *at);
+    ranked.dedup_by_key(|(at, _)| *at);
+    ranked.truncate(RANKED_MAX);
+    carts.extend(ranked.into_iter().map(|(_, c)| c));
+}
+
+/// Whether SELECT stops at `view` on a shelf of `carts`: the orders always, a filter only when it
+/// keeps some games, and FIRST PARTY only when it leaves some out.
+pub fn view_shows(view: ShelfView, carts: &[Cart], favorites_only: bool, library: &Library) -> bool {
+    if !matches!(view, ShelfView::Top100 | ShelfView::Popular | ShelfView::BestSelling | ShelfView::FirstParty) {
+        return true;
+    }
+    let mut all = carts.to_vec();
+    arrange(&mut all, LibrarySort::Az, favorites_only, library);
+    let mut kept = all.clone();
+    arrange_view(&mut kept, view, favorites_only, library);
+    !kept.is_empty() && (view != ShelfView::FirstParty || kept.len() < all.len())
+}
+
 /// Favorites for the combined shelf, in `sort`'s order. Games already only the favorites.
 pub fn arrange_favorites(carts: &mut Vec<Cart>, sort: FavoritesSort, library: &Library) {
     carts.retain(|c| library.get(c.platform, &c.stem).favorite);
@@ -189,6 +324,9 @@ pub fn arrange_favorites(carts: &mut Vec<Cart>, sort: FavoritesSort, library: &L
         }),
         FavoritesSort::Recent => {
             carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played))
+        }
+        FavoritesSort::MostPlayed => {
+            carts.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).played_secs))
         }
     }
 }
@@ -341,5 +479,51 @@ mod tests {
         };
         assert_eq!(order(FavoritesSort::Added), "Sonic Zelda Alpha Astrosmash");
         assert_eq!(order(FavoritesSort::Recent), "Zelda Astrosmash Alpha Sonic");
+        lib.get_mut(Platform::Md, "Sonic").played_secs = 90;
+        lib.get_mut(Platform::Gba, "Alpha").played_secs = 30;
+        assert_eq!(order(FavoritesSort::MostPlayed), "Sonic Alpha Zelda Astrosmash");
+    }
+
+    #[test]
+    fn ranked_filters_keep_one_cart_a_game_best_first() {
+        let snes = |s: &str| cart(Platform::Snes, s);
+        let all = vec![
+            snes("ActRaiser (USA)"),
+            snes("Chrono Trigger (USA)"),
+            snes("Legend of Zelda, The - A Link to the Past (Europe)"),
+            snes("Legend of Zelda, The - A Link to the Past (USA)"),
+            snes("Not A Real Game (USA)"),
+            snes("Super Mario World (USA)"),
+        ];
+        let lib = Library::default();
+        let order = |view| {
+            let mut carts = all.clone();
+            arrange_view(&mut carts, view, false, &lib);
+            stems(&carts).iter().map(|s| s.split(" (").next().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        let top = order(ShelfView::Top100);
+        assert_eq!(top.len(), 4, "{top:?}");
+        assert!(!top.contains(&"Not A Real Game".to_string()));
+        assert!(top.iter().position(|s| s == "ActRaiser") > top.iter().position(|s| s == "Chrono Trigger"));
+        assert_eq!(order(ShelfView::BestSelling)[0], "Super Mario World");
+        assert_eq!(order(ShelfView::Az).len(), 6);
+        let first = order(ShelfView::FirstParty);
+        assert!(first.contains(&"Super Mario World".to_string()) && !first.contains(&"Chrono Trigger".to_string()));
+        assert!(view_shows(ShelfView::Top100, &all, false, &lib));
+        assert!(view_shows(ShelfView::FirstParty, &all, false, &lib));
+        let unknown = vec![snes("Not A Real Game (USA)")];
+        assert!(!view_shows(ShelfView::Top100, &unknown, false, &lib));
+        assert!(!view_shows(ShelfView::FirstParty, &unknown, false, &lib));
+        assert!(view_shows(ShelfView::MostPlayed, &unknown, false, &lib));
+        let nintendo = vec![snes("Super Mario World (USA)")];
+        assert!(!view_shows(ShelfView::FirstParty, &nintendo, false, &lib), "FIRST PARTY would be every game");
+    }
+
+    #[test]
+    fn views_round_trip_by_name() {
+        for view in ShelfView::ALL {
+            assert_eq!(ShelfView::parse(view.name()), Some(view));
+        }
+        assert_eq!(ShelfView::parse("nope"), None);
     }
 }
