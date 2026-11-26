@@ -136,3 +136,6 @@ gw_src="$PWD/brick/core-src/gw-libretro-$GW"
 make -C "$gw_src" platform=unix CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar -j8
 cp "$gw_src/gw_libretro.so" vendor/
 aarch64-linux-gnu-strip --strip-unneeded vendor/gw_libretro.so
+
+# ColecoVision, Atari 5200 and 800, Vectrex, 32X and DS: brick/build-cores-systems2.sh.
+sh brick/build-cores-systems2.sh
