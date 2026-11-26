@@ -178,10 +178,11 @@ The label laid on is the shelf face's own fitted label, so every game turns with
 A cart that turns over end to end (the Intellivision cart and the HuCard: their contacts are
 at the top on the shelf) uses the label turned round while its back faces the screen, so it
 goes in with the label upright; `flip` makes the last frame its face for the slide.
-The PSP's UMD is the one turn that is longer (54 frames, 1.8 s): the shell stays still while
+The PSP's UMD is the one turn that is longer (66 frames, 2.2 s): the shell stays still while
 the disc inside it (its printed label, the white hub and the UMD mark) spins up behind the
-clear front window; once it is spinning, the whole shell turns over end to end, a full turn so
-the flat edge still leads into the slot and the label faces out, and the disc slows to a stop
-upright as the slide starts. Only the disc's frames carry the label's turn, so each game's own
-disc art is what spins. The frames
+clear front window; once it is spinning, the shell turns over end to end, so its curved end
+comes down to lead into the slot, then round side to side so its front, with the disc, faces
+out again. Together that is a half turn in the plane, so the UMD goes in curved end first,
+upside down, and the disc slows to a stop with its art upright (`flip`). Only the disc's frames
+carry the label's turn, so each game's own disc art is what spins. The frames
 come from `scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.
