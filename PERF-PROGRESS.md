@@ -143,3 +143,31 @@ Jeff wants the open/light-up slower so he can savor it. Reverted the 38%-shorter
 (48 fps, 0.375 s) change. Playback is now 0.96 s (1.6× the original 18 frames at
 30 fps / 0.6 s) with cubic ease-in-out (`ease_gw` in `slot-ui::turn`, applied in
 `App::turn_draw` for Game & Watch only). Changelog, tests, and preview GIFs updated.
+
+## Device builds and staging (34496dd, 2026-11-25 09:55 PM Pacific)
+
+- dist-rg35xxsp and dist-brick rebuilt at this commit.
+- Staged: `/Users/jeff/Shared-Space/sp-update-34496dd` (30 files, `sp-system.sha256` verified).
+- Do not merge; no card writes.
+
+## PCE HuCard insert: pins were facing out (2026-11-25 10:30 PM Pacific)
+
+Cause: the shipped PCE turn used a 180° in-plane spin (`Rz(180)` in
+`export_anim.py`), so the last frame (and the seated slide face, `flip = true`)
+showed the gold contacts face-on at the bottom — looking like the pins pointed
+out of the slot. The Intellivision cart uses a similar in-plane end pose, but
+its contacts are hidden in the cart's end, so it does not have this problem.
+Every other turning system already sits connector-down on the shelf (`flip` is
+false) and was left alone.
+
+Fix: re-exported the 18 HuCard frames as a 180° end-over-end pitch (`Rx(180)`),
+so the contact edge enters the slot first and the pins face into the connector.
+A back-face label (UVs flipped in V) keeps the game art upright on the seated
+face. Assets packed into `assets/carts/pce/insert/`. Tests: label still upright
+at start and end of every turn; new test
+`a_hucard_goes_in_connector_first_with_the_pins_facing_away`. Previews:
+`previews/pce-insert-before.gif` and `previews/pce-insert-after.gif` (last
+second). Changelog and `docs/cart-shells.md` updated.
+
+The earlier `sp-update-34496dd` build is stale for this fix; a new device
+build/stage follows this commit. Do not merge; no card writes.

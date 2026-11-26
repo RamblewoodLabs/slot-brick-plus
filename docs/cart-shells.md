@@ -147,5 +147,7 @@ and a cart refused mid-turn turns back from where it got to.
 The label laid on is the shelf face's own fitted label, so every game turns with its own art.
 A cart that turns over end to end (the Intellivision cart and the HuCard: their contacts are
 at the top on the shelf) uses the label turned round while its back faces the screen, so it
-goes in with the label upright; `flip` makes the last frame its face for the slide. The frames
-come from `scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.
+goes in with the label upright; `flip` makes the last frame its face for the slide. The HuCard
+is pitched end-over-end (not spun in its own plane) so the gold contact edge enters the slot
+first and the pins face into the connector, not out at the viewer. The frames come from
+`scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.
