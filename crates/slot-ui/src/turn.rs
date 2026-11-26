@@ -74,7 +74,12 @@ pub const SPIN_HOLD_S: f32 = 0.5;
 pub fn spins(platform: Platform) -> bool {
     matches!(
         platform,
-        Platform::Gb | Platform::Gbc | Platform::Gba | Platform::Nes | Platform::Snes | Platform::Ps1
+        Platform::Gb
+            | Platform::Gbc
+            | Platform::Gba
+            | Platform::Nes
+            | Platform::Snes
+            | Platform::Ps1
     )
 }
 
@@ -123,7 +128,12 @@ fn px_at(face: &CartFace, x: i32, y: i32) -> [f32; 4] {
     let p = &face.rgba[i..i + 4];
     // premultiplied, so blending at an edge does not pick up a dark fringe
     let a = p[3] as f32 / 255.0;
-    [p[0] as f32 * a, p[1] as f32 * a, p[2] as f32 * a, p[3] as f32]
+    [
+        p[0] as f32 * a,
+        p[1] as f32 * a,
+        p[2] as f32 * a,
+        p[3] as f32,
+    ]
 }
 
 /// Bilinear sample at (x, y) in pixel-centre coordinates, premultiplied; clear outside.
@@ -173,7 +183,10 @@ fn cart_turn(face: &CartFace, s: f32, depth: f32) -> TurnFace {
             Some((l as f32, r as f32 + 1.0))
         })
         .collect();
-    let (l, r) = rows.iter().flatten().fold((f32::MAX, f32::MIN), |(l, r), &(a, b)| (l.min(a), r.max(b)));
+    let (l, r) = rows
+        .iter()
+        .flatten()
+        .fold((f32::MAX, f32::MIN), |(l, r), &(a, b)| (l.min(a), r.max(b)));
     if l >= r {
         return TurnFace {
             face: CartFace {
@@ -528,10 +541,20 @@ mod tests {
         assert_eq!(faces.frames.len(), 3);
         for (i, f) in faces.frames.iter().enumerate() {
             assert_eq!((f.face.w, f.face.h, f.x, f.y), (w, h, 0, 0));
-            assert!(f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100), "frame {i}");
+            assert!(
+                f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100),
+                "frame {i}"
+            );
         }
-        assert_eq!(faces.seated.unwrap().rgba[0], 200, "it goes in as the last frame shows it");
-        assert!(gw_faces(&strip[..strip.len() / 2]).is_none(), "a broken strip");
+        assert_eq!(
+            faces.seated.unwrap().rgba[0],
+            200,
+            "it goes in as the last frame shows it"
+        );
+        assert!(
+            gw_faces(&strip[..strip.len() / 2]).is_none(),
+            "a broken strip"
+        );
         assert!(turns(Platform::Gw));
         let gw = seconds(Platform::Gw);
         assert!(gw > 2.4 && gw < 3.0, "{gw}");
@@ -586,7 +609,13 @@ mod tests {
     #[test]
     fn a_drawn_cart_turns_once_round_and_ends_on_its_shelf_face() {
         for p in [Platform::Gba, Platform::Nes, Platform::Ps1] {
-            let face = crate::cart::cart_face_with(&cart(p), Some(quarters(crate::cart::label_size(&cart(p)).0, crate::cart::label_size(&cart(p)).1)));
+            let face = crate::cart::cart_face_with(
+                &cart(p),
+                Some(quarters(
+                    crate::cart::label_size(&cart(p)).0,
+                    crate::cart::label_size(&cart(p)).1,
+                )),
+            );
             let turn = spin_faces(p, &face);
             assert_eq!(turn.frames.len(), SPIN_FRAMES);
             assert!(turn.seated.is_none());
@@ -600,13 +629,23 @@ mod tests {
                     let a = &face.rgba[((y * w + x) * 4) as usize..][..4];
                     let b = &last.face.rgba[((y * last.face.w + x + ox) * 4) as usize..][..4];
                     // compared as they show (premultiplied): a clear pixel's colour is moot
-                    let pm = |p: &[u8]| [p[0] as u32 * p[3] as u32 / 255, p[1] as u32 * p[3] as u32 / 255, p[2] as u32 * p[3] as u32 / 255, p[3] as u32];
+                    let pm = |p: &[u8]| {
+                        [
+                            p[0] as u32 * p[3] as u32 / 255,
+                            p[1] as u32 * p[3] as u32 / 255,
+                            p[2] as u32 * p[3] as u32 / 255,
+                            p[3] as u32,
+                        ]
+                    };
                     if pm(a).iter().zip(pm(b)).any(|(a, b)| a.abs_diff(b) > 3) {
                         off += 1;
                     }
                 }
             }
-            assert!(off < face.w * face.h / 200, "{p:?}: {off} pixels off the shelf face");
+            assert!(
+                off < face.w * face.h / 200,
+                "{p:?}: {off} pixels off the shelf face"
+            );
             // half way round it is the plain back (or, a disc, still the disc), up off the shelf
             let mid = &turn.frames[SPIN_FRAMES / 2];
             assert!(mid.y < 0, "{p:?} does not lift");
@@ -679,6 +718,26 @@ mod tests {
             let art = quarters(shell.lw, shell.lh);
             let turned = faces(&cart(p), Some(art.clone())).expect("frames");
             let first = &turned.frames[0].face;
+            // The Vectrex starts switched off: its screen (the label) is dim until it lights.
+            let wake = |f: &CartFace| CartFace {
+                rgba: f
+                    .rgba
+                    .chunks_exact(4)
+                    .flat_map(|q| {
+                        let k = if p == Platform::Vectrex { 3 } else { 1 };
+                        [
+                            q[0].saturating_mul(k),
+                            q[1].saturating_mul(k),
+                            q[2].saturating_mul(k),
+                            q[3],
+                        ]
+                    })
+                    .collect(),
+                w: f.w,
+                h: f.h,
+            };
+            let woken = wake(first);
+            let first = &woken;
             let last = turned
                 .seated
                 .as_ref()
@@ -692,7 +751,7 @@ mod tests {
                 assert!(r.1 < b.1, "{p:?} {when}: red is not above blue");
             }
             // The first frame stands where the shelf face does.
-            let shelf = shell_png::cart_face(&cart(p), Some(art)).expect("face");
+            let shelf = wake(&shell_png::cart_face(&cart(p), Some(art)).expect("face"));
             let (a, b) = (centre(&shelf, red).unwrap(), centre(first, red).unwrap());
             let f = &turned.frames[0];
             let (bx, by) = (b.0 + f.x as f32, b.1 + f.y as f32);
@@ -717,7 +776,10 @@ mod tests {
             // Whatever the hold, the last frame shows at the end and the first at the start.
             assert_eq!(turn.frame_at(0.0), 0, "{p:?}");
             assert_eq!(turn.frame_at(1.0), turn.frames.len() - 1, "{p:?}");
-            assert_eq!(frame_index(p, 1.0, turn.frames.len()), turn.frames.len() - 1);
+            assert_eq!(
+                frame_index(p, 1.0, turn.frames.len()),
+                turn.frames.len() - 1
+            );
             if turn.hold > 0.0 {
                 let rest = 1.0 - turn.hold / turn.seconds();
                 assert_eq!(
