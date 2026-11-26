@@ -19,6 +19,9 @@ pub fn seconds(platform: Platform) -> f32 {
     if platform == Platform::Gw {
         return GW_OPEN_S + GW_HOLD_S;
     }
+    if spins(platform) {
+        return SPIN_FRAMES as f32 / SPIN_FPS + SPIN_HOLD_S;
+    }
     of(platform).map_or(0.0, Turn::seconds)
 }
 
@@ -32,6 +35,8 @@ pub fn frame_index(platform: Platform, u: f32, n: usize) -> usize {
     let total = seconds(platform);
     let (motion, eased) = if platform == Platform::Gw {
         (GW_OPEN_S, true)
+    } else if spins(platform) {
+        (SPIN_FRAMES as f32 / SPIN_FPS, false)
     } else {
         match of(platform) {
             Some(t) => (t.frames.len() as f32 / t.fps, false),
@@ -56,7 +61,239 @@ pub fn ease(u: f32) -> f32 {
 
 /// Whether a platform's carts turn (or, a Game & Watch, open) before they go in.
 pub fn turns(platform: Platform) -> bool {
-    platform == Platform::Gw || of(platform).is_some()
+    platform == Platform::Gw || spins(platform) || of(platform).is_some()
+}
+
+/// The six first systems have no rendered shell: their shelf face is drawn by `cart`/`disc`,
+/// so their turn is made here from that very face (`spin_faces`), at the same pace as the
+/// rendered ones: 64 eased frames at 30 fps, then a settled half second before the drop.
+pub const SPIN_FRAMES: usize = 64;
+pub const SPIN_FPS: f32 = 30.0;
+pub const SPIN_HOLD_S: f32 = 0.5;
+
+pub fn spins(platform: Platform) -> bool {
+    matches!(
+        platform,
+        Platform::Gb | Platform::Gbc | Platform::Gba | Platform::Nes | Platform::Snes | Platform::Ps1
+    )
+}
+
+/// A cart's depth as a share of its width (Nintendo's own sizes, in mm).
+fn depth(platform: Platform) -> f32 {
+    match platform {
+        Platform::Gb | Platform::Gbc => 8.0 / 57.0,
+        Platform::Gba => 8.0 / 57.5,
+        Platform::Nes => 17.5 / 120.5,
+        Platform::Snes => 20.0 / 128.0,
+        _ => 0.12,
+    }
+}
+
+/// The turn of a cart with no rendered shell, made from its shelf face. A cart goes once round
+/// on its upright axis, showing its edge and plain back on the way (shaded as it turns from
+/// the light), and lifts a little; a PlayStation disc spins twice in its own plane, like the
+/// disc in a UMD. Both are eased with no overshoot and end exactly on the shelf face, square
+/// to the slot, so nothing turns while it goes down.
+pub fn spin_faces(platform: Platform, face: &CartFace) -> TurnFaces {
+    let n = SPIN_FRAMES;
+    let frames = (0..n)
+        .map(|i| {
+            let s = ease(i as f32 / (n - 1) as f32);
+            let lift = (face.h as f32 * 0.05 * (std::f32::consts::PI * s).sin()).round() as i32;
+            let mut f = if platform == Platform::Ps1 {
+                disc_turn(face, s)
+            } else {
+                cart_turn(face, s, depth(platform))
+            };
+            f.y -= lift;
+            f
+        })
+        .collect();
+    TurnFaces {
+        frames,
+        seated: None,
+    }
+}
+
+fn px_at(face: &CartFace, x: i32, y: i32) -> [f32; 4] {
+    if x < 0 || y < 0 || x >= face.w as i32 || y >= face.h as i32 {
+        return [0.0; 4];
+    }
+    let i = ((y as u32 * face.w + x as u32) * 4) as usize;
+    let p = &face.rgba[i..i + 4];
+    // premultiplied, so blending at an edge does not pick up a dark fringe
+    let a = p[3] as f32 / 255.0;
+    [p[0] as f32 * a, p[1] as f32 * a, p[2] as f32 * a, p[3] as f32]
+}
+
+/// Bilinear sample at (x, y) in pixel-centre coordinates, premultiplied; clear outside.
+fn sample_clear(face: &CartFace, x: f32, y: f32) -> [f32; 4] {
+    let (x, y) = (x - 0.5, y - 0.5);
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let (x0, y0) = (x0 as i32, y0 as i32);
+    let mut out = [0.0; 4];
+    for (dx, dy, k) in [
+        (0, 0, (1.0 - fx) * (1.0 - fy)),
+        (1, 0, fx * (1.0 - fy)),
+        (0, 1, (1.0 - fx) * fy),
+        (1, 1, fx * fy),
+    ] {
+        if k == 0.0 {
+            continue;
+        }
+        let p = px_at(face, x0 + dx, y0 + dy);
+        for c in 0..4 {
+            out[c] += p[c] * k;
+        }
+    }
+    out
+}
+
+fn unpremul(p: [f32; 4]) -> [u8; 4] {
+    if p[3] <= 0.0 {
+        return [0; 4];
+    }
+    let a = p[3] / 255.0;
+    [
+        (p[0] / a).round().clamp(0.0, 255.0) as u8,
+        (p[1] / a).round().clamp(0.0, 255.0) as u8,
+        (p[2] / a).round().clamp(0.0, 255.0) as u8,
+        p[3].round().clamp(0.0, 255.0) as u8,
+    ]
+}
+
+fn cart_turn(face: &CartFace, s: f32, depth: f32) -> TurnFace {
+    let (w, h) = (face.w as i32, face.h as i32);
+    let solid = |x: i32, y: i32| face.rgba[((y * w + x) * 4 + 3) as usize] > 128;
+    let rows: Vec<Option<(f32, f32)>> = (0..h)
+        .map(|y| {
+            let l = (0..w).find(|&x| solid(x, y))?;
+            let r = (0..w).rev().find(|&x| solid(x, y))?;
+            Some((l as f32, r as f32 + 1.0))
+        })
+        .collect();
+    let (l, r) = rows.iter().flatten().fold((f32::MAX, f32::MIN), |(l, r), &(a, b)| (l.min(a), r.max(b)));
+    if l >= r {
+        return TurnFace {
+            face: CartFace {
+                rgba: face.rgba.clone(),
+                w: face.w,
+                h: face.h,
+            },
+            x: 0,
+            y: 0,
+        };
+    }
+    let cx = (l + r) / 2.0;
+    let d = depth * (r - l);
+    // the plastic's own colour: the rim just inside the outline, all round
+    let mut sum = [0.0f32; 3];
+    let mut count = 0.0;
+    for (y, row) in rows.iter().enumerate() {
+        if let Some((a, b)) = row {
+            for x in (*a as i32 + 1..*a as i32 + 4).chain(*b as i32 - 4..*b as i32 - 1) {
+                if x >= 0 && x < w && solid(x, y as i32) {
+                    let i = ((y as i32 * w + x) * 4) as usize;
+                    for c in 0..3 {
+                        sum[c] += face.rgba[i + c] as f32;
+                    }
+                    count += 1.0;
+                }
+            }
+        }
+    }
+    let base = if count > 0.0 {
+        [sum[0] / count, sum[1] / count, sum[2] / count]
+    } else {
+        [90.0, 90.0, 90.0]
+    };
+    let th = std::f32::consts::TAU * s;
+    let (sn, c) = th.sin_cos();
+    let pad = (d / 2.0).ceil() as i32 + 2;
+    let ow = w + 2 * pad;
+    let mut rgba = vec![0u8; (ow * h * 4) as usize];
+    for (y, row) in rows.iter().enumerate() {
+        for ox in 0..ow {
+            let xo = ox as f32 + 0.5 - pad as f32 - cx;
+            let mut out = [0.0f32; 4];
+            // the edge that has come round toward the viewer
+            if let (Some((xl, xr)), true) = (*row, sn.abs() > 1e-3 && d > 0.0) {
+                let xe = if sn > 0.0 { xl - cx } else { xr - cx };
+                let z = (xo - xe * c) / sn;
+                let k = 1.0 - (2.0 * z / d).abs();
+                if k >= 0.0 {
+                    // darker than the face, a little lighter across its rounded middle
+                    let shade = 0.5 + 0.25 * k.sqrt();
+                    let cover = (k * d / 2.0).min(1.0);
+                    out = [
+                        base[0] * shade * cover,
+                        base[1] * shade * cover,
+                        base[2] * shade * cover,
+                        255.0 * cover,
+                    ];
+                }
+            }
+            // the front (or, past a quarter turn, the plain back) over it
+            if c.abs() > 1e-3 {
+                let zf = if c > 0.0 { d / 2.0 } else { -d / 2.0 };
+                let xf = (xo - zf * sn) / c + cx;
+                let p = sample_clear(face, xf, y as f32 + 0.5);
+                if p[3] > 0.0 {
+                    let col = if c > 0.0 {
+                        let lit = 0.7 + 0.3 * c;
+                        [p[0] * lit, p[1] * lit, p[2] * lit]
+                    } else {
+                        let lit = (0.5 + 0.3 * -c) * p[3] / 255.0;
+                        [base[0] * lit, base[1] * lit, base[2] * lit]
+                    };
+                    let k = 1.0 - p[3] / 255.0;
+                    out = [
+                        col[0] + out[0] * k,
+                        col[1] + out[1] * k,
+                        col[2] + out[2] * k,
+                        p[3] + out[3] * k,
+                    ];
+                }
+            }
+            let i = ((y as i32 * ow + ox) * 4) as usize;
+            rgba[i..i + 4].copy_from_slice(&unpremul(out));
+        }
+    }
+    TurnFace {
+        face: CartFace {
+            rgba,
+            w: ow as u32,
+            h: face.h,
+        },
+        x: -pad,
+        y: 0,
+    }
+}
+
+fn disc_turn(face: &CartFace, s: f32) -> TurnFace {
+    let (w, h) = (face.w as i32, face.h as i32);
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    // twice round, clockwise, ending upright
+    let (sn, c) = (-2.0 * std::f32::consts::TAU * s).sin_cos();
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let (sx, sy) = (c * dx + sn * dy + cx, -sn * dx + c * dy + cy);
+            let i = ((y * w + x) * 4) as usize;
+            rgba[i..i + 4].copy_from_slice(&unpremul(sample_clear(face, sx, sy)));
+        }
+    }
+    TurnFace {
+        face: CartFace {
+            rgba,
+            w: face.w,
+            h: face.h,
+        },
+        x: 0,
+        y: 0,
+    }
 }
 
 /// A Game & Watch opens (a clamshell) or lights its screen (the rest) in this many frames,
@@ -340,6 +577,40 @@ mod tests {
                 )
             );
             assert_eq!(turns, new, "{p:?}");
+            // the rest turn too: the first six from their drawn face, Game & Watch its strip
+            assert!(super::turns(p), "{p:?} goes straight in");
+            assert_eq!(spins(p), !new && p != Platform::Gw, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn a_drawn_cart_turns_once_round_and_ends_on_its_shelf_face() {
+        for p in [Platform::Gba, Platform::Nes, Platform::Ps1] {
+            let face = crate::cart::cart_face_with(&cart(p), Some(quarters(crate::cart::label_size(&cart(p)).0, crate::cart::label_size(&cart(p)).1)));
+            let turn = spin_faces(p, &face);
+            assert_eq!(turn.frames.len(), SPIN_FRAMES);
+            assert!(turn.seated.is_none());
+            // the last frame is the shelf face itself, square and down on the shelf
+            let last = turn.frames.last().unwrap();
+            assert_eq!(last.y, 0, "{p:?}");
+            let (ox, w) = ((-last.x) as u32, face.w);
+            let mut off = 0u32;
+            for y in 0..face.h {
+                for x in 0..w {
+                    let a = &face.rgba[((y * w + x) * 4) as usize..][..4];
+                    let b = &last.face.rgba[((y * last.face.w + x + ox) * 4) as usize..][..4];
+                    // compared as they show (premultiplied): a clear pixel's colour is moot
+                    let pm = |p: &[u8]| [p[0] as u32 * p[3] as u32 / 255, p[1] as u32 * p[3] as u32 / 255, p[2] as u32 * p[3] as u32 / 255, p[3] as u32];
+                    if pm(a).iter().zip(pm(b)).any(|(a, b)| a.abs_diff(b) > 3) {
+                        off += 1;
+                    }
+                }
+            }
+            assert!(off < face.w * face.h / 200, "{p:?}: {off} pixels off the shelf face");
+            // half way round it is the plain back (or, a disc, still the disc), up off the shelf
+            let mid = &turn.frames[SPIN_FRAMES / 2];
+            assert!(mid.y < 0, "{p:?} does not lift");
+            assert!((seconds(p) - (SPIN_FRAMES as f32 / SPIN_FPS + SPIN_HOLD_S)).abs() < 1e-4);
         }
     }
 

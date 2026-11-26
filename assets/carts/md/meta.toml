@@ -1,10 +1,10 @@
 # md: Blender render of the genesis shell (~/Projects/slot-cart-renders, scripts/carts.py).
-# Shell is 360x247 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 108.0x72.5 mm.
+# Shell is 360x251 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 108.0x72.5 mm.
 # Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
 # shade.png (when present) multiplies the label with the light it would catch on the cart.
 x = 60
 y = 9
 w = 240
-h = 197
+h = 196
 rotation = 0.0
-aspect = 1.2183
+aspect = 1.2245

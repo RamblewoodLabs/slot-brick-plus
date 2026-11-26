@@ -141,6 +141,9 @@ fn work(inbox: &Receiver<Cart>, outbox: &Sender<(Key, Option<TurnFaces>)>, root:
         cart.read_header();
         let built = if cart.platform == Platform::Gw {
             gw_strip(root, &cart)
+        } else if slot_ui::turn::spins(cart.platform) {
+            let face = slot_ui::cart_face_with(&cart, label_art(root, &cart));
+            Some(slot_ui::turn::spin_faces(cart.platform, &face))
         } else {
             faces(&cart, label_art(root, &cart))
         };
