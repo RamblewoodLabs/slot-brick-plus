@@ -502,7 +502,7 @@ pub fn label_colour(title: &str) -> [u8; 3] {
 }
 
 pub fn label_text(cart: &Cart) -> String {
-    clean_label(&cart.stem)
+    clean_label(&cart.shown_name())
 }
 
 pub fn clean_label(stem: &str) -> String {
