@@ -1,0 +1,35 @@
+[package]
+name = "slot-android"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+license = "GPL-3.0-or-later"
+description = "Scaffold APK for Slot on Android: a placeholder shelf UI."
+publish = false
+
+# Standalone: do not join the top-level Slot workspace (keeps Brick/SP CI unchanged).
+[workspace]
+
+[lib]
+name = "slot_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+android-activity = { version = "0.6.0", features = ["native-activity"] }
+android_logger = "0.14"
+log = "0.4"
+ndk = "0.9"
+
+[package.metadata.android]
+package = "plus.slotbrick.slot"
+apk_name = "Slot"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 35
+
+[package.metadata.android.application]
+label = "Slot"
+debuggable = true
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
