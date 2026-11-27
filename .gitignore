@@ -30,3 +30,4 @@ preview/
 # Local navigation-perf cargo target and timing logs.
 target-perf/
 logs/
+brick/python-runtime/runtime/
