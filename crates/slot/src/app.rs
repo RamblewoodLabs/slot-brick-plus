@@ -487,6 +487,8 @@ pub struct App {
     powering_off: bool,
     /// An update was swapped in: Slot ends, for launch.sh to start the new one.
     updating: bool,
+    /// System → GrainBrick picked: the app's folder and the Python to run it with.
+    launching: Option<(PathBuf, PathBuf)>,
     /// HOME → System → Reset Settings: asked (A again resets) or done, until the menu moves on.
     reset_asked: Option<QuickValue>,
     /// The pop last played for a star (Sfx::Pop), so the next is another; the same for labels.
@@ -704,6 +706,7 @@ impl App {
             link_transport: None,
             restarting: false,
             updating: false,
+            launching: None,
             reset_asked: None,
             last_pop: None,
             last_label: None,
@@ -829,6 +832,7 @@ impl App {
             let model = slot_power::model();
             eprintln!("slot: running on a TrimUI {}", model.name());
             slot_ui::set_brick_pro(model == slot_power::Model::BrickPro);
+            slot_ui::set_grainbrick(crate::apps::grainbrick(root).is_some());
             app.brick_leds = Some(crate::brick_led::BrickLeds::open(root));
         }
         #[cfg(feature = "rg35xxsp")]
@@ -1797,6 +1801,10 @@ impl App {
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
             | QuickRow::SoundVolume => None,
+            QuickRow::GrainBrick => match self.root.as_deref().map(crate::apps::python) {
+                Some(Some(_)) => None,
+                _ => Some(QuickValue::Unavailable),
+            },
             QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
             QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
             QuickRow::AspectGba => Some(self.aspect_system_value(Platform::Gba)),
@@ -2539,6 +2547,16 @@ impl App {
         self.updating
     }
 
+    /// An installed app to open in Slot's place (System → GrainBrick): its folder and Python.
+    pub fn launching(&self) -> Option<&(PathBuf, PathBuf)> {
+        self.launching.as_ref()
+    }
+
+    /// The app could not be started: stay in Slot.
+    pub fn launch_failed(&mut self) {
+        self.launching = None;
+    }
+
     pub fn restore_brick_leds(&self) {
         #[cfg(feature = "brick")]
         if let Some(leds) = &self.brick_leds {
@@ -3152,6 +3170,15 @@ impl App {
                 };
             }
             QuickRow::AboutLabel => self.phase = Phase::About,
+            QuickRow::GrainBrick => {
+                if let Some(root) = &self.root {
+                    if let (Some(app), Some(python)) =
+                        (crate::apps::grainbrick(root), crate::apps::python(root))
+                    {
+                        self.launching = Some((app, python));
+                    }
+                }
+            }
             QuickRow::AboutVersion
             | QuickRow::AboutBuild
             | QuickRow::AboutDevice
@@ -3579,7 +3606,8 @@ impl App {
             | QuickRow::AspectGba
             | QuickRow::AspectNes
             | QuickRow::AspectSnes
-            | QuickRow::AspectPs1 => return,
+            | QuickRow::AspectPs1
+            | QuickRow::GrainBrick => return,
         }
         self.persist();
     }

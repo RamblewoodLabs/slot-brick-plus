@@ -8,6 +8,13 @@ use crate::text;
 
 /// The Brick Pro: set once at startup, it adds the Brick Pro's own rows (the stick lights).
 static BRICK_PRO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether GrainBrick is on the card (the player installs it; Slot does not ship it).
+static GRAINBRICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// System → GrainBrick is shown only while GrainBrick is installed on the card.
+pub fn set_grainbrick(installed: bool) {
+    GRAINBRICK.store(installed, std::sync::atomic::Ordering::Relaxed);
+}
 
 pub fn set_brick_pro(pro: bool) {
     BRICK_PRO.store(pro, std::sync::atomic::Ordering::Relaxed);
@@ -120,13 +127,14 @@ pub enum QuickRow {
     ShowPsp,
     ShowFavorites,
     RaEncore,
+    GrainBrick,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 105] = [
+    pub const ALL: [QuickRow; 106] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -232,6 +240,7 @@ impl QuickRow {
         QuickRow::ShowPsp,
         QuickRow::ShowFavorites,
         QuickRow::RaEncore,
+        QuickRow::GrainBrick,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -308,6 +317,29 @@ impl QuickRow {
         QuickRow::ResetSettings,
         QuickRow::About,
     ];
+    /// System with GrainBrick, when the player has installed it (see `set_grainbrick`): it
+    /// opens in Slot's place and Slot starts again when it ends.
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    pub const SYSTEM_APPS: [QuickRow; 10] = [
+        QuickRow::Lights,
+        QuickRow::Clock,
+        QuickRow::Font,
+        QuickRow::Rumble,
+        QuickRow::SystemSounds,
+        QuickRow::BatteryShutdown,
+        QuickRow::UpdateCheck,
+        QuickRow::GrainBrick,
+        QuickRow::ResetSettings,
+        QuickRow::About,
+    ];
+    /// The System page: on the Brick, with GrainBrick when it is installed.
+    pub fn system() -> &'static [QuickRow] {
+        #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+        if GRAINBRICK.load(std::sync::atomic::Ordering::Relaxed) {
+            return &Self::SYSTEM_APPS;
+        }
+        &Self::SYSTEM
+    }
     /// The SP has no Brick light bar, and Online → Update would install the Brick binary.
     #[cfg(feature = "rg35xxsp")]
     pub const SYSTEM: [QuickRow; 7] = [
@@ -606,9 +638,9 @@ impl QuickRow {
             | QuickRow::SystemSounds
             | QuickRow::BatteryShutdown
             | QuickRow::ResetSettings
-            | QuickRow::About => &Self::SYSTEM,
+            | QuickRow::About => Self::system(),
             #[cfg(feature = "brick")]
-            QuickRow::UpdateCheck => &Self::SYSTEM,
+            QuickRow::UpdateCheck | QuickRow::GrainBrick => Self::system(),
             QuickRow::ShowFavorites
             | QuickRow::ShowGba
             | QuickRow::ShowGb
@@ -693,7 +725,7 @@ impl QuickRow {
             QuickRow::ScreenSnes => Some(QuickRow::SCREEN_SNES[0]),
             QuickRow::ScreenPs1 => Some(QuickRow::SCREEN_PS1[0]),
             QuickRow::Game => Some(QuickRow::GAME[0]),
-            QuickRow::System => Some(QuickRow::SYSTEM[0]),
+            QuickRow::System => Some(QuickRow::system()[0]),
             QuickRow::Library => Some(QuickRow::LIBRARY[0]),
             QuickRow::LibrarySystems => Some(QuickRow::SYSTEMS[0]),
             QuickRow::About => Some(QuickRow::ABOUT[0]),
@@ -722,6 +754,7 @@ impl QuickRow {
             QuickRow::Saving => "Saving",
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
+            QuickRow::GrainBrick => "GrainBrick",
             QuickRow::Companion => "Companion",
             QuickRow::Aspect
             | QuickRow::AspectGb

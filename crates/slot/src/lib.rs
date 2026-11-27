@@ -1,4 +1,5 @@
 pub mod app;
+pub mod apps;
 pub mod audio;
 pub mod badge;
 pub mod bezel;
