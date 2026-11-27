@@ -187,6 +187,13 @@ slot_cheevos* slot_cheevos_new(void* host, slot_http_fn http, slot_event_fn even
   return s;
 }
 
+void slot_cheevos_set_encore_mode(slot_cheevos* s, int enabled) {
+  if (!s || !s->client)
+    return;
+  /* Must be set before load_game so already-earned achievements can fire again. */
+  rc_client_set_encore_mode_enabled(s->client, enabled ? 1 : 0);
+}
+
 void slot_cheevos_free(slot_cheevos* s) {
   if (!s)
     return;

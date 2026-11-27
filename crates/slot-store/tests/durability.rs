@@ -225,6 +225,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
             overlays: Default::default(),
+            ra_encore: true,
         }
     );
 }
@@ -586,4 +587,23 @@ fn the_sounds_volume_round_trips_and_a_value_off_its_steps_is_ignored() {
         std::fs::write(d.path().join("Config/slot.state"), text.replace("sound_volume=40", bad)).unwrap();
         assert_eq!(read_slot_state(d.path()).sound_volume, 100, "{bad}");
     }
+}
+
+#[test]
+fn encore_mode_is_on_by_default_and_the_toggle_is_kept() {
+    let d = tmp_root();
+    assert!(SlotState::default().ra_encore);
+    assert!(read_slot_state(d.path()).ra_encore, "a missing file is on");
+    let s = SlotState {
+        cart: Some("Emerald".into()),
+        clock_set: true,
+        ra_encore: false,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert!(!read_slot_state(d.path()).ra_encore);
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap().replace("ra_encore=0\n", "");
+    std::fs::write(&path, text).unwrap();
+    assert!(read_slot_state(d.path()).ra_encore, "an older file without the key stays on");
 }
