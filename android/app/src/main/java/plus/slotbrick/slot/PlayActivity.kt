@@ -36,6 +36,10 @@ class PlayActivity : AppCompatActivity() {
     private var renderer: GameRenderer? = null
     private var paused = false
     private var buttons = 0
+    private var stickLx = 0
+    private var stickLy = 0
+    private var stickRx = 0
+    private var stickRy = 0
     private var startHeld = false
     private var selectHeld = false
 
@@ -57,9 +61,14 @@ class PlayActivity : AppCompatActivity() {
         }
         val systemDir = File(filesDir, "system/${extras.getString(EXTRA_SYSTEM) ?: "sys"}").apply { mkdirs() }
         val saveDir = File(filesDir, "saves/${extras.getString(EXTRA_SYSTEM) ?: "sys"}").apply { mkdirs() }
+        if (core == "ppsspp") {
+            PpssppAssets.install(this, systemDir)
+        }
 
         glView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
+            // GLES3 so mupen64plus-next / PPSSPP can use a libretro HW context.
+            // Software cores run on the same context.
+            setEGLContextClientVersion(3)
             holder.setFormat(PixelFormat.RGB_565)
             val r = GameRenderer(so.absolutePath, rom, systemDir.absolutePath, saveDir.absolutePath) { err ->
                 runOnUiThread {
@@ -173,7 +182,41 @@ class PlayActivity : AppCompatActivity() {
         set(BIT_UP, hatY <= -0.5f)
         set(BIT_DOWN, hatY >= 0.5f)
         renderer?.buttons = buttons
+        val (lx, ly) = axisToStick(event, MotionEvent.AXIS_X, MotionEvent.AXIS_Y)
+        var rx = 0
+        var ry = 0
+        if (event.device != null && event.device.motionRanges.any { it.axis == MotionEvent.AXIS_Z }) {
+            val r = axisToStick(event, MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ)
+            rx = r.first; ry = r.second
+        } else {
+            val r = axisToStick(event, MotionEvent.AXIS_RX, MotionEvent.AXIS_RY)
+            rx = r.first; ry = r.second
+        }
+        stickLx = lx; stickLy = ly; stickRx = rx; stickRy = ry
+        renderer?.stickLx = lx
+        renderer?.stickLy = ly
+        renderer?.stickRx = rx
+        renderer?.stickRy = ry
+        val l2 = event.getAxisValue(MotionEvent.AXIS_LTRIGGER).coerceAtLeast(
+            event.getAxisValue(MotionEvent.AXIS_BRAKE)
+        )
+        val r2 = event.getAxisValue(MotionEvent.AXIS_RTRIGGER).coerceAtLeast(
+            event.getAxisValue(MotionEvent.AXIS_GAS)
+        )
+        set(BIT_L2, l2 >= 0.5f)
+        set(BIT_R2, r2 >= 0.5f)
+        renderer?.buttons = buttons
         return super.dispatchGenericMotionEvent(event)
+    }
+
+    private fun axisToStick(event: MotionEvent, axisX: Int, axisY: Int): Pair<Int, Int> {
+        fun one(v: Float): Int {
+            val d = 0.15f
+            if (kotlin.math.abs(v) < d) return 0
+            val scaled = ((v - kotlin.math.sign(v) * d) / (1f - d) * 0x7fff).toInt()
+            return scaled.coerceIn(-0x7fff, 0x7fff)
+        }
+        return one(event.getAxisValue(axisX)) to one(event.getAxisValue(axisY))
     }
 
     private fun toggleMenu() {
@@ -281,6 +324,10 @@ private class GameRenderer(
     private val onStart: (String?) -> Unit,
 ) : GLSurfaceView.Renderer {
     @Volatile var buttons: Int = 0
+    @Volatile var stickLx: Int = 0
+    @Volatile var stickLy: Int = 0
+    @Volatile var stickRx: Int = 0
+    @Volatile var stickRy: Int = 0
     @Volatile var paused: Boolean = false
     @Volatile var shutdown: Boolean = false
     private var ready = false
@@ -295,8 +342,13 @@ private class GameRenderer(
     private var aUv = 0
     private var uTex = 0
     private val quad: FloatBuffer = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
-        // x, y, u, v  (triangle strip)
+        // x, y, u, v  (triangle strip). V flipped: software frames are top-left.
         put(floatArrayOf(-1f, -1f, 0f, 1f,  1f, -1f, 1f, 1f,  -1f, 1f, 0f, 0f,  1f, 1f, 1f, 0f))
+        position(0)
+    }
+    private val quadBottomLeft: FloatBuffer = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+        // HW FBO textures are bottom-left origin.
+        put(floatArrayOf(-1f, -1f, 0f, 0f,  1f, -1f, 1f, 0f,  -1f, 1f, 0f, 1f,  1f, 1f, 1f, 1f))
         position(0)
     }
 
@@ -349,6 +401,7 @@ private class GameRenderer(
         }
         if (!paused) {
             SlotNative.setButtons(buttons)
+            SlotNative.setSticks(stickLx, stickLy, stickRx, stickRy)
             SlotNative.runFrame()
             drainAudio()
         }
@@ -356,6 +409,14 @@ private class GameRenderer(
         val h = SlotNative.frameHeight()
         if (w <= 0 || h <= 0) {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            return
+        }
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        if (SlotNative.isHwFrame()) {
+            val hwTex = SlotNative.hwTextureId()
+            if (hwTex != 0) {
+                drawQuad(hwTex, SlotNative.hwBottomLeftOrigin())
+            }
             return
         }
         val bytes = w * h * 2
@@ -380,15 +441,21 @@ private class GameRenderer(
                 GLES20.GL_RGB, GLES20.GL_UNSIGNED_SHORT_5_6_5, frameBuf,
             )
         }
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        drawQuad(tex, flipV = false)
+    }
+
+    private fun drawQuad(texture: Int, flipV: Boolean) {
+        val verts = if (flipV) quadBottomLeft else quad
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glUniform1i(uTex, 0)
-        quad.position(0)
+        verts.position(0)
         GLES20.glEnableVertexAttribArray(aPos)
-        GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, quad)
-        val uv = quad.duplicate()
+        GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, verts)
+        val uv = verts.duplicate()
         uv.position(2)
         GLES20.glEnableVertexAttribArray(aUv)
         GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 16, uv)
