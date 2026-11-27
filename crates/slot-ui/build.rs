@@ -4,6 +4,13 @@
 use std::fs;
 use std::path::Path;
 
+fn skip_dir(name: &str) -> bool {
+    // N64, DS and PSP are hidden on the RG280V; leave their frames out of the binary
+    // so the process image fits a 512 MB machine more comfortably.
+    std::env::var_os("CARGO_FEATURE_RG280V").is_some()
+        && matches!(name, "n64" | "nds" | "psp")
+}
+
 fn main() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let carts = manifest.join("../../assets/carts");
@@ -13,6 +20,7 @@ fn main() {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.join("shell.png").is_file() && p.join("meta.toml").is_file())
+        .filter(|p| !skip_dir(&p.file_name().unwrap().to_string_lossy()))
         .collect();
     dirs.sort();
     let mut out = String::from(
