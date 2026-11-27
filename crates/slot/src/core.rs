@@ -117,6 +117,11 @@ fn open_named(
 ) -> Option<Box<dyn RetroCore>> {
     let bios = root::bios_dir(root);
     let saves = root::saves_dir(root);
+    // A GPU core binds its GL calls to the device's GLES, which has to be loaded first.
+    if platform.def().gles && !slot_retro::preload_gles() {
+        eprintln!("slot: no GLES on this device for {}", platform.name());
+        return None;
+    }
     for path in paths {
         if !path.exists() {
             continue;
@@ -127,6 +132,7 @@ fn open_named(
                 opened.set_canvas(w, h);
                 opened.set_fill(platform.def().fill);
                 opened.set_fit(platform.def().fit);
+                opened.set_dpad_stick(platform.def().dpad_stick, platform.dpad_hold());
                 // A DualShock: what DualShock games want, what plain ones run on as well, and
                 // what carries rumble.
                 if platform.def().dualshock {

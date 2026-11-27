@@ -292,7 +292,24 @@ mod tests {
             let turns = of(p).is_some();
             let new = matches!(
                 p.def().shell,
-                Some("md" | "sms" | "gg" | "arcade" | "pce" | "a2600" | "intv" | "lynx" | "a7800")
+                Some(
+                    "md" | "sms"
+                        | "gg"
+                        | "arcade"
+                        | "pce"
+                        | "a2600"
+                        | "intv"
+                        | "lynx"
+                        | "a7800"
+                        | "coleco"
+                        | "a5200"
+                        | "a800"
+                        | "vectrex"
+                        | "s32x"
+                        | "n64"
+                        | "nds"
+                        | "psp"
+                )
             );
             assert_eq!(turns, new, "{p:?}");
         }
@@ -391,8 +408,10 @@ mod tests {
     fn every_turn_frame_decodes_at_its_listed_size() {
         for p in Platform::ALL {
             let Some(turn) = of(p) else { continue };
+            // The UMD's disc spins up in its shell before the shell turns over twice: longer.
+            let most = if p == Platform::Psp { 3.0 } else { 1.0 };
             assert!(
-                turn.seconds() > 0.3 && turn.seconds() < 1.0,
+                turn.seconds() > 0.3 && turn.seconds() < most,
                 "{p:?} turn length"
             );
             for (i, f) in turn.frames.iter().enumerate() {

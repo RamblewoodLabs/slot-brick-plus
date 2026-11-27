@@ -39,6 +39,14 @@ fn table(platform: Platform) -> &'static str {
         Platform::Lynx => include_str!("../rankings/LYNX.tsv"),
         Platform::A7800 => include_str!("../rankings/A7800.tsv"),
         Platform::Gw => include_str!("../rankings/GW.tsv"),
+        Platform::Coleco => include_str!("../rankings/COLECO.tsv"),
+        Platform::A5200 => include_str!("../rankings/A5200.tsv"),
+        Platform::A800 => include_str!("../rankings/A800.tsv"),
+        Platform::Vectrex => include_str!("../rankings/VECTREX.tsv"),
+        Platform::S32x => include_str!("../rankings/32X.tsv"),
+        Platform::N64 => include_str!("../rankings/N64.tsv"),
+        Platform::Nds => include_str!("../rankings/NDS.tsv"),
+        Platform::Psp => include_str!("../rankings/PSP.tsv"),
     }
 }
 
@@ -46,11 +54,20 @@ fn table(platform: Platform) -> &'static str {
 /// name the maker there ("Snoopy (Nintendo, Table Top)", "Astrosmash (1981) (Mattel)").
 fn holder_words(platform: Platform) -> &'static [&'static str] {
     match platform {
-        Platform::Gba | Platform::Gb | Platform::Gbc | Platform::Nes | Platform::Snes | Platform::Gw => &["nintendo"],
-        Platform::Md | Platform::Sms | Platform::Gg => &["sega"],
-        Platform::Ps1 => &["sony"],
+        Platform::Gba
+        | Platform::Gb
+        | Platform::Gbc
+        | Platform::Nes
+        | Platform::Snes
+        | Platform::Gw
+        | Platform::N64
+        | Platform::Nds => &["nintendo"],
+        Platform::Md | Platform::Sms | Platform::Gg | Platform::S32x => &["sega"],
+        Platform::Ps1 | Platform::Psp => &["sony"],
         Platform::Pce => &["nec", "hudson"],
-        Platform::A2600 | Platform::A7800 | Platform::Lynx => &["atari"],
+        Platform::A2600 | Platform::A7800 | Platform::Lynx | Platform::A5200 | Platform::A800 => &["atari"],
+        Platform::Coleco => &["coleco"],
+        Platform::Vectrex => &["gce"],
         Platform::Intv => &["mattel"],
         Platform::Arcade => &[],
     }

@@ -26,6 +26,8 @@ LB_PLATFORM = {
     "PS1": "Sony Playstation", "MD": "Sega Genesis", "SMS": "Sega Master System", "GG": "Sega Game Gear",
     "ARCADE": "Arcade", "PCE": "NEC TurboGrafx-16", "A2600": "Atari 2600", "INTV": "Mattel Intellivision",
     "LYNX": "Atari Lynx", "A7800": "Atari 7800", "GW": "Nintendo Game & Watch",
+    "COLECO": "ColecoVision", "A5200": "Atari 5200", "A800": "Atari 800", "VECTREX": "GCE Vectrex",
+    "32X": "Sega 32X", "N64": "Nintendo 64", "NDS": "Nintendo DS", "PSP": "Sony PSP",
 }
 LR_DAT = {
     "GBA": "Nintendo - Game Boy Advance", "GB": "Nintendo - Game Boy", "GBC": "Nintendo - Game Boy Color",
@@ -33,6 +35,8 @@ LR_DAT = {
     "PS1": "Sony - PlayStation", "MD": "Sega - Mega Drive - Genesis", "SMS": "Sega - Master System - Mark III",
     "GG": "Sega - Game Gear", "PCE": "NEC - PC Engine - TurboGrafx 16", "A2600": "Atari - 2600",
     "INTV": "Mattel - Intellivision", "LYNX": "Atari - Lynx", "A7800": "Atari - 7800",
+    "COLECO": "Coleco - ColecoVision", "A5200": "Atari - 5200", "VECTREX": "GCE - Vectrex", "32X": "Sega - 32X",
+    "N64": "Nintendo - Nintendo 64", "NDS": "Nintendo - Nintendo DS", "PSP": "Sony - PlayStation Portable",
 }
 # Who made the system: their games are FIRST PARTY. Arcade has no platform holder.
 HOLDER = {
@@ -40,9 +44,12 @@ HOLDER = {
     "SNES": r"\bnintendo\b", "GW": r"\bnintendo\b", "MD": r"\bsega\b", "SMS": r"\bsega\b", "GG": r"\bsega\b",
     "PS1": r"\bsony\b|\bscea\b|\bscee\b|\bscei\b", "PCE": r"\bnec\b|\bhudson\b",
     "A2600": r"\batari\b", "A7800": r"\batari\b", "LYNX": r"\batari\b", "INTV": r"\bmattel\b|\bintv corp",
+    "COLECO": r"\bcoleco\b", "A5200": r"\batari\b", "A800": r"\batari\b", "VECTREX": r"\bgce\b|\bgeneral consumer\b",
+    "32X": r"\bsega\b", "N64": r"\bnintendo\b", "NDS": r"\bnintendo\b", "PSP": r"\bsony\b|\bscea\b|\bscee\b|\bscei\b",
 }
 # Wikipedia's best-selling lists; Game Boy's covers the Game Boy Color too.
-WIKI = {"NES": "NES", "SNES": "SNES", "GB": "GB", "GBC": "GB", "GBA": "GBA", "PS1": "PS1", "MD": "MD", "A2600": "A2600"}
+WIKI = {"NES": "NES", "SNES": "SNES", "GB": "GB", "GBC": "GB", "GBA": "GBA", "PS1": "PS1", "MD": "MD", "A2600": "A2600",
+        "N64": "N64", "NDS": "NDS", "PSP": "PSP"}
 MIN_RATINGS = 3
 PRIOR = 15  # ratings of weight the platform mean gets in the weighted score
 

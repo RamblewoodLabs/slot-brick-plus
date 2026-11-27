@@ -1,0 +1,10 @@
+# a800: Blender render of the atari800 shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 331x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 133.35x133.35 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 28
+y = 19
+w = 261
+h = 86
+rotation = 0.0
+aspect = 3.0349

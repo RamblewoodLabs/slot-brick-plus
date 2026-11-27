@@ -18,7 +18,9 @@ from PIL import Image, ImageChops, ImageFilter, ImageStat
 
 CARTS = pathlib.Path(__file__).resolve().parent.parent / "assets" / "carts"
 SHELLS = {"MD": "md", "SMS": "sms", "GG": "gg", "ARCADE": "arcade", "PCE": "pce",
-          "A2600": "a2600", "INTV": "intv", "LYNX": "lynx", "A7800": "a7800"}
+          "A2600": "a2600", "INTV": "intv", "LYNX": "lynx", "A7800": "a7800", "COLECO": "coleco",
+          "A5200": "a5200", "A800": "a800", "VECTREX": "vectrex", "32X": "s32x", "N64": "n64",
+          "NDS": "nds", "PSP": "psp"}
 
 # ScreenScraper's cart scans (ES-DE physicalmedia) are drawn alike for a system: where the
 # label sits in one (fractions of the picture), the picture's shape, and how much taller
@@ -32,6 +34,14 @@ PHYSICAL = {
     # The end label as the scan shows it, flat: 4.4:1, the shape of the shell's 250x59 window.
     "INTV": ((0.076, 0.796, 0.924, 0.951), 0.81, 1.0),
     "LYNX": ((0.05, 0.04, 0.96, 0.84), 0.96, 1.0),
+    "COLECO": ((0.06, 0.02, 0.94, 0.66), 0.87, 1.0),
+    "A5200": ((0.12, 0.04, 0.88, 0.78), 1.09, 1.0),
+    "A800": ((0.05, 0.02, 0.95, 0.30), 0.99, 1.0),
+    "32X": ((0.18, 0.03, 0.82, 0.74), 1.52, 1.0),
+    "N64": ((0.31, 0.14, 0.71, 0.95), 1.55, 1.0),
+    "NDS": ((0.07, 0.12, 0.93, 0.86), 0.95, 1.0),
+    # The UMD scan is the whole disc front; the shell's window is nearly all of it.
+    "PSP": ((0.079, 0.055, 0.934, 0.94), 1.01, 1.0),
 }
 # How far a picture's shape may be from the window's and still be cut to it.
 NEAR = math.log(1.3)

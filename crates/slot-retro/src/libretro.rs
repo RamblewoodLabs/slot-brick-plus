@@ -3,18 +3,22 @@ use std::ffi::{c_char, c_int, c_uint, c_void, CString};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use libloading::Library;
 
 use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
+use crate::hw;
 use crate::link::Link;
 use crate::rumble::Rumble;
 
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
+/// The GPU core's framebuffer, for a core that asks for it from a thread of its own (PPSSPP
+/// does, from its emulation thread, where no host is bound). One core is live at a time.
+static HW_FBO: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum PixelFormat {
@@ -59,6 +63,17 @@ struct Host {
     /// For a disc-based core: how it swaps discs, and how it is told the disc to start on.
     disk: Option<DiskControl>,
     initial_disc: Option<unsafe extern "C" fn(c_uint, *const c_char) -> bool>,
+    /// A GPU core's GLES context and framebuffer (SET_HW_RENDER), made while its game loads.
+    gl: Option<Box<hw::Gl>>,
+    /// The largest frame the GPU core draws (its max geometry), the framebuffer's size.
+    hw_max: (u32, u32),
+    /// The d-pad steers the left analog stick and is not sent as a d-pad: an N64 or PSP game
+    /// on a handheld without sticks.
+    dpad_stick: bool,
+    /// The button (a bit of the RetroPad mask) that, held, makes the d-pad the d-pad again.
+    dpad_hold: u16,
+    /// The stick last frame was the d-pad's, so letting go of the d-pad centres it.
+    stick_from_dpad: bool,
 }
 
 thread_local! {
@@ -89,6 +104,68 @@ unsafe fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
 }
 
 unsafe extern "C" fn log_noop(_level: c_uint, _fmt: *const c_char) {}
+
+/// With SLOT_CORE_LOG set, a core's messages go to stderr. The callback is C-variadic; on
+/// the 64-bit targets Slot runs on (aarch64, and x86-64 for the simulator) the first
+/// arguments arrive in registers like fixed ones, so the first four integer or string
+/// arguments are read as such. Floats print as `?`. For finding where a core stops.
+unsafe extern "C" fn log_stderr(
+    level: c_uint,
+    fmt: *const c_char,
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+) {
+    if fmt.is_null() {
+        return;
+    }
+    let args = [a, b, c, d];
+    let mut next = args.iter();
+    let mut out = String::new();
+    let mut chars = std::ffi::CStr::from_ptr(fmt)
+        .to_string_lossy()
+        .into_owned()
+        .into_bytes()
+        .into_iter()
+        .peekable();
+    while let Some(ch) = chars.next() {
+        if ch != b'%' {
+            out.push(ch as char);
+            continue;
+        }
+        let mut spec = String::new();
+        while let Some(&n) = chars.peek() {
+            chars.next();
+            spec.push(n as char);
+            if n.is_ascii_alphabetic() && !matches!(n, b'l' | b'z' | b'h' | b'j' | b't')
+                || n == b'%'
+            {
+                break;
+            }
+        }
+        match spec.chars().last() {
+            Some('%') => out.push('%'),
+            Some('s') => match next.next() {
+                Some(&p) if p != 0 => {
+                    out.push_str(&std::ffi::CStr::from_ptr(p as *const c_char).to_string_lossy())
+                }
+                _ => out.push_str("(null)"),
+            },
+            Some('d' | 'i') => out.push_str(
+                &next
+                    .next()
+                    .map_or(0, |&v| v as i64 as i32 as i64)
+                    .to_string(),
+            ),
+            Some('u' | 'x' | 'X' | 'p' | 'c') => {
+                out.push_str(&format!("{:#x}", next.next().copied().unwrap_or(0)))
+            }
+            _ => out.push('?'),
+        }
+    }
+    eprint!("core[{level}]: {out}");
+}
 
 unsafe extern "C" fn set_rumble_state(port: c_uint, effect: c_uint, strength: u16) -> bool {
     with_host(|h| h.rumble.set(port, effect, strength)).unwrap_or(false)
@@ -212,7 +289,11 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             if data.is_null() {
                 return false;
             }
-            (*(data as *mut LogCallback)).log = log_noop as *const c_void;
+            (*(data as *mut LogCallback)).log = if std::env::var_os("SLOT_CORE_LOG").is_some() {
+                log_stderr as *const c_void
+            } else {
+                log_noop as *const c_void
+            };
             true
         }
         SET_AUDIO_BUFFER_STATUS_CALLBACK => {
@@ -256,6 +337,33 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let control = std::ptr::read(data as *const DiskControl);
             with_host(|h| h.disk = Some(control)).is_some()
         }
+        SET_HW_RENDER => {
+            if data.is_null() {
+                return false;
+            }
+            let cb = &mut *(data as *mut hw::HwRenderCallback);
+            let Some(request) = hw::Request::from_callback(cb) else {
+                return false;
+            };
+            let Some(gl) = hw::Gl::create(request) else {
+                eprintln!(
+                    "slot-retro: no GLES {} context for the core",
+                    if request.gles3 { 3 } else { 2 }
+                );
+                return false;
+            };
+            cb.get_current_framebuffer = Some(hw_current_framebuffer);
+            cb.get_proc_address = Some(hw_proc_address);
+            with_host(|h| h.gl = Some(Box::new(gl))).is_some()
+        }
+        GET_PREFERRED_HW_RENDER => {
+            if data.is_null() || !hw::preload() {
+                return false;
+            }
+            *(data as *mut c_uint) = hw::CONTEXT_OPENGLES3;
+            true
+        }
+        SET_GEOMETRY => true,
         SET_MEMORY_MAPS => {
             if data.is_null() {
                 return false;
@@ -366,6 +474,49 @@ unsafe fn report_audio_status(skip: bool) {
     status(true, if skip { 0 } else { 100 }, skip);
 }
 
+unsafe extern "C" fn hw_current_framebuffer() -> usize {
+    with_host(|h| {
+        let (w, hgt) = h.hw_max;
+        let fbo =
+            h.gl.as_mut()
+                .map_or(0, |gl| gl.framebuffer(w, hgt) as usize);
+        HW_FBO.store(fbo, Ordering::Release);
+        fbo
+    })
+    .unwrap_or_else(|| HW_FBO.load(Ordering::Acquire))
+}
+
+unsafe extern "C" fn hw_proc_address(name: *const c_char) -> hw::ProcAddress {
+    if name.is_null() {
+        return None;
+    }
+    hw::proc_address(std::ffi::CStr::from_ptr(name))
+}
+
+/// A pad with its d-pad taken off, and the left stick it pushes, all the way (diagonals too).
+fn dpad_to_stick(pad: u16, hold: u16) -> (u16, (i16, i16)) {
+    // Held, the hold button gives the d-pad back as itself (and is not passed on).
+    if hold != 0 && pad & hold != 0 {
+        return (pad & !hold, (0, 0));
+    }
+    const UP: u16 = 1 << 4;
+    const DOWN: u16 = 1 << 5;
+    const LEFT: u16 = 1 << 6;
+    const RIGHT: u16 = 1 << 7;
+    let axis = |neg: u16, pos: u16| match (pad & neg != 0, pad & pos != 0) {
+        (true, false) => -0x7fff,
+        (false, true) => 0x7fff,
+        _ => 0,
+    };
+    (
+        pad & !(UP | DOWN | LEFT | RIGHT),
+        (axis(LEFT, RIGHT), axis(UP, DOWN)),
+    )
+}
+
+/// RETRO_HW_FRAME_BUFFER_VALID: the frame is in the GPU core's framebuffer.
+const HW_FRAME: usize = usize::MAX;
+
 unsafe extern "C" fn video_refresh(
     data: *const c_void,
     width: c_uint,
@@ -375,7 +526,32 @@ unsafe extern "C" fn video_refresh(
     if data.is_null() {
         return;
     }
-    with_host(|h| {
+    if data as usize == HW_FRAME {
+        with_host(|h| {
+            let Some(gl) = h.gl.as_mut() else {
+                return;
+            };
+            let pitch = gl.read_frame(width, height);
+            let frame = std::mem::take(&mut gl.frame);
+            let (w, hgt) = (
+                (pitch / 4) as c_uint,
+                (frame.len() / pitch.max(1)) as c_uint,
+            );
+            let format = std::mem::replace(&mut h.format, PixelFormat::Xrgb8888);
+            present(h, frame.as_ptr() as *const c_void, w, hgt, pitch);
+            h.format = format;
+            if let Some(gl) = h.gl.as_mut() {
+                gl.frame = frame;
+            }
+        });
+        return;
+    }
+    with_host(|h| present(h, data, width, height, pitch));
+}
+
+/// A frame (`pitch` bytes a row, in `h.format`) into the canvas.
+unsafe fn present(h: &mut Host, data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
+    {
         if h.fill {
             fill_canvas(h, data, width, height, pitch);
             return;
@@ -419,7 +595,7 @@ unsafe extern "C" fn video_refresh(
                 h.video[o + 3] = 0;
             }
         }
-    });
+    }
 }
 
 /// Disc `at` (from 0) of an .m3u, as a core reads the list: its folder and the line as written,
@@ -627,6 +803,13 @@ impl LibretroCore {
         self.host.fit = fit;
     }
 
+    /// The d-pad drives the left stick (see `Host::dpad_stick`).
+    /// `hold`, a RetroPad button id, turns it back into the d-pad while held.
+    pub fn set_dpad_stick(&mut self, on: bool, hold: Option<u8>) {
+        self.host.dpad_stick = on;
+        self.host.dpad_hold = hold.map_or(0, |b| 1 << b);
+    }
+
     pub fn set_option(&mut self, key: &str, value: &str) {
         if !self.host.declared.is_empty() {
             match self.host.declared.get(key) {
@@ -696,6 +879,11 @@ impl LibretroCore {
             fit: false,
             disk: None,
             initial_disc: None,
+            gl: None,
+            hw_max: (0, 0),
+            dpad_stick: false,
+            dpad_hold: 0,
+            stick_from_dpad: false,
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -727,7 +915,12 @@ impl LibretroCore {
             return;
         }
         let _a = Active::bind(&mut self.host);
-        unsafe { (self.api.unload_game)() };
+        if let Some(gl) =
+            unsafe { with_host(|h| h.gl.as_mut().map(|g| g as *mut Box<hw::Gl>)) }.flatten()
+        {
+            unsafe { (*gl).destroy() };
+        }
+        unsafe { crate::ffi::guard::call0(self.api.unload_game) };
         self.loaded = false;
     }
 
@@ -757,6 +950,8 @@ impl Drop for LibretroCore {
             let _a = Active::bind(&mut self.host);
             (self.api.deinit)();
         }
+        // The GPU core's context goes after the core is done with it.
+        self.host.gl = None;
         LIVE.store(false, Ordering::SeqCst);
     }
 }
@@ -798,7 +993,7 @@ impl RetroCore for LibretroCore {
         }
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.load_game)(&info) }
+            unsafe { crate::ffi::guard::call_ptr(self.api.load_game, &info) }
         };
         if !ok {
             self.rom = Vec::new();
@@ -813,6 +1008,18 @@ impl RetroCore for LibretroCore {
             sample_rate: av.timing.sample_rate,
         };
         unsafe { (self.api.set_controller_port_device)(0, self.host.device) };
+        if self.host.gl.is_some() {
+            self.host.hw_max = (av.geometry.max_width.max(1), av.geometry.max_height.max(1));
+            let (w, h) = self.host.hw_max;
+            let reset = self.host.gl.as_mut().map(|gl| {
+                HW_FBO.store(gl.framebuffer(w, h) as usize, Ordering::Release);
+                gl.request.context_reset
+            });
+            if let Some(Some(reset)) = reset {
+                let _a = Active::bind(&mut self.host);
+                unsafe { reset() };
+            }
+        }
         Ok(())
     }
 
@@ -824,9 +1031,24 @@ impl RetroCore for LibretroCore {
         if !self.loaded {
             return;
         }
+        if let Some(gl) = &self.host.gl {
+            if !gl.current() {
+                return;
+            }
+        }
         self.host.inputs = [p1.0, p2.0];
+        if self.host.dpad_stick {
+            let (pad, stick) = dpad_to_stick(p1.0, self.host.dpad_hold);
+            self.host.inputs[0] = pad;
+            if stick != (0, 0) {
+                self.host.stick = stick;
+            } else if self.host.stick_from_dpad {
+                self.host.stick = (0, 0);
+            }
+            self.host.stick_from_dpad = stick != (0, 0);
+        }
         let _a = Active::bind(&mut self.host);
-        unsafe { (self.api.run)() };
+        unsafe { crate::ffi::guard::call0(self.api.run) };
     }
 
     fn reset(&mut self) {
@@ -834,7 +1056,7 @@ impl RetroCore for LibretroCore {
             return;
         }
         let _a = Active::bind(&mut self.host);
-        unsafe { (self.api.reset)() };
+        unsafe { crate::ffi::guard::call0(self.api.reset) };
     }
 
     fn set_frame_skip(&mut self, skip: bool) {
@@ -862,7 +1084,13 @@ impl RetroCore for LibretroCore {
         let mut buf = vec![0u8; size];
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+            unsafe {
+                crate::ffi::guard::call_buf_mut(
+                    self.api.serialize,
+                    buf.as_mut_ptr() as *mut c_void,
+                    size,
+                )
+            }
         };
         if ok {
             Ok(buf)
@@ -874,7 +1102,13 @@ impl RetroCore for LibretroCore {
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
         let ok = {
             let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
+            unsafe {
+                crate::ffi::guard::call_buf(
+                    self.api.unserialize,
+                    data.as_ptr() as *const c_void,
+                    data.len(),
+                )
+            }
         };
         if ok {
             Ok(())
@@ -985,6 +1219,23 @@ impl RetroCore for LibretroCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dpad_drives_the_stick_unless_the_hold_button_is_down() {
+        let (up, right, l2, a) = (1u16 << 4, 1u16 << 7, 1u16 << 12, 1u16 << 8);
+        assert_eq!(dpad_to_stick(up | right | a, 0), (a, (0x7fff, -0x7fff)));
+        assert_eq!(
+            dpad_to_stick(up | a, l2),
+            (a, (0, -0x7fff)),
+            "hold not down"
+        );
+        assert_eq!(
+            dpad_to_stick(up | l2 | a, l2),
+            (up | a, (0, 0)),
+            "held: the d-pad, no L2"
+        );
+        assert_eq!(dpad_to_stick(a, 0), (a, (0, 0)));
+    }
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ffi::CStr;
@@ -1015,6 +1266,11 @@ mod tests {
             fit: false,
             disk: None,
             initial_disc: None,
+            gl: None,
+            hw_max: (0, 0),
+            dpad_stick: false,
+            dpad_hold: 0,
+            stick_from_dpad: false,
         })
     }
 

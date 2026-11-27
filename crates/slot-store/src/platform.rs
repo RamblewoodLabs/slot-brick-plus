@@ -25,6 +25,14 @@ pub enum Platform {
     Lynx,
     A7800,
     Gw,
+    Coleco,
+    A5200,
+    A800,
+    Vectrex,
+    S32x,
+    N64,
+    Nds,
+    Psp,
 }
 
 /// Which saved shader a system follows. New television systems share the NES one.
@@ -123,6 +131,10 @@ pub struct PlatformDef {
     pub gb_palette: bool,
     /// RetroAchievements console id. 0 means Slot does not ask.
     pub ra: u32,
+    /// The core draws with the GPU: Slot loads the device's GLES before the core.
+    pub gles: bool,
+    /// The d-pad is the game's analog stick (an N64 or PSP game on a handheld with none).
+    pub dpad_stick: bool,
 }
 
 const GB_WITH: [Platform; 1] = [Platform::Gbc];
@@ -151,6 +163,84 @@ const LYNX_BIOS: &[BiosFile] = &[BiosFile {
     required: true,
 }];
 
+const COLECO_BIOS: &[BiosFile] = &[BiosFile {
+    name: "colecovision.rom",
+    required: true,
+}];
+const A5200_BIOS: &[BiosFile] = &[BiosFile {
+    name: "5200.rom",
+    required: false,
+}];
+/// AltirraOS and Altirra BASIC are built into the core; Atari's own ROMs are used when present.
+const A800_BIOS: &[BiosFile] = &[
+    BiosFile {
+        name: "ATARIXL.ROM",
+        required: false,
+    },
+    BiosFile {
+        name: "ATARIBAS.ROM",
+        required: false,
+    },
+];
+/// melonDS boots games itself without them; with them it runs the DS's own boot code.
+const NDS_BIOS: &[BiosFile] = &[
+    BiosFile {
+        name: "bios7.bin",
+        required: false,
+    },
+    BiosFile {
+        name: "bios9.bin",
+        required: false,
+    },
+    BiosFile {
+        name: "firmware.bin",
+        required: false,
+    },
+];
+
+/// An 800XL with no BASIC, which every .xex wants; AltirraOS unless Atari's ROM is there.
+const A800_OPT: &[(&str, &str)] = &[
+    ("atari800_system", "800XL (64K)"),
+    ("atari800_internalbasic", "disabled"),
+    ("atari800_resolution", "336x240"),
+];
+/// GLideN64 at the N64's own 320x240, the dynarec, and the C buttons on face and shoulder
+/// buttons (independent C-button controls): no right stick on these handhelds.
+const N64_OPT: &[(&str, &str)] = &[
+    ("mupen64plus-rdp-plugin", "gliden64"),
+    ("mupen64plus-rsp-plugin", "hle"),
+    ("mupen64plus-cpucore", "dynamic_recompiler"),
+    ("mupen64plus-43screensize", "320x240"),
+    ("mupen64plus-aspect", "4:3"),
+    ("mupen64plus-ThreadedRenderer", "False"),
+    ("mupen64plus-EnableCopyColorToRDRAM", "Off"),
+    ("mupen64plus-EnableCopyDepthToRDRAM", "Off"),
+    ("mupen64plus-MultiSampling", "0"),
+    ("mupen64plus-FrameDuping", "True"),
+    ("mupen64plus-alt-map", "True"),
+    // GLideN64 aborts in its texture cache with the 8000 default; 1500 is also kinder to 1 GB.
+    ("mupen64plus-MaxTxCacheSize", "1500"),
+];
+/// The JIT, the software renderer on its own thread, the two screens one above the other.
+const NDS_OPT: &[(&str, &str)] = &[
+    ("melonds_jit_enable", "enabled"),
+    ("melonds_threaded_renderer", "enabled"),
+    ("melonds_screen_layout", "Top/Bottom"),
+    ("melonds_boot_directly", "enabled"),
+];
+/// The PSP's own 480x272, frameskip 1 with auto frameskip, the settings H700 players use.
+const PSP_OPT: &[(&str, &str)] = &[
+    ("ppsspp_internal_resolution", "480x272"),
+    ("ppsspp_frameskip", "1"),
+    ("ppsspp_frameskiptype", "Number of frames"),
+    ("ppsspp_auto_frameskip", "enabled"),
+    ("ppsspp_fast_memory", "enabled"),
+    ("ppsspp_lazy_texture_caching", "enabled"),
+    ("ppsspp_skip_gpu_readbacks", "enabled"),
+    ("ppsspp_lower_resolution_for_effects", "Safe"),
+    ("ppsspp_spline_quality", "Low"),
+];
+
 const PAD_STANDARD: PadMap =
     pad("A and B are the face buttons. L and R are the shoulders when the console has them.");
 const PAD_GENESIS: PadMap =
@@ -174,7 +264,27 @@ const PAD_GW: PadMap = pad(
     "The d-pad and A and B are the handheld's own buttons. Select steps through Game A, Game B and Time; Start presses it.",
 );
 
-const DEFS: [PlatformDef; 16] = [
+const PAD_COLECO: PadMap = pad(
+    "B is the left (yellow) fire button, A the right (red). Y, X, L, R, L2 and R2 are keypad 1 to 6. Start is *, Select is #.",
+);
+const PAD_5200: PadMap = pad(
+    "A is fire 1, B fire 2. Start is Start, Select pauses. X is #, Y is *, R is 0, R2 is 1, L2 is 3.",
+);
+const PAD_800: PadMap = pad(
+    "B is fire. Start, Select and L are the console's Start, Select and Option keys. X is Return, Y is Space.",
+);
+const PAD_VECTREX: PadMap = pad("B, A, Y and X are the controller's buttons 1 to 4.");
+const PAD_N64: PadMap = pad(
+    "The d-pad is the stick. B is A, Y is B. A, X, L and R are C-down, C-up, C-left and C-right. L2 is Z, R2 is R, Select is L.",
+);
+const PAD_NDS: PadMap = pad(
+    "A B X Y L R Start Select are the DS's own. The touch screen cannot be reached, so the games on the card play on buttons.",
+);
+const PAD_PSP: PadMap = pad(
+    "The d-pad is the stick; hold L2 for the d-pad itself. A is circle, B cross, X triangle, Y square. L and R are the shoulders.",
+);
+
+const DEFS: [PlatformDef; 24] = [
     PlatformDef {
         id: Platform::Gba,
         name: "Game Boy Advance",
@@ -201,6 +311,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 5,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Gb,
@@ -228,6 +340,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: true,
         ra: 4,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Gbc,
@@ -255,6 +369,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: true,
         ra: 6,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Nes,
@@ -282,6 +398,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 7,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Snes,
@@ -309,6 +427,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 3,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Ps1,
@@ -336,6 +456,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: true,
         gb_palette: false,
         ra: 12,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Md,
@@ -363,6 +485,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 1,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Sms,
@@ -390,6 +514,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 11,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Gg,
@@ -417,6 +543,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 15,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Arcade,
@@ -444,6 +572,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 27,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Pce,
@@ -471,6 +601,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 8,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::A2600,
@@ -498,6 +630,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 25,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Intv,
@@ -525,6 +659,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 45,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Lynx,
@@ -552,6 +688,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 13,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::A7800,
@@ -579,6 +717,8 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 51,
+        gles: false,
+        dpad_stick: false,
     },
     PlatformDef {
         id: Platform::Gw,
@@ -606,11 +746,254 @@ const DEFS: [PlatformDef; 16] = [
         dualshock: false,
         gb_palette: false,
         ra: 0,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::Coleco,
+        name: "ColecoVision",
+        dir: "COLECO",
+        extensions: &["col", "rom"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (256, 192),
+        canvas: (256, 192),
+        core: "gearcoleco",
+        options: &[],
+        bios: COLECO_BIOS,
+        pad: PAD_COLECO,
+        shell: Some("coleco"),
+        label_with: &[],
+        shader: ShaderFamily::Nes,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: true,
+        fill: false,
+        fit: false,
+        triggers: true,
+        dualshock: false,
+        gb_palette: false,
+        ra: 44,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::A5200,
+        name: "Atari 5200",
+        dir: "A5200",
+        extensions: &["a52", "bin"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (320, 224),
+        canvas: (320, 224),
+        core: "a5200",
+        options: &[],
+        bios: A5200_BIOS,
+        pad: PAD_5200,
+        shell: Some("a5200"),
+        label_with: &[],
+        shader: ShaderFamily::Nes,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: true,
+        fill: false,
+        fit: false,
+        triggers: true,
+        dualshock: false,
+        gb_palette: false,
+        ra: 50,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::A800,
+        name: "Atari 800",
+        dir: "A800",
+        extensions: &["xex", "atr", "atx", "xfd", "car", "cas"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (336, 240),
+        canvas: (336, 240),
+        core: "atari800",
+        options: A800_OPT,
+        bios: A800_BIOS,
+        pad: PAD_800,
+        shell: Some("a800"),
+        label_with: &[],
+        shader: ShaderFamily::Nes,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: true,
+        fill: false,
+        fit: false,
+        triggers: true,
+        dualshock: false,
+        gb_palette: false,
+        ra: 0,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::Vectrex,
+        name: "Vectrex",
+        dir: "VECTREX",
+        extensions: &["vec", "gam"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (330, 410),
+        canvas: (330, 410),
+        core: "vecx",
+        options: &[],
+        bios: &[],
+        pad: PAD_VECTREX,
+        shell: Some("vectrex"),
+        label_with: &[],
+        shader: ShaderFamily::Nes,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: true,
+        native_xy: true,
+        rewind: true,
+        fill: false,
+        fit: false,
+        triggers: false,
+        dualshock: false,
+        gb_palette: false,
+        ra: 46,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::S32x,
+        name: "Sega 32X",
+        dir: "32X",
+        extensions: &["32x", "bin"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (320, 224),
+        canvas: (320, 240),
+        core: "picodrive",
+        options: &[],
+        bios: &[],
+        pad: PAD_GENESIS,
+        shell: Some("s32x"),
+        label_with: &[],
+        shader: ShaderFamily::Nes,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: true,
+        fill: false,
+        fit: false,
+        triggers: false,
+        dualshock: false,
+        gb_palette: false,
+        ra: 10,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::N64,
+        name: "Nintendo 64",
+        dir: "N64",
+        extensions: &["z64", "n64", "v64"],
+        archives: true,
+        archive_is_rom: false,
+        picture: (320, 240),
+        canvas: (320, 240),
+        core: "mupen64plus_next",
+        options: N64_OPT,
+        bios: &[],
+        pad: PAD_N64,
+        shell: Some("n64"),
+        label_with: &[],
+        shader: ShaderFamily::Ps1,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: false,
+        fill: false,
+        fit: false,
+        triggers: true,
+        dualshock: false,
+        gb_palette: false,
+        ra: 2,
+        gles: true,
+        dpad_stick: true,
+    },
+    PlatformDef {
+        id: Platform::Nds,
+        name: "Nintendo DS",
+        dir: "NDS",
+        extensions: &["nds"],
+        archives: false,
+        archive_is_rom: false,
+        picture: (256, 384),
+        canvas: (256, 384),
+        core: "melonds",
+        options: NDS_OPT,
+        bios: NDS_BIOS,
+        pad: PAD_NDS,
+        shell: Some("nds"),
+        label_with: &[],
+        shader: ShaderFamily::Gba,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: false,
+        fill: false,
+        fit: false,
+        triggers: true,
+        dualshock: false,
+        gb_palette: false,
+        ra: 18,
+        gles: false,
+        dpad_stick: false,
+    },
+    PlatformDef {
+        id: Platform::Psp,
+        name: "PlayStation Portable",
+        dir: "PSP",
+        extensions: &["iso", "cso", "chd", "pbp"],
+        archives: false,
+        archive_is_rom: false,
+        picture: (480, 272),
+        canvas: (480, 272),
+        core: "ppsspp",
+        options: PSP_OPT,
+        bios: &[],
+        pad: PAD_PSP,
+        shell: Some("psp"),
+        label_with: &[],
+        shader: ShaderFamily::Ps1,
+        colour: ColourCorrect::None,
+        shoulders_are_slot: false,
+        native_xy: true,
+        rewind: false,
+        fill: false,
+        fit: false,
+        triggers: false,
+        dualshock: false,
+        gb_palette: false,
+        ra: 41,
+        gles: true,
+        dpad_stick: true,
     },
 ];
 
 impl Platform {
-    pub const ALL: [Platform; 16] = [
+    /// The RetroPad button that, held, gives back the d-pad on a system whose d-pad is the
+    /// stick: L2 on the PSP, which has no L2 of its own. The N64 uses all of its buttons.
+    pub fn dpad_hold(self) -> Option<u8> {
+        match self {
+            Platform::Psp => Some(12),
+            _ => None,
+        }
+    }
+
+    pub const ALL: [Platform; 24] = [
         Platform::Gba,
         Platform::Gb,
         Platform::Gbc,
@@ -627,6 +1010,14 @@ impl Platform {
         Platform::Lynx,
         Platform::A7800,
         Platform::Gw,
+        Platform::Coleco,
+        Platform::A5200,
+        Platform::A800,
+        Platform::Vectrex,
+        Platform::S32x,
+        Platform::N64,
+        Platform::Nds,
+        Platform::Psp,
     ];
 
     pub fn def(self) -> &'static PlatformDef {

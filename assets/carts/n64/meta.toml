@@ -1,0 +1,10 @@
+# n64: Blender render of the n64 shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 360x239 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 116.0x75.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 98
+y = 25
+w = 164
+h = 176
+rotation = 0.0
+aspect = 0.9318

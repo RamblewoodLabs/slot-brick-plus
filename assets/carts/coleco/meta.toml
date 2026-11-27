@@ -1,0 +1,10 @@
+# coleco: Blender render of the colecovision shell (~/Projects/slot-cart-renders, scripts/carts.py).
+# Shell is 288x331 RGBA, downscaled from a 960 px master (360 wide, or 331 tall at most). Real cart 89.0x103.0 mm.
+# Label window in shell pixels, origin top-left, y down. mask.png keeps the recess corners;
+# shade.png (when present) multiplies the label with the light it would catch on the cart.
+x = 17
+y = 14
+w = 254
+h = 268
+rotation = 0.0
+aspect = 0.9478

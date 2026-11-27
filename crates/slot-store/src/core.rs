@@ -21,10 +21,18 @@ pub enum Core {
     Handy,
     Prosystem,
     Gw,
+    Gearcoleco,
+    A5200,
+    Atari800,
+    Vecx,
+    Picodrive,
+    MelonDs,
+    Mupen64PlusNext,
+    Ppsspp,
 }
 
 impl Core {
-    pub const ALL: [Core; 13] = [
+    pub const ALL: [Core; 21] = [
         Core::Mgba,
         Core::Gpsp,
         Core::Fceumm,
@@ -38,6 +46,14 @@ impl Core {
         Core::Handy,
         Core::Prosystem,
         Core::Gw,
+        Core::Gearcoleco,
+        Core::A5200,
+        Core::Atari800,
+        Core::Vecx,
+        Core::Picodrive,
+        Core::MelonDs,
+        Core::Mupen64PlusNext,
+        Core::Ppsspp,
     ];
     /// The GBA's choice of cores, the picker board's two sockets (in Core::index order).
     pub const PICKER: [Core; 2] = [Core::Mgba, Core::Gpsp];
@@ -57,6 +73,14 @@ impl Core {
             Core::Handy => "handy",
             Core::Prosystem => "prosystem",
             Core::Gw => "gw",
+            Core::Gearcoleco => "gearcoleco",
+            Core::A5200 => "a5200",
+            Core::Atari800 => "atari800",
+            Core::Vecx => "vecx",
+            Core::Picodrive => "picodrive",
+            Core::MelonDs => "melonds",
+            Core::Mupen64PlusNext => "mupen64plus_next",
+            Core::Ppsspp => "ppsspp",
         }
     }
 
@@ -79,6 +103,14 @@ impl Core {
             Core::Handy => "Handy",
             Core::Prosystem => "7800",
             Core::Gw => "G&W",
+            Core::Gearcoleco => "Gearcoleco",
+            Core::A5200 => "a5200",
+            Core::Atari800 => "Atari800",
+            Core::Vecx => "vecx",
+            Core::Picodrive => "PicoDrive",
+            Core::MelonDs => "melonDS",
+            Core::Mupen64PlusNext => "Mupen64Plus",
+            Core::Ppsspp => "PPSSPP",
         }
     }
 
@@ -97,6 +129,14 @@ impl Core {
             "handy" => Some(Core::Handy),
             "prosystem" => Some(Core::Prosystem),
             "gw" => Some(Core::Gw),
+            "gearcoleco" => Some(Core::Gearcoleco),
+            "a5200" => Some(Core::A5200),
+            "atari800" => Some(Core::Atari800),
+            "vecx" => Some(Core::Vecx),
+            "picodrive" => Some(Core::Picodrive),
+            "melonds" => Some(Core::MelonDs),
+            "mupen64plus_next" => Some(Core::Mupen64PlusNext),
+            "ppsspp" => Some(Core::Ppsspp),
             _ => None,
         }
     }

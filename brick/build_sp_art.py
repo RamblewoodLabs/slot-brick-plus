@@ -42,6 +42,14 @@ SYSTEMS = [
     ("INTV", ("intellivision", "intv"), "Mattel - Intellivision", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
     ("LYNX", ("atarilynx", "lynx"), "Atari - Lynx", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
     ("A7800", ("atari7800", "a7800"), "Atari - 7800", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("COLECO", ("colecovision", "coleco"), "Coleco - ColecoVision", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("A5200", ("atari5200", "a5200"), "Atari - 5200", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("A800", ("atari800", "a800"), "Atari - 8-bit", ("covers", "marquees", "physicalmedia"), "Named_Boxarts"),
+    ("VECTREX", ("vectrex",), "GCE - Vectrex", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("32X", ("sega32x", "32x"), "Sega - 32X", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("N64", ("n64",), "Nintendo - Nintendo 64", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("NDS", ("nds",), "Nintendo - Nintendo DS", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
+    ("PSP", ("psp",), "Sony - PlayStation Portable", ("physicalmedia", "covers", "marquees"), "Named_Boxarts"),
 ]
 
 # thumbnails.libretro.com answers 404 for whole playlists now; the GitHub mirror is complete.

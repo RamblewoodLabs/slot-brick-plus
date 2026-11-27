@@ -407,12 +407,14 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
     let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
     for (line, want) in [
         ("cart_platform=\n", None),
-        ("cart_platform=n64\n", None),
+        ("cart_platform=jaguar\n", None),
+        ("cart_platform=n64\n", Some(Platform::N64)),
         ("cart_platform=snes\n", Some(Platform::Snes)),
         ("cart_platform=nes\n", Some(Platform::Nes)),
         ("cart_platform=gameboy\n", None),
         ("cart_platform=0\n", None),
-        ("cart_platform=nds\n", None),
+        ("cart_platform=3ds\n", None),
+        ("cart_platform=nds\n", Some(Platform::Nds)),
         ("cart_platform=GBA\n", Some(Platform::Gba)),
         ("cart_platform=Gbc\n", Some(Platform::Gbc)),
     ] {

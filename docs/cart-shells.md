@@ -36,6 +36,14 @@ likewise no taller than the NES cart.
 | `Games/LYNX` | `lynx` | Lynx card | 316 × 331 | 15, 53, 286, 263 |
 | `Games/A7800` | `a7800` | Atari 7800 | 279 × 331 | 26, 31, 227, 279 |
 | `Games/GW` | `gw` | none: each game's own handheld (below) | 360 × 331 | 0, 0, 360, 331 |
+| `Games/COLECO` | `coleco` | ColecoVision cart | 288 × 331 | 17, 14, 254, 268 |
+| `Games/A5200` | `a5200` | Atari 5200 cart | 358 × 331 | 71, 44, 216, 181 |
+| `Games/A800` | `a800` | 5.25" floppy (every Atari 800 game, disk or not; below) | 331 × 331 | 28, 19, 261, 86 |
+| `Games/VECTREX` | `vectrex` | Vectrex cart | 321 × 331 | 21, 62, 279, 244 |
+| `Games/32X` | `s32x` | Sega 32X cart (Genesis shape, its own top) | 360 × 247 | 60, 9, 240, 197 |
+| `Games/N64` | `n64` | Nintendo 64 cart | 360 × 239 | 98, 25, 164, 176 |
+| `Games/NDS` | `nds` | DS game card | 350 × 331 | 19, 44, 312, 270 |
+| `Games/PSP` | `psp` | UMD (the disc's whole face is the label) | 336 × 331 | 25, 22, 286, 287 |
 
 ### Game & Watch
 
@@ -53,6 +61,28 @@ Each state is fitted to the box on its own and stands on the box's bottom edge, 
 clamshell grows as it opens. `brick/gw-art/devices.csv` says which games fold, where, and
 where their screens are; `kit.py`, `render.py` and `pack.py` (or `pack-all.py`) make the
 files. A card built on this machine takes them from `brick/labels-local/GW` (not in git).
+
+### Atari 800
+
+Most Atari 800 games are disk images (`.atr`, `.atx`, `.xfd`) and the rest are files that
+were loaded from disk or tape (`.xex`, `.cas`) or ROM carts (`.car`), so the shelf shows them
+all as a 5.25" floppy with its paper label at the top. The label window is that sticker;
+`brick/build_sp_art.py` cuts the label off a disk scan, or the title off a box cover.
+
+### Vectrex
+
+The Vectrex has no overlays. Each Vectrex game came with a coloured plastic sheet laid over
+the screen, and vecx draws only the white vectors underneath. Scans of those sheets are the
+publisher's artwork, and each one has to be lined up with its own game, so Slot ships none;
+the player's own `Overlays/<system>` pictures are offered only for Game Boy, Game Boy Color, GBA, NES and SNES.
+The cart and its label are the game's real ones.
+
+### PSP and the GPU cores
+
+The N64 and PSP cores draw with the GPU (GLES). Slot gives each one an off-screen GLES
+context and reads every finished frame back, so the shelf, the pause menu and the filters
+work as they do for every other system. On a handheld without the sticks these cores
+expect, the d-pad is the left stick (on PSP, holding L2 gives the d-pad back).
 
 `assets/carts/sms/cart-variant/` holds the Master System cartridge (title strip
 label) in the same format. It is not built in; swap it with the files above it to
@@ -149,5 +179,14 @@ A cart that turns over end to end (the Intellivision cart and the HuCard: their 
 at the top on the shelf) uses the label turned round while its back faces the screen, so it
 goes in with the label upright; `flip` makes the last frame its face for the slide. The HuCard
 is pitched end-over-end (not spun in its own plane) so the gold contact edge enters the slot
-first and the pins face into the connector, not out at the viewer. The frames come from
-`scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.
+first and the pins face into the connector, not out at the viewer.
+The PSP's UMD is the one turn that is longer (80 frames, 2.7 s): the shell stays still while
+the disc inside it (its printed label, the white hub and the UMD mark) spins up behind the
+clear front window; once it is spinning, the shell turns over end to end, so its curved end
+comes down to lead into the slot, then round side to side so its front, with the disc, faces
+out again. Together that is a half turn in the plane, so the UMD goes in curved end first,
+upside down, and the disc slows to a stop with its art upright (`flip`). Both turns are done by
+frame 54 and the disc is still by frame 70; the last ten frames are the same settled pose, so
+the slide down into the slot starts with nothing turning. Only the disc's frames
+carry the label's turn, so each game's own disc art is what spins. The frames
+come from `scripts/export_anim.py` and `scripts/pack_turn.py` in the cart renders project.

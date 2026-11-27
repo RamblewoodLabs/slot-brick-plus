@@ -1742,7 +1742,15 @@ impl App {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
-            | QuickRow::ShowGw => row
+            | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp => row
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
@@ -3224,6 +3232,14 @@ impl App {
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
             | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp
             | QuickRow::SoundMenu
             | QuickRow::SoundStar
             | QuickRow::SoundCart
@@ -3489,7 +3505,15 @@ impl App {
             | QuickRow::ShowIntv
             | QuickRow::ShowLynx
             | QuickRow::ShowA7800
-            | QuickRow::ShowGw => {
+            | QuickRow::ShowGw
+            | QuickRow::ShowColeco
+            | QuickRow::ShowA5200
+            | QuickRow::ShowA800
+            | QuickRow::ShowVectrex
+            | QuickRow::Show32x
+            | QuickRow::ShowN64
+            | QuickRow::ShowNds
+            | QuickRow::ShowPsp => {
                 let Some(platform) = row.shelf_of() else {
                     return;
                 };
