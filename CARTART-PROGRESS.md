@@ -92,6 +92,13 @@ Weaker:
 - GB/GBA/SNES cart-photo fractions are uncalibrated (never needed here: every test game had a
   label scan).
 
+## Status (2026-11-27 10:55 PST)
+
+- Committed 71d47db6 on `cursor/cartart`, pushed. Draft PR #39 against `cursor/android-phase3`:
+  https://github.com/RamblewoodLabs/slot-brick-plus/pull/39 (do not merge).
+- CI: changelog pass, unit pass, scenarios running.
+- All 25 PNG sheets copied to the box at `/workspace/cartart-test/`.
+
 ## Next
 
 - Jeff: look at the sheets, then decide whether to turn ScreenScraper art on by default and
