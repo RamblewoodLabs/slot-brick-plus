@@ -15,9 +15,10 @@ mkdir -p .docker-cache/cargo
 rm -rf "$OUT"
 # Host user, so build output is not owned by root. Cargo's download cache stays
 # in .docker-cache between runs.
+. brick/ss-dev-env.sh
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src \
     -e HOME=/tmp -e CARGO_HOME=/src/.docker-cache/cargo -e CORES="$CORES" -e OUT="$OUT" \
-    -e SLOT_CHANNEL="${SLOT_CHANNEL:-}" \
+    -e SLOT_CHANNEL="${SLOT_CHANNEL:-}" -e SLOT_SS_DEVID -e SLOT_SS_DEVPASSWORD \
     "$IMAGE" sh -euc '
         [ "$CORES" = 0 ] || sh brick/build-cores.sh
         sh brick/build-frontend.sh

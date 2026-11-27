@@ -309,7 +309,7 @@ fn run(job:Job,cancel:&AtomicBool)->Result<Reply>{
 struct Worker{rx:mpsc::Receiver<Result<Reply>>,cancel:Arc<AtomicBool>}
 /// `typed`: when the last character went in; it shows in clear until SHOW_TYPED has passed.
 /// What the keyboard is filling in. `password` holds the text, secret or not.
-enum KeyTarget{Wifi(Network),RaUser,RaPassword,LabelQuery}
+enum KeyTarget{Wifi(Network),RaUser,RaPassword,LabelQuery,SsUser,SsPassword}
 struct Keyboard{target:KeyTarget,secret:bool,password:String,key:usize,page:usize,typed:Option<Instant>}
 const SHOW_TYPED:Duration=Duration::from_millis(1200);
 /// The password as dots, but for the character just typed.
@@ -337,15 +337,30 @@ pub fn online()->bool{fs::read_to_string(slot_power::hw("/proc/net/route")).is_o
 fn routed(table:&str)->bool{
     table.lines().skip(1).any(|l|{let f:Vec<&str>=l.split_whitespace().collect();f.len()>1&&f[0]=="wlan0"&&f[1]=="00000000"})
 }
-/// The Cart Art screen: row 0 fetches art, the rest are games with a label, to delete.
-/// `games`: platform, stem, label, and whether it is the Famicom label.
-struct ArtList{games:Vec<(Platform,String,PathBuf,bool)>,armed:Option<usize>}
+/// The Cart Art screen: row 0 is the ScreenScraper login, row 1 fetches art, the rest are games
+/// with a label, to delete. `games`: platform, stem, label, and whether it is the Famicom label.
+/// `user`: the ScreenScraper account saved on the card; `login`: its screen, when open.
+struct ArtList{games:Vec<(Platform,String,PathBuf,bool)>,armed:Option<usize>,user:Option<String>,login:Option<SsLogin>}
+/// Rows above the games on the Cart Art screen.
+const ART_FIXED:usize=2;
+/// The ScreenScraper login screen. `password` is only held until the login is tested and saved.
+struct SsLogin{user:String,password:String,job:Option<mpsc::Receiver<Result<crate::cart_art_ss::UserInfo>>>,saving:bool}
+impl SsLogin{fn new(user:Option<&str>)->Self{Self{user:user.unwrap_or("").to_string(),password:String::new(),job:None,saving:false}}}
 impl ArtList{
     fn load()->Self{
         // A NES game's Famicom label is a row of its own, to delete apart from its NES one.
         let mut games:Vec<_>=slot_store::scan(&card_root()).unwrap_or_default().into_iter().flat_map(|c|[c.label.map(|l|(c.platform,c.stem.clone(),l,false)),c.famicom_label.map(|l|(c.platform,c.stem,l,true))]).flatten().collect();
         games.sort_by(|a,b|slot_store::sort_key(&a.1).cmp(&slot_store::sort_key(&b.1)).then((a.0 as u8).cmp(&(b.0 as u8))));
-        Self{games,armed:None}
+        Self{games,armed:None,user:crate::cart_art_ss::saved_user(&card_root()),login:None}
+    }
+}
+/// What the Cart Art screen says first: how many labels, or what is needed before any are fetched.
+fn art_status(list:&ArtList)->String{
+    let root=card_root();
+    match crate::cart_art::ready(&root){
+        Ok(_)=>format!("{} games have a label. A on one twice deletes it",list.games.len()),
+        Err(e) if e==crate::cart_art::LOG_IN=>"Log in to ScreenScraper to fetch cart art: A on SCREENSCRAPER".into(),
+        Err(e)=>e,
     }
 }
 /// The RetroAchievements screen: log in, test the connection, show a test unlock, log out.
@@ -376,7 +391,7 @@ impl WifiMenu{
     pub fn take_label_query(&mut self)->Option<String>{self.query.as_mut()?.take()}
     pub fn cart_art()->Self{
         let list=ArtList::load();
-        let status=format!("{} games have a label. A on one twice deletes it",list.games.len());
+        let status=art_status(&list);
         Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:Some(list),ra:None,query:None,update:None}
     }
     pub fn update(root:&Path,known:Option<crate::update::Manifest>)->Self{
@@ -395,11 +410,13 @@ impl WifiMenu{
         let status=if waiting==0{status}else{format!("{status}. {waiting} unlock{} waiting to send",if waiting==1{""}else{"s"})};
         Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account,user:String::new(),password:String::new(),job:None,test:None,page:0,games,focus:0,cache:None}),query:None,update:None}
     }
-    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.ra.as_ref().is_some_and(|r|r.job.is_some() || r.cache.is_some())}
+    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.list.as_ref().and_then(|l|l.login.as_ref()).is_some_and(|l|l.job.is_some()) || self.ra.as_ref().is_some_and(|r|r.job.is_some() || r.cache.is_some())}
     pub fn cancel(&mut self){
         if let Some(w)=&self.worker{w.cancel.store(true,Ordering::Relaxed);}
         if let Some(a)=&self.art{a.cancel();}
         if let Some(u)=&mut self.update{u.cancel();self.dirty=true;return}
+        // A login test that answers after this is dropped unread, so nothing gets saved.
+        if let Some(l)=self.list.as_mut().and_then(|l|l.login.as_mut()){if l.job.take().is_some(){self.status="Cancelled".into();self.dirty=true;return}}
         // A reply that comes back after this is dropped unread, so nothing gets saved.
         if let Some(r)=&mut self.ra{
             if r.job.take().is_some(){self.status="Cancelled".into();self.dirty=true;return}
@@ -442,6 +459,7 @@ impl WifiMenu{
     pub fn poll(&mut self){
         if let Some(u)=&mut self.update{if u.poll(){self.dirty=true;}return}
         self.poll_art();
+        self.poll_login();
         self.poll_ra();
         self.poll_cache();
         if let Some(w)=&self.worker{match w.rx.try_recv(){
@@ -460,7 +478,6 @@ impl WifiMenu{
         if self.busy(){if matches!(a,Action::GbaDown(Btn::B)){self.cancel();}return false}
         if !matches!(a,Action::GbaDown(_)|Action::ShelfLeft|Action::ShelfRight|Action::Insert){return false}
         self.dirty=true;
-        if self.list.is_some(){return self.art_input(a)}
         if let Some(k)=&mut self.keyboard{
             match a{
                 Action::GbaDown(Btn::B)=>{self.keyboard=None;if self.query.is_some(){return true}},Action::GbaDown(Btn::X)=>{k.password.pop();k.typed=None;},Action::GbaDown(Btn::Y)=>k.page=(k.page+1)%3,
@@ -475,11 +492,14 @@ impl WifiMenu{
                         KeyTarget::Wifi(n)=>self.start(Job::Connect(n,Some(k.password))),
                         KeyTarget::RaUser=>if let Some(ra)=&mut self.ra{ra.user=k.password.trim().to_string();},
                         KeyTarget::RaPassword=>if let Some(ra)=&mut self.ra{ra.password=k.password;},
+                        KeyTarget::SsUser=>if let Some(l)=self.list.as_mut().and_then(|l|l.login.as_mut()){l.user=k.password.trim().to_string();},
+                        KeyTarget::SsPassword=>if let Some(l)=self.list.as_mut().and_then(|l|l.login.as_mut()){l.password=k.password;},
                         KeyTarget::LabelQuery=>{let q=k.password.trim().to_string();if q.is_empty(){self.keyboard=Some(k);self.status="Type part of a game's name".into();return false}self.query=Some(Some(q));return true}
                     }
                 },_=>{}
             }return false
         }
+        if self.list.is_some(){return self.art_input(a)}
         if self.ra.is_some(){return self.ra_input(a)}
         match a{
             Action::GbaDown(Btn::B)=>return true,
@@ -490,25 +510,33 @@ impl WifiMenu{
         }false
     }
     fn art_input(&mut self,a:Action)->bool{
+        if self.list.as_ref().is_some_and(|l|l.login.is_some()){return self.login_input(a)}
         let Some(list)=&mut self.list else{return true};
-        let rows=list.games.len()+1;
+        let rows=list.games.len()+ART_FIXED;
         match a{
             Action::GbaDown(Btn::B)=>{if list.armed.take().is_none(){return true}self.status="Kept it".into();}
             Action::GbaDown(Btn::Up)=>{self.row=(self.row+rows-1)%rows;list.armed=None;}
             Action::GbaDown(Btn::Down)=>{self.row=(self.row+1)%rows;list.armed=None;}
-            Action::GbaDown(Btn::A)|Action::Insert if self.row==0=>{
+            Action::GbaDown(Btn::A)|Action::Insert if self.row==0=>self.open_login(None),
+            Action::GbaDown(Btn::A)|Action::Insert if self.row==1=>{
+                match crate::cart_art::ready(&card_root()){
+                    // No login: straight to where one is entered, rather than a run that can't work.
+                    Err(e) if e==crate::cart_art::LOG_IN=>{self.open_login(Some("Enter your ScreenScraper username and password"));return false}
+                    Err(e)=>{self.status=e;return false}
+                    Ok(_)=>{}
+                }
                 if !online(){self.status="Connect to Wi-Fi first".into();return false}
-                self.status="Cart art: fetching game list...".into();
+                self.status="Cart art: looking up games on ScreenScraper...".into();
                 self.art=Some(ArtJob::start(card_root()));
             }
             Action::GbaDown(Btn::A)|Action::Insert=>{
-                let at=self.row-1;let Some((platform,stem,path,_))=list.games.get(at).cloned()else{return false};
+                let at=self.row-ART_FIXED;let Some((platform,stem,path,_))=list.games.get(at).cloned()else{return false};
                 if list.armed!=Some(at){list.armed=Some(at);self.status=format!("Press A again to delete the label of {stem}");return false}
                 list.armed=None;
                 match fs::remove_file(&path){
                     Ok(())=>{
                         eprintln!("slot: cart art: deleted {}",path.display());
-                        list.games.remove(at);self.row=self.row.min(list.games.len());
+                        list.games.remove(at);self.row=self.row.min(list.games.len()+ART_FIXED-1);
                         self.fetched.push(Fetched{platform,stem:stem.clone(),label:None});
                         self.status=format!("Deleted the label of {stem}");
                     }
@@ -517,6 +545,76 @@ impl WifiMenu{
             }
             _=>{}
         }false
+    }
+    /// Opens the ScreenScraper login screen, saying `why` (or what it holds).
+    fn open_login(&mut self,why:Option<&str>){
+        let Some(list)=&mut self.list else{return};
+        list.login=Some(SsLogin::new(list.user.as_deref()));self.row=0;
+        self.status=match (why,&list.user){
+            (Some(w),_)=>w.to_string(),
+            (None,Some(u))=>format!("Logged in as {u}"),
+            (None,None) if !crate::cart_art_ss::has_developer(&card_root())=>"This Slot was built without a ScreenScraper developer id".into(),
+            (None,None)=>"Your free account from screenscraper.fr fetches the art".into(),
+        };
+    }
+    fn login_rows(list:&ArtList)->Vec<String>{
+        let Some(l)=&list.login else{return Vec::new()};
+        match &list.user{
+            Some(u)=>vec![format!("LOGGED IN AS  {u}"),"TEST LOGIN".into(),"SIGN OUT".into()],
+            None=>vec![
+                format!("USERNAME     {}",if l.user.is_empty(){"-"}else{&l.user}),
+                format!("PASSWORD     {}",if l.password.is_empty(){"-".to_string()}else{"*".repeat(l.password.chars().count().min(20))}),
+                "TEST LOGIN AND SAVE".into(),
+            ],
+        }
+    }
+    fn login_input(&mut self,a:Action)->bool{
+        let Some(list)=&mut self.list else{return true};
+        let rows=Self::login_rows(list).len().max(1);
+        let Some(l)=&mut list.login else{return false};
+        match a{
+            Action::GbaDown(Btn::B)=>{list.login=None;self.row=0;self.status=art_status(list);}
+            Action::GbaDown(Btn::Up)=>self.row=(self.row+rows-1)%rows,
+            Action::GbaDown(Btn::Down)=>self.row=(self.row+1)%rows,
+            Action::GbaDown(Btn::A)|Action::Insert=>match (list.user.is_some(),self.row){
+                (false,0)=>self.keyboard=Some(Keyboard{target:KeyTarget::SsUser,secret:false,password:l.user.clone(),key:0,page:0,typed:None}),
+                (false,1)=>self.keyboard=Some(Keyboard{target:KeyTarget::SsPassword,secret:true,password:String::new(),key:0,page:0,typed:None}),
+                (false,_)=>{
+                    if l.user.is_empty()||l.password.is_empty(){self.status="Enter your username and password first".into();return false}
+                    if !online(){self.status="Connect to Wi-Fi first".into();return false}
+                    let (root,user,password)=(card_root(),l.user.clone(),l.password.clone());let(tx,rx)=mpsc::channel();
+                    if !crate::quiet::spawn("slot-screenscraper",move||{let _=tx.send(crate::cart_art_ss::test_login(&root,&user,&password));}){self.status="Could not start the login".into();return false}
+                    l.job=Some(rx);l.saving=true;self.status="Logging in to ScreenScraper...".into();
+                }
+                (true,0)=>{}
+                (true,1)=>{
+                    if !online(){self.status="Connect to Wi-Fi first".into();return false}
+                    let root=card_root();let(tx,rx)=mpsc::channel();
+                    if !crate::quiet::spawn("slot-screenscraper",move||{let _=tx.send(crate::cart_art_ss::test_saved(&root));}){self.status="Could not start the test".into();return false}
+                    l.job=Some(rx);l.saving=false;self.status="Testing the login...".into();
+                }
+                (true,_)=>match crate::cart_art_ss::forget_account(&card_root()){
+                    Ok(())=>{eprintln!("slot: screenscraper: signed out");list.user=None;*l=SsLogin::new(None);self.row=0;self.status="Signed out. Log in to fetch cart art".into();}
+                    Err(e)=>self.status=format!("Cannot sign out: {e}"),
+                },
+            },
+            _=>{}
+        }false
+    }
+    fn poll_login(&mut self){
+        let Some(list)=&mut self.list else{return};
+        let Some(l)=&mut list.login else{return};
+        let Some(job)=&l.job else{return};
+        let done=match job.try_recv(){Ok(d)=>d,Err(mpsc::TryRecvError::Empty)=>return,Err(mpsc::TryRecvError::Disconnected)=>{l.job=None;self.status="The login test stopped".into();self.dirty=true;return}};
+        l.job=None;self.dirty=true;
+        self.status=match done{
+            Ok(info) if l.saving=>match crate::cart_art_ss::save_account(&card_root(),&l.user,&l.password){
+                Ok(())=>{eprintln!("slot: screenscraper: logged in");l.password.clear();list.user=Some(l.user.clone());self.row=1;format!("{}. Saved",info.line())}
+                Err(e)=>format!("Logged in, but cannot save the login: {e}"),
+            },
+            Ok(info)=>info.line(),
+            Err(e)=>crate::cart_art_ss::redact(&e),
+        };
     }
     fn choose(&mut self,edit:bool){
         let Some(n)=self.row.checked_sub(FIXED).and_then(|i|self.networks.get(i)).cloned()else{return};
@@ -688,13 +786,25 @@ impl WifiMenu{
         UndoFace{rgba:p.rgba,w:640,h:480}
     }
     fn render_art(&self,list:&ArtList)->UndoFace{
-        let mut p=Painter::new();p.text("CART ART",32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
-        let rows=list.games.len()+1;let first=if self.row<7{0}else{self.row-6};
+        let mut p=Painter::new();
+        if list.login.is_some(){
+            p.text("SCREENSCRAPER",32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
+            for (row,label) in Self::login_rows(list).iter().enumerate(){let y=110+row*41;if row==self.row{p.rect(0,y,640,38,slot_ui::edge());}p.text(label,32,y+1,576,23.0);}
+            p.text("Free account at screenscraper.fr. Saved in Config/screenscraper.txt",32,250,576,16.0);
+            p.text(if self.busy(){"B CANCEL"}else{"B BACK    A SELECT"},24,430,592,20.0);
+            return UndoFace{rgba:p.rgba,w:640,h:480}
+        }
+        p.text("CART ART",32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
+        let rows=list.games.len()+ART_FIXED;let first=if self.row<7{0}else{self.row-6};
         for (line,row) in (first..rows.min(first+7)).enumerate(){let y=110+line*41;if row==self.row{p.rect(0,y,640,38,slot_ui::edge());}
-            let label=match row{0=>"GET CART ART".into(),_=>{let (platform,stem,_,famicom)=&list.games[row-1];format!("{}{}  {}",if list.armed==Some(row-1){"DELETE?  "}else{""},if *famicom{"FC"}else{platform.dir_name()},stem)}};
+            let label=match row{
+                0=>format!("SCREENSCRAPER     {}",list.user.as_deref().unwrap_or("NOT LOGGED IN")),
+                1=>"GET CART ART".into(),
+                _=>{let (platform,stem,_,famicom)=&list.games[row-ART_FIXED];format!("{}{}  {}",if list.armed==Some(row-ART_FIXED){"DELETE?  "}else{""},if *famicom{"FC"}else{platform.dir_name()},stem)}
+            };
             p.text(&label,32,y+1,576,23.0);
         }
-        p.text(if self.busy(){"B CANCEL"}else if self.row==0{"B BACK    A GET ART    LEFT/RIGHT STYLE"}else if list.armed.is_some(){"B KEEP    A DELETE LABEL"}else{"B BACK    A DELETE LABEL"},24,430,592,20.0);
+        p.text(if self.busy(){"B CANCEL"}else if self.row==0{"B BACK    A LOG IN / ACCOUNT"}else if self.row==1{"B BACK    A GET ART"}else if list.armed.is_some(){"B KEEP    A DELETE LABEL"}else{"B BACK    A DELETE LABEL"},24,430,592,20.0);
         UndoFace{rgba:p.rgba,w:640,h:480}
     }
     fn render_update(&self,u:&crate::brick_update::UpdateScreen)->UndoFace{
@@ -716,9 +826,9 @@ impl WifiMenu{
             if let Some(list)=&self.list{return self.render_art(list)}
             if let Some(ra)=&self.ra{return self.render_ra(ra)}
         }
-        let mut p=Painter::new();p.text(if self.ra.is_some(){"RETROACHIEVEMENTS"}else if self.query.is_some(){"FIND A LABEL"}else{"WI-FI"},32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
+        let mut p=Painter::new();p.text(if self.ra.is_some(){"RETROACHIEVEMENTS"}else if self.list.is_some(){"SCREENSCRAPER"}else if self.query.is_some(){"FIND A LABEL"}else{"WI-FI"},32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
         if let Some(k)=&self.keyboard{
-            let title=match &k.target{KeyTarget::Wifi(n)=>name(&n.ssid),KeyTarget::RaUser=>"USERNAME".into(),KeyTarget::RaPassword=>"PASSWORD".into(),KeyTarget::LabelQuery=>"SEARCH FOR".into()};
+            let title=match &k.target{KeyTarget::Wifi(n)=>name(&n.ssid),KeyTarget::RaUser|KeyTarget::SsUser=>"USERNAME".into(),KeyTarget::RaPassword|KeyTarget::SsPassword=>"PASSWORD".into(),KeyTarget::LabelQuery=>"SEARCH FOR".into()};
             p.text(&title,32,102,576,24.0);p.text(&format!("{}  ({}/64)",masked(k),k.password.len()),32,142,576,21.0);
             for i in 0..40{let x=32+i%10*58;let y=196+i/10*45;if i==k.key{p.rect(x,y,54,41,slot_ui::edge());}let c=&KEYS[k.page][i..i+1];if c==" "{p.text("SPC",x,y+9,54,17.0);}else{p.text(c,x,y+3,54,26.0);}}
             p.text(&format!("A TYPE    X DELETE    Y {}",PAGES.iter().enumerate().map(|(i,n)|if i==k.page{format!("[{n}]")}else{n.to_string()}).collect::<Vec<_>>().join(" / ")),24,392,592,18.0);p.text(match k.target{KeyTarget::Wifi(_)=>"B BACK                    START CONNECT",KeyTarget::LabelQuery=>"B BACK                    START SEARCH",_=>"B BACK                    START DONE"},24,430,592,20.0);
@@ -916,8 +1026,8 @@ impl Painter{
     #[test]fn art_screen_deletes_only_after_a_second_a(){
         let d=tempfile::tempdir().unwrap();let label=d.path().join("Emerald.png");fs::write(&label,b"png").unwrap();
         let games=vec![(Platform::Gba,"Emerald".to_string(),label.clone(),false),(Platform::Gb,"Tetris".to_string(),d.path().join("Tetris.png"),false)];
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:Some(ArtList{games,armed:None}),ra:None,query:None,update:None};
-        m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::A));
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:Some(ArtList{games,armed:None,user:None,login:None}),ra:None,query:None,update:None};
+        m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::A));
         assert!(label.exists(),"first A only asks");
         if let Ok(path)=std::env::var("SLOT_ART_PREVIEW"){let f=m.render();let mut e=png::Encoder::new(fs::File::create(path).unwrap(),640,480);e.set_color(png::ColorType::Rgba);e.set_depth(png::BitDepth::Eight);e.write_header().unwrap().write_image_data(&f.rgba).unwrap();}
         assert!(!m.input(Action::GbaDown(Btn::B)),"B disarms instead of closing");assert!(label.exists());
@@ -934,5 +1044,41 @@ impl Painter{
             let f=s.render();assert_eq!(f.rgba.len(),640*480*4);
             if let Ok(dir)=std::env::var("SLOT_WIFI_PREVIEW"){let mut e=png::Encoder::new(fs::File::create(Path::new(&dir).join(format!("keyboard-{page}.png"))).unwrap(),640,480);e.set_color(png::ColorType::Rgba);e.set_depth(png::BitDepth::Eight);e.write_header().unwrap().write_image_data(&f.rgba).unwrap();}
         }
+    }
+    fn art_menu(user:Option<&str>)->WifiMenu{
+        let games=vec![(Platform::Gb,"Tetris (World)".to_string(),PathBuf::from("/x.png"),false),(Platform::Md,"Sonic The Hedgehog (USA, Europe)".to_string(),PathBuf::from("/y.png"),false)];
+        let list=ArtList{games,armed:None,user:user.map(String::from),login:None};
+        WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:Some(list),ra:None,query:None,update:None}
+    }
+    #[test]fn cart_art_opens_on_the_login_and_types_an_account_on_the_keyboard(){
+        let mut m=art_menu(None);
+        let rows=|m:&WifiMenu|m.list.as_ref().map(|l|WifiMenu::login_rows(l)).unwrap_or_default();
+        m.open_login(None);
+        assert_eq!(rows(&m)[2],"TEST LOGIN AND SAVE");
+        m.input(Action::GbaDown(Btn::A));
+        assert!(matches!(m.keyboard.as_ref().map(|k|&k.target),Some(KeyTarget::SsUser)));
+        m.input(Action::GbaDown(Btn::A));m.input(Action::GbaDown(Btn::Start));
+        assert_eq!(m.list.as_ref().unwrap().login.as_ref().unwrap().user,"1");
+        m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::A));
+        let k=m.keyboard.as_ref().unwrap();assert!(k.secret,"the password is typed hidden");
+        m.input(Action::GbaDown(Btn::A));m.input(Action::GbaDown(Btn::Start));
+        assert!(rows(&m)[1].starts_with("PASSWORD     *"));
+        m.input(Action::GbaDown(Btn::B));
+        assert!(m.list.as_ref().unwrap().login.is_none(),"B leaves the login for the Cart Art list");
+        let signed=art_menu(Some("jeff"));
+        let mut s=signed;s.open_login(None);
+        assert_eq!(rows(&s),["LOGGED IN AS  jeff","TEST LOGIN","SIGN OUT"]);
+    }
+    /// The Cart Art and ScreenScraper screens as PNGs, for review: `SLOT_SCREENS=dir`.
+    #[test]fn draw_the_cart_art_screens(){
+        let Some(dir)=std::env::var_os("SLOT_SCREENS")else{return};let dir=PathBuf::from(dir);fs::create_dir_all(&dir).unwrap();
+        let save=|name:&str,f:UndoFace|{let img=slot_cartart::Image::from_rgba(f.w,f.h,f.rgba).unwrap();fs::write(dir.join(name),slot_cartart::image::encode_png_rgba(&img)).unwrap();};
+        let mut m=art_menu(None);m.status="Log in to ScreenScraper to fetch cart art: A on SCREENSCRAPER".into();save("cart-art-menu.png",m.render());
+        m.row=1;m.status="Enter your ScreenScraper username and password".into();m.open_login(Some("Enter your ScreenScraper username and password"));
+        if let Some(l)=m.list.as_mut().and_then(|l|l.login.as_mut()){l.user="jeff".into();l.password="hunter22".into();}
+        save("screenscraper-login.png",m.render());
+        m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::A));m.input(Action::GbaDown(Btn::A));save("screenscraper-password-keyboard.png",m.render());
+        let mut s=art_menu(Some("jeff"));s.open_login(None);s.row=1;s.status="Logged in as jeff, level 1, 1 thread. 12 of 20000 lookups used today".into();save("screenscraper-logged-in.png",s.render());
+        let mut c=art_menu(Some("jeff"));c.row=1;c.status="2 games have a label. A on one twice deletes it".into();save("cart-art-menu-logged-in.png",c.render());
     }
 }

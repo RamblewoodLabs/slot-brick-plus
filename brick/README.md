@@ -152,25 +152,21 @@ password, or packed with anything but deflate (zip) or LZMA / LZMA2 (7z) stays o
 `Slot/Logs/slot.log` says why. PlayStation games can't be zipped.
 
 **Cart art:** connect to Wi-Fi, then open **HOME → Online → Cart Art** (greyed out while Wi-Fi is off).
-**GET CART ART** gives every game with no label a scan of its real cartridge label; labels you
-already have are never replaced. The scans come from the slot art set behind
-[Cart Studio](https://studio.slot-cfw.fyi) (scans from ScreenScraper), downloaded over HTTPS.
-A game is found by the ROM's checksum, or for a trimmed or patched ROM by its file name
-(helped by the GBA game code in its header). ROM hacks and homebrew keep the label with their
-file name, so they never look like the game they are based on. Each ROM is read once and its
-checksum kept in `Slot/System/Cache/crc32.txt`.
+Cart art comes from [ScreenScraper](https://www.screenscraper.fr) and needs your own free
+account there. The first row, **SCREENSCRAPER**, logs in: type your username and password on the
+on-screen keyboard, then **TEST LOGIN AND SAVE** checks it and shows your daily lookups. Once
+logged in the same screen has **TEST LOGIN** and **SIGN OUT**. The login is kept in
+`Slot/Config/screenscraper.txt`.
 
-NES and SNES labels come from the [LaunchBox Games Database](https://gamesdb.launchbox-app.com)'s
-pictures of the cartridges: Slot finds the game by its ROM's file name (No-Intro names work best,
-for example `Mega Man 2 (USA).nes`) and cuts the label out of a picture of the standard US cart.
-Games on the Famicom cart get a Famicom cart's label (from the Japanese release), kept apart in
-`Slot/Labels/NES/Famicom` so a NES game can have both: swapping its shape swaps the label. While
-a game has only one, both carts show it. SNES games on the rounder Super Famicom / PAL cart get
-that cart's label (from the Japanese or European release), and either kind of SNES cart falls
-back to the other's label when its own has none. Carts of another shape (Tengen, gold Zelda,
-unlicensed) keep their file-name label, as do games LaunchBox has no cart picture of.
-PlayStation games get LaunchBox's scan of the disc, kept whole. A game of several discs has a
-scan of each, but which is which isn't recorded, so all its discs share one.
+**GET CART ART** gives every game with no label its real label, on every system; labels you
+already have are never replaced (without a login it opens the login screen instead). A game is
+found by its ROM's checksum, name and size; each ROM is read once and its checksum kept in
+`Slot/System/Cache/crc32.txt`. Slot fits each picture to the cart itself: it finds the label on a
+label scan or cart photo, straightens and trims it, and fits it to the cart's label shape, twice
+as sharp as the shelf shows it. With no label picture it uses the box cover, then the logo (a
+Game & Watch gets the handheld, an arcade game its marquee). Famicom-cart games keep their label
+apart in `Slot/Labels/NES/Famicom`. ROM hacks and games ScreenScraper doesn't know keep their
+file-name label.
 
 `Slot/Logs/cart-art.txt` lists each game and what it got. Below GET CART ART, every game with a
 label is listed: press A twice on one to delete its label, then GET CART ART fetches a new one.
