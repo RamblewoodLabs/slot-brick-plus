@@ -12,6 +12,9 @@ on:
       - 'licenses/**'
       - 'LICENSE'
       - 'brick/os/NOTICE.txt'
+      # RG280V / Slotted work is a separate Docker toolchain and does not
+      # change the Brick binary or the simulator golden screens.
+      - 'rg280v/**'
   workflow_dispatch:
 
 permissions:

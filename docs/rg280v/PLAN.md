@@ -2,11 +2,11 @@
 
 This is a plan only. It does not flash a card, install firmware, or download BIOS, keys, or firmware. Nothing is written to a microSD card until Jeff says yes, names the card, and we have checked its label.
 
-The Brick and RG35XX SP builds, and this port, are called **Slot**. The Android APK is called **Slotted**. This device is a Linux handheld, so the product name stays Slot.
+The user-facing name on the RG280V is **Slotted**, the same name as the Android APK. The TrimUI Brick and RG35XX SP builds stay **Slot**. In this repository the port lives under `rg280v/`, and the on-device app, OPK, and Shared-Space artifacts are named Slotted.
 
 The RG280V will work once a properly flashed OS card is in **TF1** (the slot labelled TF1 / INT). A black screen with no card in that slot is normal. The machine has no internal eMMC. Plug-in “signs of life” are consistent with charging, not with a successful boot.
 
-**Recommended OS base:** [Adam image v2.1](https://github.com/eduardofilo/RG350_adam_image/releases/tag/v2.1) (OpenDingux Beta, kernel 5.15). Slot would replace SimpleMenu as the frontend, with GMenu2X kept as a fallback.
+**Recommended OS base:** [Adam image v2.1](https://github.com/eduardofilo/RG350_adam_image/releases/tag/v2.1) (OpenDingux Beta, kernel 5.15). Slotted would replace SimpleMenu as the frontend, with GMenu2X kept as a fallback.
 
 **Systems we should ship:** everything through 16-bit plus most PS1, with a few caveats on SNES, arcade, 32X and the heavier PS1 titles. N64, DS and PSP should stay off the default shelves.
 
@@ -88,16 +88,16 @@ If it still never leaves a black screen after a known-good Adam card is in TF1, 
 
 ### Best base for a custom frontend
 
-**Adam v2.1 on TF1**, with Slot as the default frontend and GMenu2X left installed as a fallback. We do not invent a new distribution in phase 1. We do not reflash TF1 until Jeff says yes.
+**Adam v2.1 on TF1**, with Slotted as the default frontend and GMenu2X left installed as a fallback. We do not invent a new distribution in phase 1. We do not reflash TF1 until Jeff says yes.
 
 After flashing Adam, the boot files for this exact model must be selected. On Windows that is `select_kernel.bat`. On a Mac the matching RG280V kernel files are copied to the boot partition root (Adam’s wiki and the Retro Game Corps Mac notes). A kernel for an RG350 or RG280M will not boot this panel. If macOS or Windows offers to format a partition after the flash, choose **Cancel** every time.
 
 ### How frontends and apps launch
 
 - The default OpenDingux launcher is **GMenu2X**. Adam boots **SimpleMenu** instead, with GMenu2X still available.
-- The file that chooses the frontend is **`/usr/local/sbin/frontend_start`**. Changing that script is the supported way to start Slot on boot. Source: [OpenDingux wiki, Frontend](https://github-wiki-see.page/m/retrogamehandheld/OpenDingux/wiki/Frontend).
+- The file that chooses the frontend is **`/usr/local/sbin/frontend_start`**. Changing that script is the supported way to start Slotted on boot. Source: [OpenDingux wiki, Frontend](https://github-wiki-see.page/m/retrogamehandheld/OpenDingux/wiki/Frontend).
 - Apps and emulators are **`.opk`** files (a squashfs plus a desktop entry). They live in `/media/data/apps` on TF1, or in an `apps` folder on TF2. Installing or updating Slot can be “replace this OPK.”
-- Plan: package Slot as an OPK, point `frontend_start` at it, and keep a hold-button or a small wrapper that falls back to GMenu2X if Slot exits or is missing. That is the same idea as BaseOS’s `System/launch_frontend.sh` on the SP, just in the OpenDingux place.
+- Plan: package Slotted as an OPK, point `frontend_start` at it, and keep a hold-button or a small wrapper that falls back to GMenu2X if Slotted exits or is missing. That is the same idea as BaseOS’s `System/launch_frontend.sh` on the SP, just in the OpenDingux place.
 
 ### SDL, KMS, and GLES
 
@@ -108,7 +108,7 @@ After flashing Adam, the boot files for this exact model must be selected. On Wi
 | SDL 1.2 | Widely used by older OPKs. **Cannot use the IPU** through the drm-framebuffer emulation of the old fbdev API. [pcercuei, opendingux.net](https://pcercuei.gitlab.io/OpenDingux.html). |
 | SDL 2 | Present in the gcw0 2022 toolchain, with a **DRM/KMS** backend. RetroArch on these devices can be built with SDL2; software-rendered SDL2 is not always faster than the patched SDL1. |
 
-Slot’s device path already talks **EGL + OpenGL ES 2** through `libEGL.so` / `libGLESv2.so` (`crates/slot-gfx/src/fbdev.rs`), and already has an ES shader path. It does not need winit or glutin on device. The catch: the current fbdev window is a Mali-style `{width, height}` struct (and a different PowerVR path on the Brick). **Etnaviv/Mesa on KMS almost certainly will not accept that window struct.** Phase 1 has to prove one of: GBM/KMS EGL, an SDL2 window, or whatever EGL surface OpenDingux actually exports. That is the main graphics risk, not “does the chip have GLES.”
+Slot’s (and Slotted’s) device path already talks **EGL + OpenGL ES 2** through `libEGL.so` / `libGLESv2.so` (`crates/slot-gfx/src/fbdev.rs`), and already has an ES shader path. It does not need winit or glutin on device. The catch: the current fbdev window is a Mali-style `{width, height}` struct (and a different PowerVR path on the Brick). **Etnaviv/Mesa on KMS almost certainly will not accept that window struct.** Phase 1 has to prove one of: GBM/KMS EGL, an SDL2 window, or whatever EGL surface OpenDingux actually exports. That is the main graphics risk, not “does the chip have GLES.”
 
 Audio on device is already **ALSA** (`crates/slot/src/audio`), which OpenDingux provides. Input is already **evdev**. Those two should port cleanly once the key codes are known.
 
@@ -218,8 +218,8 @@ No card is flashed or formatted as part of this plan.
 
 ```
 TF1 / INT   (boot, ext4 + boot partition, Adam v2.1 + Slot)
-  /usr/local/sbin/frontend_start   -> starts Slot, falls back to GMenu2X
-  /media/data/apps/slot.opk        -> the frontend
+  /usr/local/sbin/frontend_start   -> starts Slotted, falls back to GMenu2X
+  /media/data/apps/slotted.opk     -> the frontend
   (GMenu2X, SimpleMenu, standalone OPKs, RetroArch remain installed)
 
 TF2 / EXT   (games and user data, FAT32; exFAT is possible on Adam >= 2.0)
@@ -232,7 +232,7 @@ TF2 / EXT   (games and user data, FAT32; exFAT is possible on Adam >= 2.0)
    cores are embedded in phase 5)
 ```
 
-Keep the `Slot/` folder shape so a Brick library can be copied the way `rg35xxsp/copy-from-brick.sh` already does: Games, BIOS, Saves, States, Labels, Fonts, Config. Do not copy `System/` (wrong CPU) or 1024×768 overlays.
+Keep the `Slot/` folder shape on TF2 so a Brick library can be copied the way `rg35xxsp/copy-from-brick.sh` already does: Games, BIOS, Saves, States, Labels, Fonts, Config. Do not copy `System/` (wrong CPU) or 1024×768 overlays. The frontend binary and OPK are named Slotted; the library folder name stays `Slot/` so cards can be shared.
 
 Conservative TF2 format: **FAT32, MBR**, one partition. Older Adam guides also wanted a **blank volume label**; follow the Adam wiki at flash time. Adam v2.0 added exFAT, which avoids the 4 GiB file limit for large PS1 images, but FAT32 is the path every guide documents. Prefer `.pbp` or split dumps for discs that would exceed 4 GiB.
 
@@ -314,7 +314,7 @@ Copy it to TF2 `apps/` or `/media/data/apps` and launch it from GMenu2X. This is
 
 ### Phase 2 — Slot shell, letterboxed
 
-New feature `rg280v`. 320×240 letterboxed shelf, evdev, ALSA, battery and backlight if sysfs exists, network crates off, GMenu2X fallback in `frontend_start`. No emulators yet. Downscaled insert frames if they are cheap; a still cart is acceptable here.
+New feature `rg280v`. The on-device name is Slotted. 320×240 letterboxed shelf, evdev, ALSA, battery and backlight if sysfs exists, network crates off, GMenu2X fallback in `frontend_start`. No emulators yet. Downscaled insert frames if they are cheap; a still cart is acceptable here.
 
 **Risks:** 512 MB and large PNG assets; font size at 320×240 on 2.8 inches. Mitigation: cut asset resolution; treat this layout as temporary.
 
@@ -363,7 +363,7 @@ Sleep and shutdown, power menu, rumble, 320×480 overlays, a computer-side or US
 - It is not permission to flash TF1 or TF2.
 - It is not a BIOS pack. We never download BIOS, keys, or firmware. Jeff supplies any BIOS he wants to use.
 - It is not a promise that N64, DS or PSP will be playable.
-- It is not a rename of the Brick or SP builds, and it is not Slotted (Android).
+- It is not a rename of the Brick or SP builds. Those stay Slot. The RG280V port and the Android APK are both called Slotted.
 
 When Jeff has cards and says to flash TF1, the first concrete step is phase 0: Adam v2.1, RG280V kernel, a known-good boot into SimpleMenu, then phase 1’s hello OPK.
 

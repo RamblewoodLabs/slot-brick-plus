@@ -8,6 +8,8 @@ dist-brick/
 dist-brick-*/
 dist-rg35xxsp/
 dist-rg35xxsp-*/
+dist-rg280v/
+dist-rg280v-*/
 # The card, zipped for people to download.
 *.zip
 # Except the test archives slot-store reads.
