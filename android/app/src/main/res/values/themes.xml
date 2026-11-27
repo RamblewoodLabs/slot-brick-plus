@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Slot" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/slot_bg</item>
+        <item name="android:statusBarColor">@color/slot_bg</item>
+        <item name="android:navigationBarColor">@color/slot_bg</item>
+        <item name="android:colorBackground">@color/slot_bg</item>
+        <item name="colorPrimary">@color/slot_accent</item>
+        <item name="colorOnPrimary">@color/slot_bg</item>
+        <item name="android:textColor">@color/slot_text</item>
+        <item name="android:windowFullscreen">false</item>
+    </style>
+</resources>

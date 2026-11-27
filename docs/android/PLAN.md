@@ -228,31 +228,48 @@ This is ordinary frontend work (ES-DE, Pegasus, RomM all do it). It is in scope 
 
 ---
 
-## 5. Scaffold (this PR)
+## 5. Scaffold and Phase 2 (this PR, still a draft)
 
-- New crate `android/slot-android`: a native Android activity (`android-activity`) that software-renders a placeholder Slot-style shelf (system row, cart stand-ins, placeholder titles). It does not yet link `slot-ui` or any core, so SP/Brick CI is unchanged (`default-members` stay `crates/*`).
-- Build script `android/build-apk.sh` using the Mac mini's Android SDK / NDK and `cargo apk` / `cargo-ndk`.
-- This document and `docs/android/inventory.tsv`.
-- A **draft** pull request. **Do not merge.**
+Branch `cursor/android-scaffold`, worktree `~/sbp-android`. **Do not merge.**
 
-Later PRs, after this lands and the other merges are on main:
+### What works in the debug APK
 
-1. Rebase onto merged main.
-2. EGL `slot-gfx` host and a real `slot-ui` shelf on Android.
-3. SAF folder picker and `slot-store` scan.
-4. Embedded libretro cores for the 24 (+ Dreamcast, Saturn, …).
-5. Intent-launch for Dolphin, ARMSX2, Eden (if approved), Azahar, Vita3K.
-6. ScreenScraper art flow.
-7. Controller profiles and RetroAchievements sign-in.
+- A Slot-styled shelf UI (Kotlin) plus a Rust JNI registry (`android/slot-android`).
+- A Storage Access Framework ROM-folder picker. The tree URI is persisted. Folder names are matched case-insensitively to Jeff's library: `gc`, `PS2`, `Switch`, `3DS`, `dreamcast`, `saturn`, `psvita`, `xbox`, plus the 24 handheld folders (`GB`, `genesis`, `FBNEO`, `tg16`, …). Arcade also maps `mame`, `neogeo`, `CPS1`/`CPS2`/`CPS3`.
+- Installed-app detection for every standalone emulator below (Android 11 `<queries>` included). If one is missing, Slot shows an **Install X** dialog that opens the official download page.
+- Intent launch for GameCube, PS2, Switch, 3DS, Vita and Xbox, as in the table.
+- **Interim** launch for the current 24 systems plus Dreamcast (Flycast) and Saturn (Beetle Saturn) through RetroArch and the named core. Embedding those libretro cores in Slot is the next step; it was too large for this chunk.
+- Odin / Thor / Retroid-class gamepad mapping (Xbox layout, hat D-pad, left stick, L1/R1 to change system, A to launch, Start for the folder picker). The Thor's second screen is not used yet.
 
----
+Build: `android/build-apk.sh` on the Mac mini. Output: `android/app/build/outputs/apk/debug/app-debug.apk`. Sideload with `adb install -r` after enabling USB debugging. Details are in `android/README.md`.
 
-## 6. Decisions Jeff needs to make
+### Intent table (verified 26 Nov 2026)
 
-1. **Target device.** Which Android handheld (or phone/tablet) should we optimize first? The plan assumes an AYN Odin / Retroid-class Snapdragon 8 Gen 2 (or better) machine.
-2. **Switch.** Intent-launch official Eden, with Jeff's own `prod.keys` and firmware, or leave Switch out of v1 because Nintendo has been taking forks down? We will not bundle a Switch emulator or any keys either way.
-3. **Switch 2.** The `D:\Emulation\ROMS\Switch2` tree is unpacked dumps and has no emulator. Treat as archive-only, or ignore until a legal, working emulator exists?
-4. **Where the games live on the device.** The populated part of `D:\Emulation\ROMS` is over 2 TB (Switch + updates alone are ~857 GB). Internal storage, a fast SD card, or a curated subset?
-5. **Which extra shelves come first after GameCube, PS2, and (maybe) Switch?** Natural next set from this library: 3DS, Dreamcast, Saturn, Vita, original Xbox, 3DO, Jaguar, PICO-8, DOS, C64, CPC. Wii U and PS3 should wait.
-6. **ScreenScraper developer registration.** Are we okay posting a short description of this free app on ScreenScraper's forum to get the developer id? Jeff would still use his own user account in Settings.
-7. **Cover style for high-end systems.** Real box art (ScreenScraper) vs Steam-style grids (SteamGridDB), or both?
+| App | Package(s) | Activity | How we launch | Official install | License |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Dolphin | `org.dolphinemu.dolphinemu` | `.ui.main.MainActivity` | **No ACTION_VIEW** (MainActivity rejects it). `AutoStartFile` extra + content URI + `FLAG_GRANT_READ_URI_PERMISSION`. | Play Store / [dolphin-emu.org](https://dolphin-emu.org/download/) | GPLv2+ |
+| ARMSX2 | Play: `come.nanodata.armsx2`; sideload: `com.armsx2` | `com.nanodata.MainActivity` or `kr.co.iefriends.pcsx2.activities.MainActivity`; sideload `com.armsx2.MainActivity` | `ACTION_VIEW` + URI. We try the listed activities until one resolves. | Play Store / [armsx2.net](https://armsx2.net/download) | GPL-3.0 |
+| Eden | Preferred: `dev.eden.eden_emulator`; also `dev.eden.eden_nightly`; last resort: `com.miHoYo.Yuanshen` (official Genshin-spoof build) | `org.yuzu.yuzu_emu.activities.EmulationActivity` | `ACTION_VIEW` + URI. Jeff's own `prod.keys` and firmware. | [eden-emu.dev/downloads](https://eden-emu.dev/downloads/) | GPL-3-or-later |
+| Azahar | Vanilla (preferred): `org.azahar_emu.azahar` (since 2125.0); Play: `io.github.lime3ds.android` | `org.citra.citra_emu.activities.EmulationActivity` | `ACTION_VIEW` + URI | Play Store / [GitHub releases](https://github.com/azahar-emu/azahar/releases) | GPL-3-or-later |
+| Vita3K | `org.vita3k.emulator` | `org.vita3k.emulator.Emulator` | **Title ID**, not the VPK: extra `AppStartParameters` = `[-r, TITLEID]`. If the filename contains a `PCSE`/`PCSG`/… ID we use it. Otherwise we open Vita3K and tell Jeff to install the VPK there first, then rename the file to include the ID. | [Vita3K-Android releases](https://github.com/Vita3K/Vita3K-Android/releases) | GPL-2.0 |
+| hakuX (Hakuchou) | `com.rfandango.haku_x` (debug `.debug`) | `com.rfandango.haku_x.LauncherActivity` | `ACTION_VIEW` + URI. Clean; no workaround. | [GitHub releases](https://github.com/rfandango/hakuX/releases) only | GPL-3-or-later |
+| RetroArch (interim) | `com.retroarch.aarch64`, `com.retroarch`, `com.retroarch.ra32` | `com.retroarch.browser.retroactivity.RetroActivityFuture` | extras `ROM`, `LIBRETRO` (`<pkg>/cores/<core>_libretro_android.so`), `CONFIGFILE`. Jeff must install the core in RetroArch's updater. | Play Store | GPL-3.0 |
+
+Do not use or recommend AetherSX2 or NetherSX2.
+
+### Still to do after this chunk
+
+1. Rebase onto merged main if more SP/Brick PRs land.
+2. EGL `slot-gfx` host and the real `slot-ui` shelf on Android.
+3. Embed libretro cores for the 24 + Flycast + Beetle Saturn (retire the RetroArch interim).
+4. ScreenScraper art flow.
+5. Thor second-screen layout, if Jeff wants it.
+6. Vita Title ID lookup that does not depend on the filename, if Vita3K adds a better intent.
+
+## 6. Decisions Jeff has made (26 Nov 2026)
+
+1. **Target device:** an AYN Odin / Thor-class handheld (Snapdragon 8 Gen 2 or better). The Thor's second screen is optional later; v1 uses the primary display only.
+2. **Switch:** include a Switch shelf that intent-launches official Eden. Jeff supplies his own `prod.keys` and firmware. We never bundle keys or firmware.
+3. **Shelves after GameCube and PS2:** 3DS, Dreamcast, Saturn, Vita, and Xbox.
+4. **Xbox emulator:** "hakux" means **Hakuchou / hakuX** (https://github.com/rfandango/hakuX), a GPL-3-or-later Android Xbox emulator in the xemu lineage. Verified 26 Nov 2026: package `com.rfandango.haku_x` (debug `com.rfandango.haku_x.debug`), activity `com.rfandango.haku_x.LauncherActivity`, launch `ACTION_VIEW` + content URI. Official download is GitHub releases only. Current README (v1.3.0) says no BIOS / MCPX / HDD image is required. Intent launch is clean; no workaround needed.
+5. Still open: Switch 2 (archive-only vs ignore), where the 2+ TB library lives on the device, ScreenScraper developer registration, and cover style (box art vs grids).

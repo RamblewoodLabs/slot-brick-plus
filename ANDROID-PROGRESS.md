@@ -21,3 +21,28 @@ Log only. Do not touch `main` or the other `~/sbp-*` worktrees.
 - Android toolchain on this Mac mini: OpenJDK 17, Android SDK cmdline tools, platform 35, build-tools 35, NDK 27.2.12479018, rustup (stable 1.100 plus the repo-pinned 1.96.1 with the `aarch64-linux-android` target), `cargo-ndk`, `cargo-apk` 0.10.0.
 - Scaffold APK built successfully: `android/slot-android/target/debug/apk/Slot.apk` (debug, arm64-v8a, ~25.3 MB). Placeholder shelf, no cores. Not committed (under `target/`).
 - Next: commit, push `cursor/android-scaffold`, open a draft PR. Do not merge.
+
+## 2026-11-26 6:42 PM PT
+
+- Pushed `cursor/android-scaffold` (`516b9e9`) and opened draft PR https://github.com/jfink22-design/slot-brick-plus/pull/35. Not merged. Other worktrees and `main` were not modified.
+
+## 2026-11-26 6:51 PM PT — Phase 2 start
+
+Jeff's decisions: AYN Odin/Thor-class (Thor second screen later); Switch via official Eden + his keys; next shelves 3DS, Dreamcast, Saturn, Vita, Xbox (Hakuchou = hakuX).
+
+### Disk
+Data volume was 99% with ~16 GB free. Cleaning only rebuildable cargo `target` / `target-*` in worktrees whose tips are already on `origin/main`. Leaving Shared-Space, repos, sbp-wiki / sbp-sp / sbp-sp24 (not merged), and sbp-merge + slot-brick-plus-build (may be in use for the SP/Brick build). Not pruning Docker Slot build images.
+
+### Hakuchou / hakuX (verified)
+Jeff's "Hakuchou" is the hakuX project, a GPL-3-or-later Android Xbox emulator (xemu lineage; current core is a FEX JIT, official repo https://github.com/rfandango/hakuX). Package `com.rfandango.haku_x` (debug suffix `.debug`). Activity `com.rfandango.haku_x.LauncherActivity`. Launch: ACTION_VIEW + content URI. Official download is GitHub releases only; no BIOS/MCPX required per the current README (v1.3.0). Intent launch is clean.
+
+### Next
+Implement the emulator registry, SAF picker, RetroArch interim for libretro systems, Odin/Thor mapping, rebuild the debug APK, push to draft PR #35.
+
+### Disk result
+Deleted ~26 GB of cargo `target`/`target-sim` dirs in already-merged worktrees. APFS still held the blocks in today's local Time Machine snapshots; `tmutil thinlocalsnapshots` reclaimed them (local snapshots only, no external backups or user files). Data volume went from 16 GB free (99%) to **49 GB free (95%)**, container free 52.8 GB, at 6:53 PM PT. Shared-Space, Docker Slot images, and unmerged worktrees were left alone.
+
+## 2026-11-26 6:58 PM PT — Phase 2 APK
+
+- Debug APK built: `android/app/build/outputs/apk/debug/app-debug.apk` (~16.1 MB). Gradle assembleDebug succeeded. Native registry is `libslot_android.so` (arm64-v8a).
+- Next: commit, push to draft PR #35. Do not merge. Do not touch cards or E:/F:.
