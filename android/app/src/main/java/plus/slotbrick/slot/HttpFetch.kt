@@ -54,7 +54,7 @@ internal object HttpFetch {
                 instanceFollowRedirects = true
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
-                setRequestProperty("User-Agent", "Slot/0.3 (Android; GPL-3.0-or-later)")
+                setRequestProperty("User-Agent", "Slotted/0.3 (Android; GPL-3.0-or-later)")
                 setRequestProperty("Accept", "*/*")
             }
             val code = conn.responseCode

@@ -1,6 +1,6 @@
-# Slot for Android
+# Slotted
 
-This folder holds the Slot Android app. The debug APK can pick Jeff's ROM
+This folder holds **Slotted**, the Android app. The Brick and RG35XX SP firmware stays **Slot**, and the repository name is unchanged. The application id is `com.ramblewoodlabs.slotted` (the previous placeholder was `plus.slotbrick.slot`, so this build installs as a new app — uninstall the old one if it is still on the device). The debug APK can pick Jeff's ROM
 tree, list games by folder, detect the standalone emulators, launch them
 (or RetroArch, for now, for libretro systems), and prompt to install a
 missing emulator.
@@ -35,7 +35,7 @@ android/build-apk.sh
 
 The debug APK is written to:
 
-`android/app/build/outputs/apk/debug/app-debug.apk`
+`android/app/build/outputs/apk/debug/Slotted-debug.apk`
 
 ## Sideload on an Odin / Thor
 
@@ -43,16 +43,16 @@ The debug APK is written to:
    USB debugging (and “Install via USB” if the device has that switch).
 2. Plug it into the Mac mini (or any machine with `adb`).
 3. `adb devices` should show the pad.
-4. `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`
-5. Open Slot, choose the ROM folder that contains `gc`, `PS2`, `Switch`,
+4. `adb install -r android/app/build/outputs/apk/debug/Slotted-debug.apk`
+5. Open Slotted, choose the ROM folder that contains `gc`, `PS2`, `Switch`,
    `3DS`, `dreamcast`, `saturn`, `psvita`, `xbox`, and the older system
    folders.
-6. Install the standalone emulators Slot asks for (Dolphin, ARMSX2, Eden,
+6. Install the standalone emulators Slotted asks for (Dolphin, ARMSX2, Eden,
    Azahar, Vita3K, hakuX) from their official pages. For the 24 older
    systems plus Dreamcast and Saturn, install RetroArch and the named core
-   from RetroArch’s updater. This is interim until Slot embeds those cores.
+   from RetroArch’s updater. This is interim until Slotted embeds those cores.
 7. For Switch, install official Eden and supply your own `prod.keys` and
-   firmware, dumped from a Switch you own. Slot never bundles them.
+   firmware, dumped from a Switch you own. Slotted never bundles them.
 
 The Rust crate under `android/slot-android` is **not** a member of the
 top-level Cargo workspace, so it does not affect Brick or SP CI.
@@ -73,10 +73,10 @@ a short delay:
 
 ### ScreenScraper (videos and the full art set)
 
-Slot does **not** ship a ScreenScraper developer id. Jeff needs to:
+Slotted does **not** ship a ScreenScraper developer id. Jeff needs to:
 
 1. Register on the [ScreenScraper forum](https://www.screenscraper.fr/) and
-   present Slot as a free GPL-3 frontend.
+   present Slotted as a free GPL-3 frontend (`softname=Slotted`).
 2. Enter the issued `devid` / `devpassword` in Settings, plus his own
    ScreenScraper username and password.
 3. Optionally, copy `android/screenscraper.properties.example` to
@@ -84,7 +84,7 @@ Slot does **not** ship a ScreenScraper developer id. Jeff needs to:
    developer id is the APK default. Leave the fields empty until then — do
    not invent credentials.
 
-Until that id is in place, Slot still fetches **stills** (box art, snaps,
+Until that id is in place, Slotted still fetches **stills** (box art, snaps,
 titles) from [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails)
 with no account. Video snaps only come from ScreenScraper. Attribution is
 on the About screen. Quotas and thread limits reported by the API are

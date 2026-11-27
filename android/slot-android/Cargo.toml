@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.96"
 license = "GPL-3.0-or-later"
-description = "Slot for Android: emulator registry and JNI glue."
+description = "Slotted: Android emulator registry and JNI glue."
 publish = false
 
 # Standalone: do not join the top-level Slot workspace (keeps Brick/SP CI unchanged).

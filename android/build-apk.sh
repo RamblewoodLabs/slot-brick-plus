@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Slot Android debug APK on the Mac mini.
+# Build the Slotted Android debug APK on the Mac mini.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_DIR="$ROOT/android"

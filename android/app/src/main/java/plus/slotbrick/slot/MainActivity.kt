@@ -190,11 +190,11 @@ class MainActivity : AppCompatActivity() {
         // Free the second screen before an external emulator takes over.
         preview.releaseForLaunch()
         if (emu.id == "eden") {
-            Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slot never bundles them.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slotted never bundles them.", Toast.LENGTH_LONG).show()
         }
         if (emu.id == "retroarch") {
             val so = SlotNative.coreFileName(sys.core ?: "")
-            Toast.makeText(this, "Opening RetroArch. If it fails, install the $so core in RetroArch’s updater (interim until Slot embeds cores).", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Opening RetroArch. If it fails, install the $so core in RetroArch’s updater (interim until Slotted embeds cores).", Toast.LENGTH_LONG).show()
         }
         EmulatorLauncher.launch(this, sys, game)
     }
@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
     private fun promptInstall(emu: Emulator) {
         val msg = buildString {
             append("${emu.name} is not installed.\n\n")
-            append("Slot will open the official download page. We never bundle BIOS, firmware, or console keys.\n")
+            append("Slotted will open the official download page. We never bundle BIOS, firmware, or console keys.\n")
             if (emu.notes.isNotBlank()) {
                 append("\n")
                 append(emu.notes)

@@ -31,7 +31,7 @@ class ScreenScraperClient(
     fun refreshQuota(): String {
         if (!creds.canCallApi) {
             return if (!creds.hasDeveloper) {
-                "No ScreenScraper developer id yet. Register Slot on the forum, then enter the issued id in Settings. libretro-thumbnails still works without an account."
+                "No ScreenScraper developer id yet. Register Slotted on the forum, then enter the issued id in Settings. libretro-thumbnails still works without an account."
             } else {
                 "Enter your ScreenScraper username and password in Settings."
             }

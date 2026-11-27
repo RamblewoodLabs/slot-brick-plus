@@ -86,3 +86,14 @@ Did not touch any SD card or E:/F:. Next: commit, push, open the Phase 3 PR.
 - Merge of #35 remains `4fd6a8dbff47c4c5907b4286aa03f5d41bc8712f` on main.
 - Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/app-debug.apk` (22 MB)
 - No SD card, no E:/F:.
+
+## 2026-11-26 8:07 PM PT — Rename the Android app to Slotted
+
+Jeff: "let's call the app slotted." On `cursor/android-phase3` only.
+
+- Launcher / `app_name`, shelf title, About, Settings copy, and toasts now say **Slotted**.
+- ScreenScraper `softname=Slotted`; User-Agent `Slotted/0.3 (Android; GPL-3.0-or-later)`.
+- `applicationId` changed from the placeholder `plus.slotbrick.slot` to `com.ramblewoodlabs.slotted`. Kotlin/JNI `namespace` stays `plus.slotbrick.slot` so native symbols do not need a rename. This install will sit beside any leftover placeholder APK until that one is uninstalled.
+- Gradle `archivesName` is `Slotted` so the debug APK should be `Slotted-debug.apk`.
+- Brick/SP firmware name **Slot** and the repo name are unchanged.
+- Next: rebuild, push, update PR #36, wait for CI. Do not merge.

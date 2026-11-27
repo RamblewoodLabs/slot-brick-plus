@@ -45,7 +45,7 @@ object SlotPrefs {
             password = p.getString(KEY_SS_PASSWORD, "") ?: "",
             devid = p.getString(KEY_SS_DEVID, "").orEmpty().ifBlank { baked.devid },
             devpassword = p.getString(KEY_SS_DEVPASS, "").orEmpty().ifBlank { baked.devpassword },
-            softname = baked.softname.ifBlank { "Slot" },
+            softname = baked.softname.ifBlank { "Slotted" },
         )
     }
 
@@ -92,11 +92,11 @@ object SlotPrefs {
                 BakedDev(
                     devid = props.getProperty("devid", "").trim(),
                     devpassword = props.getProperty("devpassword", "").trim(),
-                    softname = props.getProperty("softname", "Slot").trim().ifBlank { "Slot" },
+                    softname = props.getProperty("softname", "Slotted").trim().ifBlank { "Slotted" },
                 )
             }
         } catch (_: Exception) {
-            BakedDev("", "", "Slot")
+            BakedDev("", "", "Slotted")
         }
     }
 }

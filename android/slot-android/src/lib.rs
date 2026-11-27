@@ -1,4 +1,4 @@
-//! JNI entry points for the Slot Android app.
+//! JNI entry points for the Slotted Android app.
 
 mod registry;
 

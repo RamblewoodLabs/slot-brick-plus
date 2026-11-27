@@ -1,11 +1,13 @@
-# Slot for Android — Plan
+# Slotted (Android) — Plan
+
+The Android app is called **Slotted** (`applicationId` `com.ramblewoodlabs.slotted`, ScreenScraper `softname=Slotted`). The Brick and RG35XX SP firmware remains **Slot**, and this repository keeps its name.
 
 **Branch:** `cursor/android-scaffold`  
 **Worktree:** `~/sbp-android` on the Mac mini  
 **Base:** `origin/main` at `efa0a4d` (PR #34, license-fix), 26 Nov 2026.  
 **Status:** planning + scaffold only. This branch must be rebased after the pending SP/Brick merges (#27–#33 and companions) land on `main`. This worktree does not touch `main` or the other `~/sbp-*` worktrees.
 
-Slot itself is **GPL-3.0-or-later**. Some bundled cores are non-commercial (FinalBurn Neo, Genesis Plus GX). The Android app must stay fully free: no paid listing, no donations if those cores ship in the APK. Every core, font and library license goes in the APK, the same work already started for the cards.
+Slot (the handheld firmware) and Slotted (the Android app) are **GPL-3.0-or-later**. Some bundled cores are non-commercial (FinalBurn Neo, Genesis Plus GX). The Android app must stay fully free: no paid listing, no donations if those cores ship in the APK. Every core, font and library license goes in the APK, the same work already started for the cards.
 
 We never download or ship BIOS, firmware, or console keys. The owner supplies dumps from hardware they own.
 
@@ -92,7 +94,7 @@ The library is already on `D:\Emulation\ROMS\Switch2` (107 GB, 217k files). The 
 
 Sources checked 26 Nov 2026: Held Games' 2026 Android emulator list, official project sites and repositories (Dolphin, ARMSX2 / armsx2.net, Eden / eden-emu.dev, Azahar, Vita3K, Flycast), libretro core docs, and the RetroArch issue that documents AetherSX2 / NetherSX2 as non-free.
 
-**Embedding** here means loading a libretro core (or linking an emulator) inside our APK. **Intent** means the user installs the official standalone app and Slot hands it a content URI.
+**Embedding** here means loading a libretro core (or linking an emulator) inside our APK. **Intent** means the user installs the official standalone app and Slotted hands it a content URI.
 
 BIOS, firmware and keys are always supplied by Jeff, never downloaded by us.
 
@@ -130,7 +132,7 @@ Keep Slot's own frontend. Do not rewrite the shelf in Kotlin or Flutter.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Slot Android APK  (GPL-3.0-or-later)                   │
+│  Slotted APK  (GPL-3.0-or-later)                        │
 │  rustc → libslot.so  + thin Java/Kotlin GameActivity    │
 │                                                         │
 │  slot-ui / slot-gfx / slot-store / slot-input           │
@@ -215,9 +217,9 @@ MobyGames and others were not evaluated in depth; they are generally more restri
 
 ### 4.2 Recommendation
 
-**Yes — add a "Get box art" flow, and it does not need a licensing deal** as long as Slot for Android stays free and we do not ship artwork.
+**Yes — add a "Get box art" flow, and it does not need a licensing deal** as long as Slotted stays free and we do not ship artwork.
 
-1. **Primary: ScreenScraper.** Register "Slot" / "Slot Brick Plus" on their forum, get developer credentials, and let Jeff (and any later user) enter their own ScreenScraper account in Settings. Honour quotas and threads. Use box, cart, disc and marquee media the same way the handhelds already do.
+1. **Primary: ScreenScraper.** Register "Slotted" on their forum, get developer credentials, and let Jeff (and any later user) enter their own ScreenScraper account in Settings. Honour quotas and threads. Use box, cart, disc and marquee media the same way the handhelds already do.
 2. **Fallback: libretro-thumbnails**, on demand, no account. Same grey-area practice as today's SP/Brick label build. Never vendor the set.
 3. **Optional: SteamGridDB**, with Jeff's own API key, for high-end systems that look better as a cover grid than as a cart.
 4. Skip TheGamesDB as a default (quota). Skip IGDB for v1 art; reconsider later for descriptions only, with credentials kept off the APK.
@@ -236,9 +238,9 @@ Branch `cursor/android-scaffold`, worktree `~/sbp-android`. **Do not merge.**
 
 - A Slot-styled shelf UI (Kotlin) plus a Rust JNI registry (`android/slot-android`).
 - A Storage Access Framework ROM-folder picker. The tree URI is persisted. Folder names are matched case-insensitively to Jeff's library: `gc`, `PS2`, `Switch`, `3DS`, `dreamcast`, `saturn`, `psvita`, `xbox`, plus the 24 handheld folders (`GB`, `genesis`, `FBNEO`, `tg16`, …). Arcade also maps `mame`, `neogeo`, `CPS1`/`CPS2`/`CPS3`.
-- Installed-app detection for every standalone emulator below (Android 11 `<queries>` included). If one is missing, Slot shows an **Install X** dialog that opens the official download page.
+- Installed-app detection for every standalone emulator below (Android 11 `<queries>` included). If one is missing, Slotted shows an **Install X** dialog that opens the official download page.
 - Intent launch for GameCube, PS2, Switch, 3DS, Vita and Xbox, as in the table.
-- **Interim** launch for the current 24 systems plus Dreamcast (Flycast) and Saturn (Beetle Saturn) through RetroArch and the named core. Embedding those libretro cores in Slot is the next step; it was too large for this chunk.
+- **Interim** launch for the current 24 systems plus Dreamcast (Flycast) and Saturn (Beetle Saturn) through RetroArch and the named core. Embedding those libretro cores in Slotted is the next step; it was too large for this chunk.
 - Odin / Thor / Retroid-class gamepad mapping (Xbox layout, hat D-pad, left stick, L1/R1 to change system, A to launch, Start for the folder picker). The Thor's second screen is used in Phase 3 (see §7).
 
 Build: `android/build-apk.sh` on the Mac mini. Output: `android/app/build/outputs/apk/debug/app-debug.apk`. Sideload with `adb install -r` after enabling USB debugging. Details are in `android/README.md`.
@@ -288,7 +290,7 @@ Landed on `cursor/android-phase3` after PR #35 merged to main as `4fd6a8d`.
   allows more. Failed or exhausted calls fall back to stills.
 - **Developer credentials are a placeholder.** `android/screenscraper.properties.example`
   and the baked-in assets file ship with empty `devid` / `devpassword`. Jeff
-  must register Slot on the ScreenScraper forum and paste the issued values in
+  must register Slotted on the ScreenScraper forum and paste the issued values in
   Settings (or a local, gitignored `android/screenscraper.properties` before a
   rebuild). We will not invent credentials.
 - **libretro-thumbnails fallback** for Named_Boxarts, Named_Snaps and

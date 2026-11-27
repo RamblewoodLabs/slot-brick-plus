@@ -86,7 +86,7 @@ class SettingsActivity : AppCompatActivity() {
             !creds.hasDeveloper && !creds.hasUser ->
                 "No developer id and no user account. libretro-thumbnails will supply stills; video snaps need ScreenScraper."
             !creds.hasDeveloper ->
-                "User account is saved, but there is no developer id yet. Register Slot on the ScreenScraper forum, then paste the issued id and password here. Do not invent one."
+                "User account is saved, but there is no developer id yet. Register Slotted on the ScreenScraper forum, then paste the issued id and password here. Do not invent one."
             !creds.hasUser ->
                 "Developer id is present. Enter your own ScreenScraper username and password to fetch art and video."
             else ->

@@ -7,7 +7,7 @@ android {
     namespace = "plus.slotbrick.slot"
     compileSdk = 35
     defaultConfig {
-        applicationId = "plus.slotbrick.slot"
+        applicationId = "com.ramblewoodlabs.slotted"
         minSdk = 28
         targetSdk = 35
         versionCode = 1
@@ -46,4 +46,10 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+}
+
+// User-facing APK name. namespace stays plus.slotbrick.slot so JNI symbols
+// and Kotlin packages do not need a rename.
+base {
+    archivesName.set("Slotted")
 }

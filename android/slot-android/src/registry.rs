@@ -1,4 +1,4 @@
-//! Emulator and system registry for Slot Android.
+//! Emulator and system registry for Slotted.
 //!
 //! This is the source of truth for package names, launch styles, ROM folder
 //! aliases, and libretro core names. The Kotlin UI reads it through JNI.
@@ -93,7 +93,7 @@ pub const REGISTRY_JSON: &str = r#"{
       "install_url": "https://play.google.com/store/apps/details?id=com.retroarch",
       "install_alt_url": "https://www.retroarch.com/?page=platforms",
       "license": "GPL-3.0",
-      "notes": "INTERIM host for the 24 handheld systems plus Flycast (Dreamcast) and Beetle Saturn. The user must install the matching core in RetroArch's updater. Direct libretro embedding in Slot comes later."
+      "notes": "INTERIM host for the 24 handheld systems plus Flycast (Dreamcast) and Beetle Saturn. The user must install the matching core in RetroArch's updater. Direct libretro embedding in Slotted comes later."
     }
   ],
   "systems": [

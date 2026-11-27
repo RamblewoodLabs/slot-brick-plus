@@ -108,7 +108,7 @@ class MediaRepository(context: Context) {
             }
         } else if (!creds.canCallApi) {
             note = if (!creds.hasDeveloper) {
-                "No ScreenScraper developer id (register Slot on their forum). Using libretro-thumbnails; video snaps need ScreenScraper."
+                "No ScreenScraper developer id (register Slotted on their forum). Using libretro-thumbnails; video snaps need ScreenScraper."
             } else {
                 "Enter your ScreenScraper username and password for video snaps. Using libretro-thumbnails for stills."
             }
