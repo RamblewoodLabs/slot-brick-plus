@@ -16,6 +16,10 @@ use slot_input::{Btn, RawEvent};
 const EV_SYN: u16 = 0x00;
 const EV_KEY: u16 = 0x01;
 const EV_ABS: u16 = 0x03;
+// SDL takes an evdev device for a joystick only if it has X and Y axes; the Brick has no stick, so
+// these two stay centred.
+const ABS_X: u16 = 0x00;
+const ABS_Y: u16 = 0x01;
 const ABS_HAT0X: u16 = 0x10;
 const ABS_HAT0Y: u16 = 0x11;
 /// BTN_JOYSTICK (BTN_TRIGGER): SDL numbers a joystick's buttons from here in code order, and
@@ -99,6 +103,8 @@ fn create() -> std::io::Result<std::fs::File> {
     for i in 0..BUTTONS {
         ioctl(UI_SET_KEYBIT, (BTN_BASE + i) as _)?;
     }
+    ioctl(UI_SET_ABSBIT, ABS_X as _)?;
+    ioctl(UI_SET_ABSBIT, ABS_Y as _)?;
     ioctl(UI_SET_ABSBIT, ABS_HAT0X as _)?;
     ioctl(UI_SET_ABSBIT, ABS_HAT0Y as _)?;
     // struct uinput_user_dev: name[80], input_id (bustype, vendor, product, version: u16 each),
@@ -112,6 +118,11 @@ fn create() -> std::io::Result<std::fs::File> {
     user[86..88].copy_from_slice(&0x0001u16.to_ne_bytes());
     let absmax = 92;
     let absmin = absmax + 64 * 4;
+    for code in [ABS_X, ABS_Y] {
+        let c = code as usize * 4;
+        user[absmax + c..absmax + c + 4].copy_from_slice(&32767i32.to_ne_bytes());
+        user[absmin + c..absmin + c + 4].copy_from_slice(&(-32768i32).to_ne_bytes());
+    }
     for code in [ABS_HAT0X, ABS_HAT0Y] {
         let c = code as usize * 4;
         user[absmax + c..absmax + c + 4].copy_from_slice(&1i32.to_ne_bytes());

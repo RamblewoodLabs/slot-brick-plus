@@ -1,0 +1,6 @@
+# What the Brick's Python runtime (Slot/Apps/python) is made from, pinned. build.sh downloads each
+# into .docker-cache/python-runtime/ once and refuses one whose sha256 differs.
+# <sha256> <file> <url>
+518e24b37e356775d82d5609cd9d48e27e211381a39ae416381ba696bf76c25c cpython-3.12.16+20261124-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz https://github.com/astral-sh/python-build-standalone/releases/download/20261124/cpython-3.12.16+20261124-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz
+c47a6938de93fa610accd4969e638c2aebcb29b2fca518a84c3a39d91ab47116 pygame-2.6.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl https://files.pythonhosted.org/packages/06/be/3ed337583f010696c3b3435e89a74fb29d0c74d0931e8f33c0a4246307a9/pygame-2.6.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+ed714f84a3e748de87b24f385ec69d3bdc51ca47b7f4710d2048b84b2761e7ff soundtouch-2.3.2.tar.gz https://codeberg.org/soundtouch/soundtouch/archive/2.3.2.tar.gz

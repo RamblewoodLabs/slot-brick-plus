@@ -40,5 +40,12 @@ cp LICENSE "$OUT/Slot/System/licenses/slot-GPL-3.0.txt"
 if [ -d brick/labels-local ]; then
     cp -R brick/labels-local/. "$OUT/Slot/Labels/"
 fi
+# Python for HOME → Apps, when built (brick/python-runtime/build.sh needs an arm64 Docker, so
+# it is built apart from the rest; without it, HOME → Apps → GrainBrick says Unavailable).
+if [ -d brick/python-runtime/runtime/python ]; then
+    mkdir -p "$OUT/Slot/Apps" && cp -R brick/python-runtime/runtime/python "$OUT/Slot/Apps/python"
+else
+    echo "No Python runtime for HOME → Apps (run brick/python-runtime/build.sh): leaving it out" >&2
+fi
 chmod +x "$OUT/Slot/System/slot" "$OUT/Slot/System/"*.sh "$OUT/Apps/"*/launch.sh "$OUT/Apps/BootLogo/slot-bootlogo" "$OUT/Apps/BootLogo/slot-filecheck"
 echo "Card files written to $OUT"
