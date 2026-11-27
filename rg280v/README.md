@@ -24,3 +24,16 @@ The Rust target is `mipsel-gcw0-linux-uclibc` (custom JSON in this folder). It i
 
 The hello OPK has been cross-compiled but not run on the handheld. GLES2 versus the software fallback, screen orientation, and the button map (especially L2/R2) still need a bootable Adam card in TF1.
 
+
+
+## Build the Slotted shell OPK
+
+```sh
+sh rg280v/docker-build.sh shell
+```
+
+This produces `dist-rg280v/slotted.opk`, also copied to `/Users/jeff/Shared-Space/rg280v/` when that folder exists. The on-device name is **Slotted**. The 640×480 layout is shown as a sharp 320×240 picture, letterboxed on the 320×480 (or 480×320) panel. Orientation is set at runtime: `SLOTTED_ORIENTATION` or `Slot/Config/orientation` (`auto`, `portrait`, `landscape`, `portrait-flip`, `landscape-flip`, `rotate-90`, `rotate-270`) until the device confirms the framebuffer.
+
+N64, DS and PSP shelves are hidden. Starting a game looks for an OpenDingux standalone OPK (or a RetroArch core) using `launchers.ini`. Override that table with `Slot/Config/launchers.ini` on TF2. The insert-animation frames are stored at half resolution in memory, and only the selected cart's sequence is kept, for a 512 MB budget.
+
+The shell needs OpenGL ES 2 (KMS / Etnaviv). The hello OPK is still the place to test the software-renderer fallback. Nothing here flashes a card or downloads BIOS, keys, or firmware.

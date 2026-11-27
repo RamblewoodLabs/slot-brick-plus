@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Slotted
+Comment=Slotted frontend for the Anbernic RG280V
+Exec=slotted
+Icon=slotted
+Terminal=false
+Categories=applications;
+X-OD-Platform=gcw0

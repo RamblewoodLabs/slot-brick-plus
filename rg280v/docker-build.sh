@@ -7,8 +7,11 @@
 # This does not flash a card, does not download BIOS, keys, or firmware, and
 # does not touch the Brick or RG35XX SP Docker images.
 #
-# Usage: sh rg280v/docker-build.sh [OUT]
-#   OUT  output directory, default dist-rg280v. Replaced if it exists.
+# Usage: sh rg280v/docker-build.sh [hello|shell|all] [OUT]
+#   hello  (default) the Phase 1 SDL2 / button-test OPK
+#   shell  the Phase 2 Slotted frontend OPK
+#   all    both
+#   OUT    output directory, default dist-rg280v.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -21,7 +24,14 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-OUT="${1:-dist-rg280v}"
+TARGET=hello
+OUT=dist-rg280v
+for arg in "$@"; do
+    case "$arg" in
+        hello|shell|all) TARGET=$arg ;;
+        *) OUT=$arg ;;
+    esac
+done
 IMAGE=slot-rg280v-build
 TOOLCHAIN_TAR=".docker-cache/rg280v/opendingux-gcw0-toolchain.2022-09-22.tar.xz"
 TOOLCHAIN_URL="https://github.com/OpenDingux/buildroot/releases/download/od-2022.09.22/opendingux-gcw0-toolchain.2022-09-22.tar.xz"
@@ -55,14 +65,26 @@ docker run --platform linux/amd64 --rm -u "$(id -u):$(id -g)" \
     -e CARGO_HOME=/src/.docker-cache/cargo-rg280v \
     -e RUST_TARGET_PATH=/src/rg280v \
     -e OUT="$OUT" \
-    "$IMAGE" sh /src/rg280v/build-hello.sh
+    "$IMAGE" sh -c '
+        set -e
+        case "'"$TARGET"'" in
+            hello) sh /src/rg280v/build-hello.sh ;;
+            shell) sh /src/rg280v/build-shell.sh ;;
+            all)
+                sh /src/rg280v/build-hello.sh
+                sh /src/rg280v/build-shell.sh
+                ;;
+        esac
+    '
 
 echo "OPK is in $OUT/."
 SHARED="/Users/jeff/Shared-Space/rg280v"
 if [ -d "$(dirname "$SHARED")" ]; then
     mkdir -p "$SHARED"
-    cp -p "$OUT"/slotted-hello.opk "$SHARED/" 2>/dev/null || true
-    if [ -f "$OUT/slotted-hello.opk" ]; then
-        echo "Copied $OUT/slotted-hello.opk to $SHARED/"
-    fi
+    for opk in slotted-hello.opk slotted.opk; do
+        if [ -f "$OUT/$opk" ]; then
+            cp -p "$OUT/$opk" "$SHARED/"
+            echo "Copied $OUT/$opk to $SHARED/"
+        fi
+    done
 fi

@@ -317,9 +317,11 @@ An ALSA tone was in the original sketch and is still optional; the brief was gra
 
 ### Phase 2 — Slot shell, letterboxed
 
-New feature `rg280v`. The on-device name is Slotted. 320×240 letterboxed shelf, evdev, ALSA, battery and backlight if sysfs exists, network crates off, GMenu2X fallback in `frontend_start`. No emulators yet. Downscaled insert frames if they are cheap; a still cart is acceptable here.
+**Compile side is in this branch.** Feature `rg280v`. The on-device name is **Slotted**. `sh rg280v/docker-build.sh shell` produces `dist-rg280v/slotted.opk` (also `/Users/jeff/Shared-Space/rg280v/slotted.opk`). The 640×480 layout is shown as an integer 320×240 picture, letterboxed on a 320×480 or 480×320 panel. Orientation is runtime-configurable (`SLOTTED_ORIENTATION` or `Slot/Config/orientation`) until the device confirms the framebuffer. N64, DS and PSP shelves are hidden. Starting a game looks up an OpenDingux standalone or RetroArch core in `launchers.ini` (overridable on the card). Insert frames are decoded at half resolution and only one cart's sequence is kept, for 512 MB. Network crates (`ring` / rustls) are feature-gated off; evdev and ALSA are the existing device paths. The shell needs GLES2; the hello OPK still tests the software fallback.
 
-**Risks:** 512 MB and large PNG assets; font size at 320×240 on 2.8 inches. Mitigation: cut asset resolution; treat this layout as temporary.
+Device testing still has to prove GLES, letterbox placement, the button map, and that `opkrun` / RetroArch start the 21 systems from an Adam card. Do not flash a card until Jeff says yes.
+
+**Risks:** 512 MB and large PNG assets; font size at 320×240 on 2.8 inches; GLES context vs the hello software path; standalone OPK names vary by image. Mitigation: half-res frames, one sequence resident; orientation and launchers.ini are editable without a rebuild.
 
 ### Phase 3 — Play games through existing OpenDingux emulators
 
