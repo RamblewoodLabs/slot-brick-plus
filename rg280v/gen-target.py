@@ -45,6 +45,9 @@ def harden(spec: dict) -> dict:
     # Plain +mips32r2 hard-float otherwise becomes FP64 ("double precision"),
     # which does not match the toolchain and can crash on a 32-bit FPU.
     spec["features"] = ",".join(parts)
+    # Slot uses AtomicU64 in several crates; 32-bit MIPS std omits it unless asked.
+    # 64-bit atomics are implemented via libatomic on this toolchain.
+    spec["max-atomic-width"] = 64
     # The builtin target is O32; keep it. Do not switch to musl or glibc.
     return spec
 
