@@ -40,3 +40,8 @@ webpki-roots = { workspace = true }
 [dev-dependencies]
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
 tempfile = { workspace = true }
+
+[[bin]]
+name = "rg280v-preload"
+path = "src/bin/rg280v_preload.rs"
+
