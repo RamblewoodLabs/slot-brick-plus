@@ -1,4 +1,4 @@
-# Slot on the Anbernic RG280V — Plan
+# Slotted on the Anbernic RG280V — Plan
 
 This is a plan only. It does not flash a card, install firmware, or download BIOS, keys, or firmware. Nothing is written to a microSD card until Jeff says yes, names the card, and we have checked its label.
 
@@ -133,8 +133,8 @@ Slot is pinned to **Rust 1.96** (`rust-toolchain.toml`). The targets we care abo
 
 Practical recipe:
 
-1. A **custom target JSON** (`mipsel-gcw0-linux-uclibc`, or similar): `env: uclibc`, `features: +mips32r2` **without** soft-float, linker `/opt/gcw0-toolchain/usr/bin/mipsel-linux-gcc`. MaulingMonkey’s 2020 notes are the starting point; they must be regenerated against a current rustc, not copied blindly.
-2. **Nightly** plus `rust-src` and **`-Z build-std`** (xargo is obsolete). The 1.96 pin may need a matching nightly for this target only, in Docker, without changing the ARM/host toolchains.
+1. A **custom target JSON** (`rg280v/mipsel-gcw0-linux-uclibc.json`): `env: uclibc`, `vendor: gcw0`, `features: +mips32r2,+fpxx,+nooddspreg` (no soft-float), linker `/opt/gcw0-toolchain/bin/mipsel-linux-gcc`. FPXX matches the gcw0 gcc 11 default (`Hard float (32-bit CPU, Any FPU)`). Plain hard-float without `+fpxx` becomes FP64 and does not match the toolchain. MaulingMonkey’s 2020 notes were the starting point; the committed JSON was regenerated from rustc 1.102.0-nightly.
+2. **Nightly** plus `rust-src` and **`-Z build-std`** (xargo is obsolete). This lives only under `rg280v/` (`nightly-2026-11-25` in `rg280v/rust-toolchain.toml` and the Docker image). The repo-root 1.96 pin for Brick and SP is unchanged.
 3. Feature-gate **Wi-Fi, rustls, ring, and in-app updates** off. This device has no Wi-Fi, and `ring` on 32-bit MIPS has a history of pain. RetroAchievements can wait for a USB-networking phase.
 4. Device features stay on the existing path: `slot-gfx` EGL/GLES, ALSA, evdev. Do not enable `host` (winit/glutin/cpal/gilrs) for this target.
 
@@ -301,16 +301,19 @@ Nothing in phases 0–1 writes a card until Jeff says yes.
 
 ### Phase 1 — Toolchain and a hello OPK
 
-Docker `linux/amd64`, gcw0 2022-09-22 toolchain, custom hard-float uClibc Rust target, `-Z build-std`. A tiny OPK that:
+**Compile side is done** on the Mac mini (not yet run on the handheld). `sh rg280v/docker-build.sh` produces `dist-rg280v/slotted-hello.opk`, also copied to `/Users/jeff/Shared-Space/rg280v/slotted-hello.opk`. A C SDL2 smoke binary is built in the same image as an ABI check. Both are MIPS32r2, uClibc, hard-float FPXX.
 
-- gets an EGL or SDL2/KMS surface at 320×480
-- clears the screen to a known colour and draws a few pixels
-- logs evdev codes
-- plays a tone through ALSA
+The hello OPK (user-facing name **Slotted Hello**):
 
-Copy it to TF2 `apps/` or `/media/data/apps` and launch it from GMenu2X. This is the go/no-go for the ABI and the graphics path.
+- opens SDL2 and tries an OpenGL ES 2 context first (KMS / Etnaviv on OpenDingux Beta)
+- falls back to SDL’s software renderer if GLES fails, and shows which path is in use
+- draws a 320×480 test pattern and a live button grid
+- logs unknown keys and joystick indices for mapping (especially L2/R2)
+- quits on Start+Select
 
-**Risks:** soft-float mismatch; `std::env::args` breakage if the target `env` is wrong (documented by MaulingMonkey); Mesa EGL rejecting the Mali fbdev window; nightly `build-std` fighting the 1.96 pin. Mitigation: prove C first, then Rust; keep this work in Docker, off the ARM toolchains.
+An ALSA tone was in the original sketch and is still optional; the brief was graphics plus a button test. Copy the OPK to TF2 `apps/` or `/media/data/apps` only after Phase 0, when Jeff says yes, and launch it from GMenu2X or SimpleMenu. Device testing still has to prove GLES versus software, orientation (320×480 vs 480×320), and the button map.
+
+**Risks:** soft-float / FP ABI mismatch (mitigated on the compile side by FPXX, still untested on hardware); `std::env::args` breakage if the target `env` is wrong (documented by MaulingMonkey); Mesa EGL rejecting a Mali-style fbdev window (the hello uses SDL2 instead); nightly `build-std` fighting the 1.96 pin (isolated in Docker). Keep this work off the ARM toolchains.
 
 ### Phase 2 — Slot shell, letterboxed
 
@@ -365,7 +368,7 @@ Sleep and shutdown, power menu, rumble, 320×480 overlays, a computer-side or US
 - It is not a promise that N64, DS or PSP will be playable.
 - It is not a rename of the Brick or SP builds. Those stay Slot. The RG280V port and the Android APK are both called Slotted.
 
-When Jeff has cards and says to flash TF1, the first concrete step is phase 0: Adam v2.1, RG280V kernel, a known-good boot into SimpleMenu, then phase 1’s hello OPK.
+When Jeff has cards and says to flash TF1, the first concrete step is phase 0: Adam v2.1, RG280V kernel, a known-good boot into SimpleMenu, then copy the already-built Slotted hello OPK onto TF2 and test it on the device.
 
 ---
 
