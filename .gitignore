@@ -33,3 +33,6 @@ logs/
 
 # ScreenScraper developer id for local card builds (brick/ss-dev-env.sh). Never commit.
 /screenscraper.properties
+
+# ScreenScraper user login for host preload tools. Never commit.
+/screenscraper-user.properties

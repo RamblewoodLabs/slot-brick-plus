@@ -92,6 +92,33 @@ impl Creds {
         })
     }
 
+    /// Host tools: developer id from `dev` (and/or `SLOT_SS_DEVID` / `SLOT_SS_DEVPASSWORD`)
+    /// and an optional user login from `user`. Missing or empty user fields are allowed
+    /// (developer-only). File contents are never included in the error.
+    pub fn from_files(dev: Option<&Path>, user: Option<&Path>) -> Result<Creds, String> {
+        let mut text = String::new();
+        if let Some(path) = dev {
+            text.push_str(
+                &std::fs::read_to_string(path)
+                    .map_err(|e| format!("cannot read the developer properties file: {e}"))?,
+            );
+            text.push('\n');
+        }
+        if let Some(path) = user {
+            if path.exists() {
+                text.push_str(
+                    &std::fs::read_to_string(path)
+                        .map_err(|e| format!("cannot read the user login file: {e}"))?,
+                );
+                text.push('\n');
+            }
+        }
+        Self::parse(&text, built_id(), built_password()).ok_or_else(|| {
+            "no ScreenScraper developer id (screenscraper.properties or SLOT_SS_DEVID)"
+                .into()
+        })
+    }
+
     /// A ScreenScraper account is saved: lookups may be made.
     pub fn logged_in(&self) -> bool {
         !self.user.is_empty() && !self.password.is_empty()
@@ -663,8 +690,14 @@ impl Client {
 
 /// The size a cart's label is made at: twice its window, no more than LABEL_MAX across.
 pub fn label_out(cart: &Cart) -> (u32, u32) {
+    label_out_at(cart, 2)
+}
+
+/// `scale` times the label window, no more than LABEL_MAX across. The RG280V preload uses 1.
+pub fn label_out_at(cart: &Cart, scale: u32) -> (u32, u32) {
     let (lw, lh) = slot_ui::label_size(cart);
-    let k = (LABEL_MAX as f32 / lw.max(lh).max(1) as f32).min(2.0);
+    let cap = scale.max(1) as f32;
+    let k = (LABEL_MAX as f32 / lw.max(lh).max(1) as f32).min(cap);
     (((lw as f32 * k).round() as u32).max(1), ((lh as f32 * k).round() as u32).max(1))
 }
 
@@ -678,8 +711,20 @@ pub fn fit_from(
     every: bool,
     offer: &mut dyn FnMut(Vec<u8>, String) -> bool,
 ) -> Result<Vec<&'static str>, String> {
+    fit_from_at(client, cart, medias, every, 2, offer)
+}
+
+/// Like `fit_from`, but at `scale` times the window (1 for the RG280V preload).
+pub fn fit_from_at(
+    client: &mut Client,
+    cart: &Cart,
+    medias: &[Media],
+    every: bool,
+    scale: u32,
+    offer: &mut dyn FnMut(Vec<u8>, String) -> bool,
+) -> Result<Vec<&'static str>, String> {
     let dir = cart.platform.dir_name();
-    let (ow, oh) = label_out(cart);
+    let (ow, oh) = label_out_at(cart, scale);
     let prefer = regions(&cart.stem);
     let mut sources: Vec<Source> = Vec::new();
     let mut tried = Vec::new();
@@ -713,13 +758,23 @@ pub fn fit_from(
 
 /// The label for `cart` from ScreenScraper, made on the spot.
 pub fn label_for(client: &mut Client, cart: &Cart, crc: Option<u32>) -> Result<Got, String> {
+    label_for_at(client, cart, crc, 2)
+}
+
+/// Like `label_for`, but at `scale` times the window (1 for the RG280V preload).
+pub fn label_for_at(
+    client: &mut Client,
+    cart: &Cart,
+    crc: Option<u32>,
+    scale: u32,
+) -> Result<Got, String> {
     let size = std::fs::metadata(&cart.rom).ok().map(|m| m.len());
     let crc = crc.filter(|_| size.is_some_and(|s| s <= CRC_MAX));
     let Some(medias) = client.lookup(cart, crc, size)? else {
         return Ok(Got::NoMatch);
     };
     let mut got = None;
-    let tried = fit_from(client, cart, &medias, false, &mut |png, how| {
+    let tried = fit_from_at(client, cart, &medias, false, scale, &mut |png, how| {
         got = Some((png, how));
         false
     })?;
@@ -1109,5 +1164,31 @@ mod tests {
         }
         forget_account(root).unwrap();
         println!("LIVE signed out; saved_user: {:?}; ready: {}", saved_user(root), crate::cart_art::ready(root).err().unwrap_or_default());
+    }
+
+
+    #[test]
+    fn from_files_loads_dev_and_optional_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let dev = dir.path().join("dev.properties");
+        let user = dir.path().join("user.properties");
+        std::fs::write(&dev, "devid=abc\ndevpassword=xyz\n").unwrap();
+        std::fs::write(&user, "user=jeff\npassword=secret\n").unwrap();
+        let c = Creds::from_files(Some(&dev), Some(&user)).unwrap();
+        assert!(c.logged_in());
+        assert_eq!(c.user(), "jeff");
+        let c = Creds::from_files(Some(&dev), None).unwrap();
+        assert!(!c.logged_in());
+    }
+
+    #[test]
+    fn a_one_x_label_is_the_window_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let cart = md_cart(dir.path());
+        let (w, h) = slot_ui::label_size(&cart);
+        assert_eq!(label_out_at(&cart, 1), (w, h));
+        let (w2, h2) = label_out(&cart);
+        assert!(w2 >= w && h2 >= h);
+        assert!(w2 <= LABEL_MAX && h2 <= LABEL_MAX);
     }
 }

@@ -190,6 +190,10 @@ fn tune_keepalive(tcp: &TcpStream) {
             libc::setsockopt(
                 fd,
                 libc::IPPROTO_TCP,
+                // macOS names the idle time TCP_KEEPALIVE; Linux uses TCP_KEEPIDLE.
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                libc::TCP_KEEPALIVE,
+                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
                 libc::TCP_KEEPIDLE,
                 &idle as *const _ as *const libc::c_void,
                 4,
