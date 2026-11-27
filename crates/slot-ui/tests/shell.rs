@@ -234,10 +234,13 @@ fn the_label_does_not_cover_the_whole_shell() {
         [f.rgba[i], f.rgba[i + 1], f.rgba[i + 2]]
     };
     let shell = gba_shell_for("V49E").colour;
-    assert_eq!(
-        px(f.w / 2, 4),
-        shell,
-        "the label reaches the top edge, no shell shows"
+    // the modelled cart lights its plastic: the shell's own colour, a little shaded or lit
+    let top = px(f.w / 2, 4);
+    let k = top.iter().map(|c| *c as f32).sum::<f32>() / shell.iter().map(|c| *c as f32).sum::<f32>();
+    assert!(
+        (0.6..=1.2).contains(&k)
+            && (0..3).all(|c| (top[c] as f32 - shell[c] as f32 * k).abs() <= 8.0),
+        "the label reaches the top edge, no shell shows: {top:?} against {shell:?}"
     );
     assert_ne!(
         px(f.w / 2, f.h / 2),

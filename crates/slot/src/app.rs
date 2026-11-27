@@ -4450,13 +4450,9 @@ impl App {
         if u >= 1.0 || tex.frames.is_empty() {
             return (None, tex.seated);
         }
-        let u = if platform == Some(Platform::Gw) {
-            slot_ui::turn::ease_gw(u)
-        } else {
-            u
-        };
+        // frame_index eases a Game & Watch's open over GW_OPEN_S and then holds it.
         let n = tex.frames.len();
-        let i = ((u * n as f32) as usize).min(n - 1);
+        let i = slot_ui::turn::frame_index(tex.platform, u, n);
         (Some(tex.frames[i]), None)
     }
 

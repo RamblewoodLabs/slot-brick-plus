@@ -1,0 +1,12 @@
+# model-gba: Blender model gba (~/Projects/slot-cart-renders, scripts/carts_classic.py), v3.
+# Shell is 360x212 RGBA, the box cart.rs draws this cart in; real cart 57.5x35.0 mm.
+# Label window: the procedural label panel, so label fitting and layout are unchanged.
+x = 49
+y = 49
+w = 266
+h = 138
+rotation = 0.0
+aspect = 1.9275
+# tint.png: the plastic, recoloured per game (grey 128 = the light on a flat face).
+tint = true
+# tint_ref = 144.00 (the grey plastic's light on a flat face in the render; reused for the turn)

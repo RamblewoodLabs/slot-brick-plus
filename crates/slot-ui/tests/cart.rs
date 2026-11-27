@@ -78,6 +78,18 @@ fn label_pixel(face: &slot_ui::CartFace, x: u32, y: u32) -> [u8; 3] {
     pixel(face, LABEL_X + x, LABEL_Y + y)
 }
 
+/// Whether `got` is `want` under some light: the modelled carts light their labels (brighter
+/// where the paper faces the lamp, darker in the well's shade) but never change their colours.
+fn lit_like(got: [u8; 3], want: [u8; 3]) -> bool {
+    let sum = |p: [u8; 3]| p.iter().map(|c| *c as f32).sum::<f32>();
+    if sum(want) < 1.0 {
+        return sum(got) < 40.0;
+    }
+    let k = sum(got) / sum(want);
+    (0.35..=1.15).contains(&k)
+        && (0..3).all(|c| (got[c] as f32 - (want[c] as f32 * k).min(255.0)).abs() <= 10.0)
+}
+
 #[test]
 fn a_malformed_label_falls_back_to_a_generated_one() {
     let d = tmp_root();
@@ -105,7 +117,8 @@ fn a_label_that_decodes_is_what_the_face_shows() {
     assert_eq!((face.w, face.h), (CART_W, CART_H));
     for y in [0, LABEL_H / 2, LABEL_H - 1] {
         for x in [0, LABEL_W / 2, LABEL_W - 1] {
-            assert_eq!(label_pixel(&face, x, y), [0xd0, 0x20, 0xa0], "at {x},{y}");
+            let got = label_pixel(&face, x, y);
+            assert!(lit_like(got, [0xd0, 0x20, 0xa0]), "at {x},{y}: {got:?}");
         }
     }
 }
@@ -122,7 +135,8 @@ fn a_label_of_the_wrong_aspect_is_cropped_not_squashed() {
     let face = cart_face(&scan(d.path()).unwrap()[0]);
     for y in 0..LABEL_H {
         for x in 0..LABEL_W {
-            assert_eq!(label_pixel(&face, x, y), [0xff, 0xff, 0xff], "at {x},{y}");
+            let got = label_pixel(&face, x, y);
+            assert!(lit_like(got, [0xff, 0xff, 0xff]), "at {x},{y}: {got:?}");
         }
     }
 }
@@ -143,16 +157,17 @@ fn a_long_title_stays_inside_the_label() {
                 let edge =
                     x < margin || y < margin || x >= LABEL_W - margin || y >= LABEL_H - margin;
                 if edge {
-                    assert_eq!(
-                        label_pixel(&face, x, y),
-                        bg,
-                        "{stem}: text spills into the border at {x},{y}"
+                    let got = label_pixel(&face, x, y);
+                    assert!(
+                        lit_like(got, bg),
+                        "{stem}: text spills into the border at {x},{y}: {got:?} on {bg:?}"
                     );
                 }
             }
         }
         assert!(
-            (0..LABEL_H * LABEL_W).any(|i| label_pixel(&face, i % LABEL_W, i / LABEL_W) != bg),
+            (0..LABEL_H * LABEL_W)
+                .any(|i| !lit_like(label_pixel(&face, i % LABEL_W, i / LABEL_W), bg)),
             "{stem}: no text was drawn"
         );
     }
@@ -431,32 +446,26 @@ fn the_colour_only_shell_has_a_rolled_top_edge_and_the_older_mould_does_not() {
     };
     let down = |f: &slot_ui::CartFace, y: u32| pixel(f, GB_CART_W / 2, y)[1] as i32;
 
+    // The modelled colour-only pak has a rounded lip across its top: lit on its upper side,
+    // in shadow under it. The older mould's top runs flat into its shoulder.
     let rolled = face("Rolled");
-    let band = (gy(2)..=gy(9))
-        .map(|y| down(&rolled, y))
-        .min()
-        .expect("a band");
-    let brk = (gy(10)..=gy(13))
-        .map(|y| down(&rolled, y))
-        .min()
-        .expect("a break");
-    let shoulder = down(&rolled, gy(14));
+    let shoulder = down(&rolled, gy(22));
+    let lip = (gy(1)..=gy(16)).map(|y| down(&rolled, y));
+    let (hi, lo) = (lip.clone().max().expect("a lip"), lip.min().expect("a lip"));
     assert!(
-        band > shoulder + 10,
-        "the class C top edge is {band} against a {shoulder} shoulder: the roll carries no light"
+        hi > shoulder + 6,
+        "the class C top edge peaks at {hi} against a {shoulder} shoulder: the roll carries no light"
     );
     assert!(
-        brk < shoulder - 10,
-        "the break under the roll is {brk} against a {shoulder} shoulder: the roll does not turn, \
-         it just fades"
+        lo < shoulder - 6,
+        "the class C top edge dips to {lo} against a {shoulder} shoulder: the roll does not turn"
     );
 
     let flat = face("Flat");
     let shoulder = down(&flat, gy(14));
-    for y in 0..=gy(13) {
-        assert_eq!(
-            down(&flat, y),
-            shoulder,
+    for y in gy(3)..=gy(13) {
+        assert!(
+            down(&flat, y).abs_diff(shoulder) <= 3,
             "the class A/B top edge moved at row {y}: the roll is not class C only"
         );
     }
@@ -661,16 +670,16 @@ fn a_game_boy_title_stays_inside_its_near_square_label() {
                     || x >= GB_LABEL_W - margin
                     || y >= GB_LABEL_H - margin;
                 if edge {
-                    assert_eq!(
-                        at(x, y),
-                        bg,
-                        "{stem}: text spills into the border at {x},{y}"
+                    let got = at(x, y);
+                    assert!(
+                        lit_like(got, bg),
+                        "{stem}: text spills into the border at {x},{y}: {got:?} on {bg:?}"
                     );
                 }
             }
         }
         assert!(
-            (0..GB_LABEL_H * GB_LABEL_W).any(|i| at(i % GB_LABEL_W, i / GB_LABEL_W) != bg),
+            (0..GB_LABEL_H * GB_LABEL_W).any(|i| !lit_like(at(i % GB_LABEL_W, i / GB_LABEL_W), bg)),
             "{stem}: no text was drawn"
         );
     }
@@ -755,10 +764,11 @@ fn every_mould_is_lettered_with_its_platform() {
     write_gb_rom(&d, "GB", "Grey.gb", 0x00);
     write_gb_rom(&d, "GBC", "Clear.gbc", 0xc0);
     let carts = scan(d.path()).unwrap();
+    // The modelled paks letter the plate above the label: GAME BOY (ADVANCE / COLOR) moulded in.
     for (stem, rows, plain) in [
         ("Advance", 19..28, (120, 3)),
-        ("Grey", 30..48, (197, 40)),
-        ("Clear", 26..44, (197, 40)),
+        ("Grey", 20..90, (197, 40)),
+        ("Clear", 20..90, (197, 40)),
     ] {
         let face = cart_face(carts.iter().find(|c| c.stem == stem).expect("scanned"));
         let lum = |(x, y): (u32, u32)| {

@@ -33,6 +33,14 @@ const TAG_ALPHA: f32 = 0.75;
 /// game's own colour with its name across the top, and which disc it is under the hub for a
 /// game of several (`number`, from 1).
 pub fn disc_face(cart: &Cart, art: Option<Vec<u8>>, number: Option<usize>) -> CartFace {
+    let mut face = disc_print(cart, art, number);
+    // lit as the modelled disc is, its clear hub and stacking ring laid on (model.rs)
+    crate::model::light_disc(&mut face);
+    face
+}
+
+/// The disc's print alone, flat and unlit: what its turn lays onto the modelled disc.
+pub(crate) fn disc_print(cart: &Cart, art: Option<Vec<u8>>, number: Option<usize>) -> CartFace {
     let n = DISC_PX;
     let title = label_text(cart);
     let print = label_colour(&title);

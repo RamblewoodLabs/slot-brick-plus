@@ -272,7 +272,9 @@ fn the_next_game_starts_without_the_menu() {
     );
     a.apply(Action::Insert);
     a.on_core_ready();
-    for _ in 0..120 {
+    // the cart turns to face the slot first, then goes in
+    let turn = (slot_ui::turn::seconds(slot_store::Platform::Gba) * 60.0).ceil() as usize;
+    for _ in 0..120 + turn {
         a.update(1.0 / 60.0);
     }
     assert!(matches!(a.phase(), Phase::Playing { .. }));

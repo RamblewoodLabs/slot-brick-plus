@@ -1,7 +1,9 @@
 # Cartridge shells
 
-The original six systems (GBA, GB, GBC, NES, SNES, PlayStation) are drawn in code.
-Every system added after them is a PNG shell plus a label window. The shelf
+Every system's cart is a Blender model rendered to PNG. The original six systems (GBA, GB,
+GBC, NES, SNES, PlayStation) use the models in `assets/carts/model-*` (below), tinted at run
+time to the shell colour chosen for each game. Every system added after them is a PNG shell
+plus a label window. The shelf
 composites `Labels/<DIR>/<stem>.png` into that window.
 
 Drop a finished render in `assets/carts/<sys>/` and rebuild Slot. Nothing else
@@ -26,7 +28,7 @@ likewise no taller than the NES cart.
 
 | Card folder | `<sys>` | Cart | Shell pixels | Label window `x, y, w, h` |
 |---|---|---|---|---|
-| `Games/MD` | `md` | Genesis (US Sega shell: plain front, smooth side bulges) | 360 × 247 | 60, 9, 240, 197 |
+| `Games/MD` | `md` | Genesis (US Sega shell: recessed label well between raised, rounded side bulges with ridged grips; seen 8° from above) | 360 × 251 | 60, 9, 240, 196 |
 | `Games/SMS` | `sms` | Sega Card (US) | 213 × 331 | 16, 15, 181, 198 |
 | `Games/GG` | `gg` | Game Gear | 322 × 331 | 26, 40, 270, 207 |
 | `Games/ARCADE` | `arcade` | backlit marquee | 360 × 122 | 15, 16, 330, 90 |
@@ -39,9 +41,9 @@ likewise no taller than the NES cart.
 | `Games/COLECO` | `coleco` | ColecoVision cart | 288 × 331 | 17, 14, 254, 268 |
 | `Games/A5200` | `a5200` | Atari 5200 cart | 358 × 331 | 71, 44, 216, 181 |
 | `Games/A800` | `a800` | 5.25" floppy (every Atari 800 game, disk or not; below) | 331 × 331 | 28, 19, 261, 86 |
-| `Games/VECTREX` | `vectrex` | Vectrex cart | 321 × 331 | 21, 62, 279, 244 |
+| `Games/VECTREX` | `vectrex` | Vectrex console, switched off (the screen is the label window) | 224 × 331 | 27, 25, 170, 192 |
 | `Games/32X` | `s32x` | Sega 32X cart (Genesis shape, its own top) | 360 × 247 | 60, 9, 240, 197 |
-| `Games/N64` | `n64` | Nintendo 64 cart | 360 × 239 | 98, 25, 164, 176 |
+| `Games/N64` | `n64` | Nintendo 64 Game Pak (rectangular, straight sides and connector edge, ridged rounded top) | 360 × 239 | 98, 40, 164, 167 |
 | `Games/NDS` | `nds` | DS game card | 350 × 331 | 19, 44, 312, 270 |
 | `Games/PSP` | `psp` | UMD (the disc's whole face is the label) | 336 × 331 | 25, 22, 286, 287 |
 
@@ -71,7 +73,14 @@ all as a 5.25" floppy with its paper label at the top. The label window is that 
 
 ### Vectrex
 
-The Vectrex has no overlays. Each Vectrex game came with a coloured plastic sheet laid over
+The Vectrex shelf shows the console itself, switched off: the game's art sits on its screen,
+dim, as a coloured overlay does on a dark tube. On the way in the console turns once round
+(48 frames), stands still while its screen comes on (16 frames: the art's light eases up to
+full and a soft glow spreads onto the bezel), rests, and goes into the slot lit (`flip`, so
+the lit last frame is the face it goes in with). `scripts/vectrex_light.py` in
+slot-cart-renders lays the light-up onto the packed frames.
+
+The core has no overlays. Each Vectrex game came with a coloured plastic sheet laid over
 the screen, and vecx draws only the white vectors underneath. Scans of those sheets are the
 publisher's artwork, and each one has to be lined up with its own game, so Slot ships none;
 the player's own `Overlays/<system>` pictures are offered only for Game Boy, Game Boy Color, GBA, NES and SNES.
@@ -158,18 +167,49 @@ With Pillow installed, each label is then cut to its window ahead of time
 
 Labels are kept at twice the window size.
 
+## Modelled shells for the original six
+
+`assets/carts/model-gb` (notched DMG cart), `model-gbc` (rounded GBC cart), `model-gba`,
+`model-nes`, `model-famicom`, `model-snes` (US), `model-snes-pal` (PAL / Super Famicom) and
+`model-ps1` (the disc) are renders of full 3D models (`scripts/carts_classic.py`): moulded
+lettering, label well, the GB notch and screw, the SNES ridges, the NES ribs, every side, the
+back (screws, stickers, moulded text) and the connector end with its board. Each is rendered at
+the size of the face `cart.rs`/`disc.rs` used to draw, so the label window, the fitted label and
+the slot are where they were.
+
+The plastic is rendered a neutral grey, so the colour still comes from the game's shell choice
+(clear, glitter, sheen and the colours in Library): `tint.png` (grey + alpha) carries the
+model's light, 128 = the shell colour as is, darker shades it, lighter lifts it toward white,
+and alpha is where the shell colour applies. The procedural face supplies the colour per pixel
+(so a clear shell still shows its board and a glitter shell its flecks) and the model the
+shape, clipped to the model's silhouette. Every shell shape (notched or rounded Game Boy, NES or
+Famicom, US or PAL SNES) has its own model (`cart::model_dir`). `meta.toml` gains `tint = true`.
+
+Their turns (`insert/`, below) are rendered from the same models, with `NN-tint.png` frames
+tinted the same way, so a shell turns in its own colour. `scripts/faces.py` renders any model
+from all six sides under one fixed light for checking.
+
 ## Insert turn
 
 A shell may carry `insert/`: the frames its cart turns through, on the shelf, before it slides
 into the slot. The slide itself is the same as every other cart's (`INSERT_S`), so the turn
-only adds its own length (18 frames at 30 fps, 0.6 s) in front of it. Systems without
-`insert/` go straight in, as before. An eject plays the turn backwards once the cart is out,
+only adds its own length in front of it: 64 frames at 30 fps plus a still `hold` of 0.5 s
+(2.6 s), and the UMD's 80 frames (2.7 s), so every shelf's cart takes about as long.
+
+GB, GBC, GBA, NES (and Famicom), SNES (US and PAL) and PlayStation turn with their model's
+rendered frames (`model-*/insert/`) at the same pace (64 eased frames at 30 fps, then 0.5 s):
+a cart goes once round on its upright axis, showing its real sides and back; a PlayStation
+disc spins in its own plane while it turns over. Both end exactly on the shelf face, so
+nothing turns while the cart goes down. `turn::spin_faces` (the old run-time spin of the
+drawn face) is kept only as the fallback when a model dir has no frames. An eject plays the turn backwards once the cart is out,
 and a cart refused mid-turn turns back from where it got to.
 
 - `insert/NN.png`: frame NN of the shell, label window clear, cropped to what it covers.
 - `insert/NN-map.png`: grey + alpha, the light the label takes (white = as printed) and how
   much of each pixel it covers.
-- `insert/insert.toml`: `fps`, `flip = true` for a cart that ends the turn the other way up,
+- `insert/NN-tint.png` (model dirs only): grey + alpha, the shell colour's light, as `tint.png`.
+- `insert/insert.toml`: `fps`, `hold` (seconds the cart rests, turned, before it drops),
+  `flip = true` for a cart that ends the turn the other way up,
   and per frame a `uv` line (nine numbers: the projective map from a frame pixel to the flat
   label's u, v, v up) then a `frame = x, y, w, h` line (where the crop sits relative to
   `shell.png`'s top-left).

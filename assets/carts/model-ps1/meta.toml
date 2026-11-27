@@ -1,0 +1,9 @@
+# model-ps1: Blender model ps1 (~/Projects/slot-cart-renders, scripts/carts_classic.py), v3.
+# Shell is 300x300 RGBA, the box cart.rs draws this cart in; real cart 120.0x120.0 mm.
+# Label window: the procedural label panel, so label fitting and layout are unchanged.
+x = 0
+y = 0
+w = 300
+h = 300
+rotation = 0.0
+aspect = 1.0000

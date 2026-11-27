@@ -49,11 +49,16 @@ fn is_mouth(d: &Draw) -> bool {
     }
 }
 
+/// Frames (at 60 fps) a GBA cart spends turning to face the slot before it moves.
+fn turn_frames() -> usize {
+    (slot_ui::turn::seconds(Platform::Gba) * 60.0).ceil() as usize + 2
+}
+
 fn playing(stem: &str) -> App {
     let mut a = app_with_carts(&[stem, "Zzz"]);
     a.apply(Action::Insert);
     a.on_core_ready();
-    for _ in 0..120 {
+    for _ in 0..120 + turn_frames() {
         a.update(1.0 / 60.0);
     }
     a
@@ -63,7 +68,7 @@ fn playing(stem: &str) -> App {
 fn insert_waits_for_the_core_even_after_the_animation_floor() {
     let mut a = app_with_carts(&["Emerald"]);
     a.apply(Action::Insert);
-    for _ in 0..120 {
+    for _ in 0..120 + turn_frames() {
         a.update(1.0 / 60.0);
     }
     assert!(
@@ -133,7 +138,7 @@ fn the_game_does_not_draw_during_the_insert() {
     common::clocked(d.path());
     let mut s = Session::boot(d.path().to_path_buf());
     s.feed([RawEvent::Down(Btn::A), RawEvent::Up(Btn::A)], 16);
-    for i in 0..120 {
+    for i in 0..120 + turn_frames() {
         s.update(1.0 / 60.0);
         std::thread::sleep(Duration::from_millis(1));
         if matches!(s.app().phase(), Phase::Inserting { .. }) {
@@ -235,7 +240,7 @@ fn a_cart_that_fails_to_load_returns_to_the_shelf() {
 fn a_refused_cart_pushes_back_out_from_where_it_caught() {
     let mut a = app_with_carts(&["Broken"]);
     a.apply(Action::Insert);
-    for _ in 0..6 {
+    for _ in 0..turn_frames() + 6 {
         a.update(1.0 / 60.0);
     }
     let caught = a.seat();
@@ -269,12 +274,12 @@ fn face_buttons_drive_the_shelf_only_while_it_is_showing() {
     assert_eq!(cart, "Wars");
 
     a.on_core_ready();
-    for _ in 0..120 {
+    for _ in 0..120 + 2 * turn_frames() {
         a.update(1.0 / 60.0);
     }
     a.apply(Action::GbaDown(Btn::Left));
     a.apply(Action::Eject);
-    for _ in 0..120 {
+    for _ in 0..120 + 2 * turn_frames() {
         a.update(1.0 / 60.0);
     }
     a.apply(Action::Insert);
@@ -637,7 +642,10 @@ fn eject_returns_to_the_shelf_only_once_the_cart_is_out() {
         );
         a.update(1.0 / 60.0);
     }
-    a.update(1.0 / 60.0);
+    // out of the slot, it turns back to face the shelf, then the shelf is back
+    for _ in 0..turn_frames() {
+        a.update(1.0 / 60.0);
+    }
     assert!(matches!(a.phase(), Phase::Shelf));
 }
 
@@ -2553,23 +2561,26 @@ fn insert_seconds(platform: Platform, ext: &str) -> f32 {
 }
 
 #[test]
-fn the_new_carts_turn_to_face_the_slot_first_and_the_old_ones_go_straight_in() {
-    let straight = insert_seconds(Platform::Gba, "gba");
+fn every_cart_turns_to_face_the_slot_first_at_the_same_pace() {
+    let mut straight = None;
     for (platform, ext) in [
+        (Platform::Gba, "gba"),
+        (Platform::Nes, "nes"),
         (Platform::Intv, "int"),
         (Platform::Arcade, "zip"),
         (Platform::Md, "md"),
     ] {
         let turn = slot_ui::turn::seconds(platform);
-        assert!(turn > 0.3, "{platform:?} has no turn");
+        assert!((2.4..3.0).contains(&turn), "{platform:?}: a {turn}s turn");
         let took = insert_seconds(platform, ext);
+        // what is left once the turn is taken off is the same slide in for every system
+        let rest = took - turn;
+        let first = *straight.get_or_insert(rest);
         assert!(
-            (took - straight - turn).abs() < 0.05,
-            "{platform:?}: {took}s against {straight}s straight in plus a {turn}s turn"
+            (rest - first).abs() < 0.05,
+            "{platform:?}: {took}s is a {turn}s turn plus {rest}s, against {first}s"
         );
     }
-    assert_eq!(slot_ui::turn::seconds(Platform::Gba), 0.0);
-    assert_eq!(slot_ui::turn::seconds(Platform::Nes), 0.0);
 }
 
 #[test]
