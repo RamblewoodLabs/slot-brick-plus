@@ -143,6 +143,17 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/signOutSs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="@string/settings_sign_out"
+            android:textColor="@color/slot_text" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="24dp"

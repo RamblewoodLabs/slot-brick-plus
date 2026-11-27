@@ -73,6 +73,13 @@ class SettingsActivity : AppCompatActivity() {
                 main.post { status.text = msg }
             }
         }
+        findViewById<TextView>(R.id.signOutSs).setOnClickListener {
+            SlotPrefs.signOutScreenScraper(this)
+            user.setText("")
+            password.setText("")
+            status.text = currentStatus(SlotPrefs.screenScraper(this))
+            Toast.makeText(this, "Signed out of ScreenScraper.", Toast.LENGTH_SHORT).show()
+        }
         findViewById<TextView>(R.id.clearCache).setOnClickListener {
             MediaCache.clear(this)
             cacheStatus.text = cacheLabel()

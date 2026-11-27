@@ -13,6 +13,7 @@
     <string name="settings_ss_devpassword_hint">Issued with the developer id — do not invent one</string>
     <string name="settings_save">Save account</string>
     <string name="settings_test">Test login</string>
+    <string name="settings_sign_out">Sign out of ScreenScraper</string>
     <string name="settings_preview_heading">Second screen and video</string>
     <string name="settings_preview_help">On an AYN Thor (or any device with a second display), hovering a game plays its video snap on that screen, or shows a screenshot / box art plus title, year, publisher, players and RetroAchievements count when there is no video. On a single-screen device the same preview appears as a panel on this screen after a short hover. The second screen is released when a game launches in an external emulator.</string>
     <string name="settings_second_screen">Use the second screen when available</string>

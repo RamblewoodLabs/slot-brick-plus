@@ -64,6 +64,11 @@ object SlotPrefs {
             .apply()
     }
 
+    /** Forgets the player's ScreenScraper account; a developer id typed here is kept. */
+    fun signOutScreenScraper(context: Context) {
+        prefs(context).edit().remove(KEY_SS_USER).remove(KEY_SS_PASSWORD).apply()
+    }
+
     fun secondScreenEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_SECOND_SCREEN, true)
 
