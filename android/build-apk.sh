@@ -27,11 +27,23 @@ rustc --version
 # Tell Gradle where the SDK lives.
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$ANDROID_DIR/local.properties"
 
+echo "==== libretro cores (arm64-v8a) ===="
+"$ANDROID_DIR/build-cores.sh"
+# License texts for the embedded cores, copied from the repo's licenses/ folder.
+mkdir -p "$ANDROID_DIR/app/src/main/assets/licenses"
+cp "$ROOT/licenses/mgba-MPL-2.0.txt" \
+   "$ROOT/licenses/fceumm-GPL-2.0.txt" \
+   "$ROOT/licenses/snes9x-LICENSE.txt" \
+   "$ROOT/licenses/genesis-plus-gx-LICENSE.txt" \
+   "$ROOT/licenses/pcsx_rearmed-GPL-2.0.txt" \
+   "$ROOT/licenses/GPL-3.0.txt" \
+   "$ANDROID_DIR/app/src/main/assets/licenses/"
+
 echo "==== native lib (arm64-v8a) ===="
 cd "$ANDROID_DIR/slot-android"
 # cargo-ndk writes jniLibs layout under -o
 mkdir -p "$ANDROID_DIR/app/src/main/jniLibs"
-cargo ndk -t arm64-v8a -o "$ANDROID_DIR/app/src/main/jniLibs" build
+cargo ndk -t arm64-v8a -o "$ANDROID_DIR/app/src/main/jniLibs" build --release
 
 echo "==== gradle assembleDebug ===="
 cd "$ANDROID_DIR"
