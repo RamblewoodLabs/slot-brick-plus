@@ -46,3 +46,35 @@ Deleted ~26 GB of cargo `target`/`target-sim` dirs in already-merged worktrees. 
 
 - Debug APK built: `android/app/build/outputs/apk/debug/app-debug.apk` (~16.1 MB). Gradle assembleDebug succeeded. Native registry is `libslot_android.so` (arm64-v8a).
 - Next: commit, push to draft PR #35. Do not merge. Do not touch cards or E:/F:.
+
+## 2026-11-26 7:08 PM PT — PR #35 merged
+
+- Marked PR #35 ready (it was a draft).
+- CI on head `e4d2c90` was green: unit, scenarios, changelog. mergeable_state=clean.
+- Brick/SP CI (simulator unit + scenarios) passed on this PR; android/ is a standalone crate and is not in the Slot workspace.
+- Merged to main: `4fd6a8dbff47c4c5907b4286aa03f5d41bc8712f`
+  (Merge pull request #35 from jfink22-design/cursor/android-scaffold)
+- New worktree `/Users/jeff/sbp-android-p3` on branch `cursor/android-phase3` from that merge. Other worktrees left alone. No SD cards, no E:/F:.
+
+Next: ScreenScraper + libretro-thumbnails + Thor second-screen preview, then a new PR and a debug APK.
+
+## 2026-11-26 7:20 PM PT — Phase 3 code in, building APK
+
+Implemented on `cursor/android-phase3` in `/Users/jeff/sbp-android-p3` (no other worktrees, no cards, no E:/F:):
+
+- ScreenScraper client (user account + empty developer-id placeholder, quotas, box/snap/wheel/video-normalized, on-device cache)
+- libretro-thumbnails fallback (box, snaps, titles; no account; no video)
+- Settings (credentials, second-screen toggle, muted/low volume, cache clear, test login)
+- About attribution
+- Presentation / DisplayManager second-screen preview; inline panel on single-screen devices; released on launch
+- Media3 ExoPlayer for video snaps
+
+Next: compile the debug APK, fix whatever the compiler catches, open a new PR.
+
+## 2026-11-26 7:14 PM PT — debug APK built
+
+`android/build-apk.sh` succeeded (cargo-ndk + Gradle, 20s after the native lib).
+
+Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/app-debug.apk` (22 MB).
+
+Did not touch any SD card or E:/F:. Next: commit, push, open the Phase 3 PR.

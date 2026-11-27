@@ -25,6 +25,9 @@ class MainActivity : AppCompatActivity() {
     private var hatY = 0f
     private var stickHold = 0L
 
+    private lateinit var mediaRepo: MediaRepository
+    private lateinit var preview: PreviewController
+
     private val systemsOnShelf: List<SystemDef>
         get() {
             val present = scan.bySystem.keys
@@ -46,10 +49,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // ViewBinding is not enabled; inflate the layout directly.
         setContentView(R.layout.activity_main)
+        mediaRepo = MediaRepository(this)
         bindViews()
-        val saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_TREE, null)
+        val saved = getSharedPreferences(SlotPrefs.PREFS, MODE_PRIVATE).getString(SlotPrefs.KEY_TREE, null)
         if (saved != null) {
             try {
                 treeUri = Uri.parse(saved)
@@ -76,9 +79,10 @@ class MainActivity : AppCompatActivity() {
         refreshUi()
     }
     private val gameAdapter = LabelAdapter { pos ->
+        val already = pos == gameIndex
         gameIndex = pos
         refreshUi()
-        onActivate()
+        if (already) onActivate()
     }
 
     private fun bindViews() {
@@ -89,10 +93,15 @@ class MainActivity : AppCompatActivity() {
         statusView = findViewById(R.id.status)
         hintView = findViewById(R.id.hint)
         folderBtn.setOnClickListener { pickTree.launch(null) }
+        findViewById<TextView>(R.id.settingsButton).setOnClickListener { openSettings() }
+        findViewById<TextView>(R.id.aboutButton).setOnClickListener { openAbout() }
         systemRow.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         gameList.layoutManager = LinearLayoutManager(this)
         systemRow.adapter = systemAdapter
         gameList.adapter = gameAdapter
+        val panel = findViewById<View>(R.id.previewPanel)
+        preview = PreviewController(this, panel)
+        preview.attach(mediaRepo)
     }
 
     private fun persistTree(uri: Uri) {
@@ -104,7 +113,9 @@ class MainActivity : AppCompatActivity() {
         } catch (e: SecurityException) {
             android.util.Log.w("slot", "persistable URI permission: $e")
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_TREE, uri.toString()).apply()
+        getSharedPreferences(SlotPrefs.PREFS, MODE_PRIVATE).edit()
+            .putString(SlotPrefs.KEY_TREE, uri.toString())
+            .apply()
         treeUri = uri
         rescan()
         refreshUi()
@@ -142,7 +153,8 @@ class MainActivity : AppCompatActivity() {
             systemRow.scrollToPosition(systemIndex)
         }
         statusView.text = statusText()
-        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Start: folder"
+        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Y/Select: settings   Start: folder"
+        preview.onHover(currentSystem, currentGames.getOrNull(gameIndex))
     }
 
     private fun statusText(): String {
@@ -175,6 +187,8 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "No game selected. Put games in a ${sys.folders.first()} folder inside the ROM root.", Toast.LENGTH_LONG).show()
             return
         }
+        // Free the second screen before an external emulator takes over.
+        preview.releaseForLaunch()
         if (emu.id == "eden") {
             Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slot never bundles them.", Toast.LENGTH_LONG).show()
         }
@@ -228,6 +242,14 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Choose") { _, _ -> pickTree.launch(null) }
             .setNegativeButton("Later", null)
             .show()
+    }
+
+    private fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    private fun openAbout() {
+        startActivity(Intent(this, AboutActivity::class.java))
     }
 
     private fun moveSystem(delta: Int) {
@@ -290,13 +312,27 @@ class MainActivity : AppCompatActivity() {
             SlotAction.LAUNCH -> onActivate()
             SlotAction.BACK -> { /* stay on the shelf */ }
             SlotAction.PICK_FOLDER -> pickTree.launch(null)
+            SlotAction.SETTINGS -> openSettings()
             SlotAction.NONE -> {}
         }
     }
 
-    companion object {
-        private const val PREFS = "slot"
-        private const val KEY_TREE = "rom_tree"
+    override fun onResume() {
+        super.onResume()
+        if (::preview.isInitialized) {
+            preview.onSettingsChanged()
+            preview.onHover(currentSystem, currentGames.getOrNull(gameIndex))
+        }
+    }
+
+    override fun onStop() {
+        if (::preview.isInitialized) preview.releaseForLaunch()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (::preview.isInitialized) preview.shutdown()
+        super.onDestroy()
     }
 }
 

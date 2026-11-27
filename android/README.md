@@ -56,3 +56,39 @@ The debug APK is written to:
 
 The Rust crate under `android/slot-android` is **not** a member of the
 top-level Cargo workspace, so it does not affect Brick or SP CI.
+
+## Art, video, and the second screen
+
+Hover a game (gamepad highlight, or a first tap — a second tap launches). After
+a short delay:
+
+- On an AYN Thor, or any device with a second display, and with **Use the
+  second screen** on in Settings, the video snap plays there (muted by default,
+  or at low volume if you flip that switch). If there is no video, a screenshot
+  or box art is shown with the title, year, publisher, players, and a
+  RetroAchievements placeholder.
+- On a single-screen device the same preview appears as a panel on the shelf.
+- Launching a game dismisses the second-screen Presentation so the external
+  emulator can use that display.
+
+### ScreenScraper (videos and the full art set)
+
+Slot does **not** ship a ScreenScraper developer id. Jeff needs to:
+
+1. Register on the [ScreenScraper forum](https://www.screenscraper.fr/) and
+   present Slot as a free GPL-3 frontend.
+2. Enter the issued `devid` / `devpassword` in Settings, plus his own
+   ScreenScraper username and password.
+3. Optionally, copy `android/screenscraper.properties.example` to
+   `android/screenscraper.properties` (gitignored) and rebuild, so the
+   developer id is the APK default. Leave the fields empty until then — do
+   not invent credentials.
+
+Until that id is in place, Slot still fetches **stills** (box art, snaps,
+titles) from [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails)
+with no account. Video snaps only come from ScreenScraper. Attribution is
+on the About screen. Quotas and thread limits reported by the API are
+respected.
+
+Embedding libretro cores (to replace the RetroArch hand-off) is not in this
+build; it is the next Android step.

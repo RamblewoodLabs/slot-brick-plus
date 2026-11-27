@@ -228,7 +228,7 @@ This is ordinary frontend work (ES-DE, Pegasus, RomM all do it). It is in scope 
 
 ---
 
-## 5. Scaffold and Phase 2 (this PR, still a draft)
+## 5. Scaffold and Phase 2 (merged in PR #35)
 
 Branch `cursor/android-scaffold`, worktree `~/sbp-android`. **Do not merge.**
 
@@ -239,7 +239,7 @@ Branch `cursor/android-scaffold`, worktree `~/sbp-android`. **Do not merge.**
 - Installed-app detection for every standalone emulator below (Android 11 `<queries>` included). If one is missing, Slot shows an **Install X** dialog that opens the official download page.
 - Intent launch for GameCube, PS2, Switch, 3DS, Vita and Xbox, as in the table.
 - **Interim** launch for the current 24 systems plus Dreamcast (Flycast) and Saturn (Beetle Saturn) through RetroArch and the named core. Embedding those libretro cores in Slot is the next step; it was too large for this chunk.
-- Odin / Thor / Retroid-class gamepad mapping (Xbox layout, hat D-pad, left stick, L1/R1 to change system, A to launch, Start for the folder picker). The Thor's second screen is not used yet.
+- Odin / Thor / Retroid-class gamepad mapping (Xbox layout, hat D-pad, left stick, L1/R1 to change system, A to launch, Start for the folder picker). The Thor's second screen is used in Phase 3 (see §7).
 
 Build: `android/build-apk.sh` on the Mac mini. Output: `android/app/build/outputs/apk/debug/app-debug.apk`. Sideload with `adb install -r` after enabling USB debugging. Details are in `android/README.md`.
 
@@ -268,8 +268,48 @@ Do not use or recommend AetherSX2 or NetherSX2.
 
 ## 6. Decisions Jeff has made (26 Nov 2026)
 
-1. **Target device:** an AYN Odin / Thor-class handheld (Snapdragon 8 Gen 2 or better). The Thor's second screen is optional later; v1 uses the primary display only.
+1. **Target device:** an AYN Odin / Thor-class handheld (Snapdragon 8 Gen 2 or better). The Thor's second screen is implemented in Phase 3; single-screen devices use an on-shelf preview panel only.
 2. **Switch:** include a Switch shelf that intent-launches official Eden. Jeff supplies his own `prod.keys` and firmware. We never bundle keys or firmware.
 3. **Shelves after GameCube and PS2:** 3DS, Dreamcast, Saturn, Vita, and Xbox.
 4. **Xbox emulator:** "hakux" means **Hakuchou / hakuX** (https://github.com/rfandango/hakuX), a GPL-3-or-later Android Xbox emulator in the xemu lineage. Verified 26 Nov 2026: package `com.rfandango.haku_x` (debug `com.rfandango.haku_x.debug`), activity `com.rfandango.haku_x.LauncherActivity`, launch `ACTION_VIEW` + content URI. Official download is GitHub releases only. Current README (v1.3.0) says no BIOS / MCPX / HDD image is required. Intent launch is clean; no workaround needed.
 5. Still open: Switch 2 (archive-only vs ignore), where the 2+ TB library lives on the device, ScreenScraper developer registration, and cover style (box art vs grids).
+
+## 7. Phase 3 — media scraping and the second screen (PR follow-up)
+
+Landed on `cursor/android-phase3` after PR #35 merged to main as `4fd6a8d`.
+
+### What works
+
+- **ScreenScraper WebAPI v2**, with the user's own account entered in Settings.
+  Fetches box-2D, screenshots (`ss`), wheel / marquee logos, and
+  `video-normalized` then `video`. Files and a small metadata JSON are cached
+  under the app's cache directory. Quotas (`maxthreads`, per-minute and daily
+  caps) are honoured; we cap ourselves at two threads even if the account
+  allows more. Failed or exhausted calls fall back to stills.
+- **Developer credentials are a placeholder.** `android/screenscraper.properties.example`
+  and the baked-in assets file ship with empty `devid` / `devpassword`. Jeff
+  must register Slot on the ScreenScraper forum and paste the issued values in
+  Settings (or a local, gitignored `android/screenscraper.properties` before a
+  rebuild). We will not invent credentials.
+- **libretro-thumbnails fallback** for Named_Boxarts, Named_Snaps and
+  Named_Titles, no account required. This source has no video; video snaps
+  only appear once ScreenScraper is configured.
+- **About** names both providers and their terms. Artwork remains the
+  property of its rights holders.
+- **AYN Thor second screen** via Android `Presentation` / `DisplayManager`.
+  Hovering a game (500 ms settle) plays the video snap on the secondary
+  display (muted, or low volume if that Settings toggle is on). If there is
+  no video, a screenshot or box art is shown with title, year, publisher,
+  players, and a RetroAchievements count placeholder (`—` until the Android
+  RA path is wired). The Presentation is dismissed when a game launches in
+  an external emulator, and when the activity stops. A Settings toggle
+  disables the second screen. On a single-screen device the same preview
+  appears as a panel on the main shelf.
+
+### Still next
+
+1. Embed libretro cores and drop the RetroArch interim hand-off.
+2. RetroAchievements counts on the preview.
+3. Jeff's ScreenScraper forum registration (blocks video and the richer art).
+4. Switch 2 shelf policy, and where the 2+ TB library lives on the device.
+5. Cover style (box art vs carts) once scraping is in daily use.

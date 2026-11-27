@@ -11,7 +11,7 @@ android {
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0-scaffold"
+        versionName = "0.3.0-phase3"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -44,4 +44,6 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
 }

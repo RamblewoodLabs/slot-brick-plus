@@ -1,0 +1,15 @@
+# ScreenScraper developer credentials for Slot.
+#
+# Do not invent these values. ScreenScraper only issues a devid and
+# devpassword after you present the app on their forum:
+#   https://www.screenscraper.fr/forumsuite.php
+# Introduce "Slot" as a free GPL-3.0 frontend. Once they send credentials,
+# either paste them in the app's Settings screen, or copy this file to
+# android/screenscraper.properties (gitignored) and fill the two fields so
+# a local rebuild can bake them into the APK as defaults.
+#
+# A user's own ScreenScraper account (ssid / sspassword) is entered in
+# Settings and is never stored in this file.
+devid=
+devpassword=
+softname=Slot

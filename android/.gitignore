@@ -4,3 +4,6 @@ app/src/main/jniLibs/
 local.properties
 *.iml
 .cxx/
+# Filled developer credentials at the android/ root — never commit.
+# The empty assets placeholder is tracked.
+/screenscraper.properties
