@@ -12,6 +12,8 @@ The RG280V will work once a properly flashed OS card is in **TF1** (the slot lab
 
 **Cards to buy:** a name-brand 16 GB or 32 GB card for TF1, and a name-brand 64 GB (or 128 GB if the PS1 library is large) card for TF2. Official maximum is 256 GB. Avoid no-name cards and any card that shipped with the handheld.
 
+**First step — before anything is written to a card:** preload every cart label on the Mac. The RG280V has no Wi-Fi, so ScreenScraper has to run on a computer, once, and the finished PNGs have to be already in `Slot/Labels/` when the card is prepared. That work is Phase A in §8. It does not flash a card and it does not wait for the handheld.
+
 ---
 
 ## 1. Hardware
@@ -26,7 +28,7 @@ The RG280V is a vertical (Game Boy-shaped) handheld released in November 2020. I
 | GPU | Vivante **GC860**, about 315–575 MHz depending on the source, OpenGL ES 2.0. OpenDingux Beta uses the open-source **Etnaviv** Mesa driver, not the Vivante blob. The SoC also has an **IPU** for hardware scale/rotate of frames, which emulators rely on; SDL 1.2 on the current kernel cannot reach the IPU through the old fbdev API. |
 | Storage | **No internal eMMC.** Two microSD slots on the left edge, officially up to 256 GB. Anbernic’s “built-in 16G” is a card in the box for TF1, not soldered storage. |
 | Battery | 2100 mAh Li-polymer, USB-C charge, about 5–7 hours quoted. |
-| Wireless | **None.** No Wi-Fi, no Bluetooth, no HDMI. USB-C is charging and, once booted, MTP or mass storage. RetroAchievements, in-app updates, and on-device art scraping need a later USB-networking path or a computer-side tool. |
+| Wireless | **None.** No Wi-Fi, no Bluetooth, no HDMI. USB-C is charging and, once booted, MTP or mass storage. Cart art is preloaded on the Mac (Phase A) so the device never fetches it. RetroAchievements and in-app updates would need a later USB-networking path; they are not in the first ship. |
 | Other | One rear mono speaker, 3.5 mm jack, rumble motor, Power and Reset on the right, volume +/− on the left. |
 
 Sources: [Anbernic product page](https://anbernic.com/collections/handheld-game-console/products/anbernic-rg280v); [Handhelds Arena](https://handheldsarena.com/devices/anbernic/rg-280v/) (internal storage: none; screen 320×480, 2:3 portrait); [retroshelf](https://www.retroshelf.org/devices/anbernic-rg-280v); [Wikipedia, Ingenic Semiconductor, JZ4770 row](https://en.wikipedia.org/wiki/Ingenic_Semiconductor) (MIPS32 r2, GC860, secondary 500 MHz VPU); [HandheldWiki, JZ4770](https://handheldwiki.com/chip/ingenic-jz4770/) (single-core XBurst @ 1.0 GHz, GLES 2.0 / Etnaviv); [Retro Dodo review](https://retrododo.com/rg280v/).
@@ -226,13 +228,15 @@ TF2 / EXT   (games and user data, FAT32; exFAT is possible on Adam >= 2.0)
   Slot/Games/{GB,GBC,GBA,NES,SNES,PS1,MD,SMS,GG,...}
   Slot/BIOS/                       -> only files Jeff supplies
   Slot/Saves/  Slot/States/  Slot/Labels/  Slot/Config/  Slot/Fonts/
+  Slot/Labels/<DIR>/<stem>.png     -> 1× labels, preloaded on the Mac (Phase A)
+  Slot/Labels/NES/Famicom/<stem>.png  -> NES games that use the Famicom cart
   Slot/Overlays/                   -> 320×480 PNGs, not the Brick’s 1024×768
   (Adam may also create roms/, bios/, savestates/ at the TF2 root for
    standalones in phase 3; we can symlink or follow Adam’s paths until
    cores are embedded in phase 5)
 ```
 
-Keep the `Slot/` folder shape on TF2 so a Brick library can be copied the way `rg35xxsp/copy-from-brick.sh` already does: Games, BIOS, Saves, States, Labels, Fonts, Config. Do not copy `System/` (wrong CPU) or 1024×768 overlays. The frontend binary and OPK are named Slotted; the library folder name stays `Slot/` so cards can be shared.
+Keep the `Slot/` folder shape on TF2 so a Brick library can be copied the way `rg35xxsp/copy-from-brick.sh` already does: Games, BIOS, Saves, States, Labels, Fonts, Config. Do not copy `System/` (wrong CPU) or 1024×768 overlays. The frontend binary and OPK are named Slotted; the library folder name stays `Slot/` so cards can be shared. **Labels on this card are a 1× set** (Phase A); do not mix them with the Brick’s 2× labels if the same library tree is later used in a Brick or SP, or the art will look soft on those screens. Games, saves, and BIOS can still be shared.
 
 Conservative TF2 format: **FAT32, MBR**, one partition. Older Adam guides also wanted a **blank volume label**; follow the Adam wiki at flash time. Adam v2.0 added exFAT, which avoids the 4 GiB file limit for large PS1 images, but FAT32 is the path every guide documents. Prefer `.pbp` or split dumps for discs that would exceed 4 GiB.
 
@@ -282,14 +286,113 @@ That is the right approach on a ~1 GHz MIPS with a weak GC860:
 Map evdev once on hardware (D-pad, ABXY, L1/L2/R1/R2, Start, Select, Volume, Power). Suggested menu conventions, to be confirmed against Adam’s SimpleMenu habits and Slot’s Brick map:
 
 - **A** confirm, **B** back, **Start** or **Select** menu, **L1/R1** change shelf, **Power** (short) sleep or the power menu, **Power** (hold) shutdown.
-- No stick, no lid, no LEDs, no Wi-Fi rows. Hide Update, Wi-Fi, and two-player link. The SP already hides Update for the same “wrong binary” reason; here the hardware cannot join a network at all.
+- No stick, no lid, no LEDs, no Wi-Fi rows. Hide Update, Wi-Fi, Cart Art (and its ScreenScraper login), and two-player link. HOME → Cart Art is replaced by a short note that labels were preloaded on a computer. The SP already hides Update for the same “wrong binary” reason; here the hardware cannot join a network at all.
 - Rumble can be a later nicety (the motor exists).
 
 ---
 
 ## 8. Phased build plan and risks
 
-Nothing in phases 0–1 writes a card until Jeff says yes.
+The first work is Phase A, on the Mac, with no card involved. Nothing in phases A, 0, or 1 writes a card until Jeff says yes, names the card, and we have checked its label.
+
+### Phase A — Preload all cart art on the Mac (first step)
+
+The RG280V has no Wi-Fi, so it must never look up art. Every label for the games that will live on TF2 is made on the Mac first, then copied onto the card only when Jeff has cards and says yes to a flash. This comes before Phase 0.
+
+This phase uses the `slot-cartart` engine from PR #39 (`cursor/cartart`): ScreenScraper lookup, detect / deskew / background removal / crop / fit to each system’s label window, cached PNG. The older built-in art lists are gone there. This branch still has an older tree, so the first implementation step is to rebase `cursor/rg280v-plan` onto `cursor/cartart` once that work is ready to take (PR #39 is still draft; the rebase will also bring the Android Phase 3 stack that cartart currently sits on). The preload tool is then built and run on the Mac; its output is reviewed with Jeff; only after that, and only after an explicit yes, does card prep start.
+
+#### Host-side batch tool
+
+A new Mac CLI (working name `rg280v-preload`, living under `tools/cartart/` or as a `slot` example) walks the ROM set for the **21 shipped systems** (the 17 that run well plus SNES, PS1, Arcade, and 32X). It does not walk N64, DS, or PSP.
+
+For each game it:
+
+1. Skips the game if `Labels/<DIR>/<stem>.png` is already a non-empty PNG (and, for a NES Famicom cart, `Labels/NES/Famicom/<stem>.png`). Reruns are therefore resumable and cheap.
+2. Looks the game up on ScreenScraper the same way the device client does (`crates/slot/src/cart_art_ss.rs`): ROM name, CRC for files up to 64 MB, size; `jeuRecherche` as a fallback if `jeuInfos` misses. Calls go only to `*.screenscraper.fr`.
+3. Downloads one picture at a time in that system’s tier order (cart: support-texture → support-2D → box-2D → wheel; PS1 starts with the photo; arcade the real marquee; and the other profiles in `docs/cart-art.md`), fits it with `slot-cartart`, and stops at the first label that fits.
+4. Writes `Labels/<DIR>/<stem>.png` in the exact layout the shelf already reads. Raw downloads and API URLs are not kept in that tree (a private cache of lookup metadata, with credentials and media URLs stripped, is fine so a rerun does not repeat `jeuInfos`).
+5. Spaces calls **1.2 s** apart on one thread by default. If Jeff’s ScreenScraper account reports `maxthreads` greater than 1, the tool may use that many concurrent lookups — never more than the account allows, and it must stop for the day on a quota or auth error (401/403/423/426/429/430/431) and resume later. Developer-only access is one thread, about 10k–20k requests a day, and a 128 KB/s cap.
+6. Writes a report of misses (not found, no usable picture, fit failed, quota) so they can be filled by hand.
+
+Credentials come from the gitignored `screenscraper.properties` (repo root, `android/`, or `SLOT_SS_PROPERTIES`): the developer id already used for Brick builds, plus Jeff’s own ScreenScraper user login (the shared developer quota is too small to run without a user account). **Never print, log, or commit the developer or user passwords.** The existing `redact` path stays in effect. The test script `tools/cartart/fetch_ss.py` is only the 74-game fixture (raw media, developer login, no fit-to-window step) and is not this tool.
+
+`tools/cartart/sheet.py` (and `montage.py`) should build a contact sheet per system, plus a page of misses, for Jeff to review on the Mac before any card is touched.
+
+#### Label resolution: 1× the window
+
+Brick and SP write labels at **twice** the label window, capped at 512 px (mean 249 KB, max about 500 KB; about 250 MB per 1,000 games). For the RG280V we write **1× the same window** (no 2×), still as opaque RGB PNGs.
+
+Why 1×:
+
+- The 2.8″ 320×480 panel is about **206 PPI**. The TrimUI Brick’s 2.0″ 1024×768 panel is about **640 PPI**, which is why Brick keeps 2×. The RG35XX SP shows the 640×480 layout 1:1, so its 2× labels are twice the framebuffer. On the RG280V, Phase 2 presents an integer half of that layout (320×240 letterboxed). A 1× PNG is already twice the pixels that will be drawn, which is the same sharpness relationship the SP gets from 2×.
+- A later 320×480 portrait shelf can enlarge the carts, but the current windows already go up to ~300 px in the 640-wide layout (half of that on today’s present). 1× still covers a portrait cart that grows toward the 320 px width. We can regenerate at 2× later if a portrait UI actually needs it; we should not pay the size now.
+- Disk and the 512 MB budget: 1× is mean **79 KB**, max about 162 KB (from the 74-game test in `CARTART-PROGRESS.md`). At 2× the same set would be about three times as large, and every decode is a bigger RGBA buffer.
+
+The window sizes themselves stay the ones `slot_ui::label_size` already uses (examples: GB 220×195, NES 132×222, SNES 216×99, PS1 300×300, arcade 330×90). Fitting is still done for those windows; only the output scale changes (`label_out` uses a factor of 1 instead of `min(2, 512/max_side)`).
+
+#### Device side
+
+After the rebase, the RG280V build (`--features rg280v`, network off) must:
+
+- Read only preloaded files from `Slot/Labels/<DIR>/<stem>.png` (and `Labels/NES/Famicom/` where needed). A missing file keeps the file-name label, same as today.
+- Hide or disable HOME → Cart Art, the ScreenScraper login, GET CART ART, and the on-cart FIND A LABEL network path. In their place, a short note: **“Labels are preloaded. This device has no Wi-Fi.”**
+- Compile out `cart_art_ss` and any rustls/ring path (already gated). Do not bake ScreenScraper developer credentials into the OPK.
+
+#### ROM list, counts, time, and disk
+
+The read-only source is **EVO-X1 `D:\Emulation\ROMS`**. Do not write to that drive, and do not use E: for this. The Brick card was not in F: when these counts were taken (27 November 2026), so this is the full EmulationStation tree, not necessarily the curated set that will actually be copied to a 64 or 128 GB TF2. The preload should walk **the set Jeff confirms for the card**. Until then, the numbers below are an upper bound: every unique ROM stem in the folders that map to the 21 shipped systems.
+
+Mapped folders (primary name first; a second name is used when the primary is empty):
+
+| Shelf | EVO folder(s) | Games (unique stems) |
+| :--- | :--- | ---: |
+| GB | `GB` | 539 |
+| GBC | `GBC` | 460 |
+| GBA | `GBA` | 949 |
+| NES | `NES` | 688 |
+| SNES | `snes` | 768 |
+| PS1 | `PSX` (`.chd`) | 78 |
+| MD | `genesis` | 971 |
+| SMS | `mastersystem` | 242 |
+| GG | `gamegear` | 226 |
+| Arcade | union of `FBNEO`, `mame`, `CPS1`, `CPS2`, `CPS3`, `neogeo` (`arcade` is empty) | 796 |
+| PCE | `tg16` (`pcengine` is empty) | 94 |
+| A2600 | `ATARI2600` | 50 |
+| INTV | `Intellivision` | 168 |
+| LYNX | `atarilynx` | 84 |
+| A7800 | `ATARI7800` | 30 |
+| GW | `gameandwatch` | 59 |
+| Coleco | `colecovision` | 95 |
+| A5200 | `ATARI5200` | 32 |
+| A800 | `ATARI800` | 49 |
+| Vectrex | `vectrex` | 36 |
+| 32X | `sega32x` (`sega32xna` is empty) | 34 |
+| **Total, 21 systems** | | **6,448** |
+
+N64 (679), DS (235), and PSP (633) are in the same tree and **are not preloaded**.
+
+A 64 GB TF2 may not hold this entire dump plus PS1 CHDs; a curated Brick-style subset would be smaller and faster. If Jeff points us at that set (or puts the Brick card in F:), we recount and run against that list instead.
+
+**ScreenScraper time** (network-bound; fitting is ~8 ms a game on the Mac mini). At one thread, 1.2 s between calls, typically one lookup and one picture, a 300 KB download at the 128 KB/s developer cap is about 2.3 s, so about **5 seconds a game**, or about **9 hours** for 6,448 games. A user account that reports 2 or 5 threads can cut that to roughly **4–5 hours** or **about 2 hours**. A level-1 daily cap of 20,000 requests covers one lookup plus one picture for this set (~13,000 calls) in a single day; extra `jeuRecherche` fallbacks or retries could approach the cap, in which case the tool stops and resumes the next day. The output is written under `/Users/jeff/Shared-Space/rg280v/Slot/Labels/` so a later copy onto TF2 is a straight tree copy.
+
+**Disk for 6,448 labels at 1×:** about **0.5 GB** at the 79 KB mean, up to about **1.0 GB** if everything hits the 162 KB max. The same set at 2× would be about 1.6 GB mean. Fitting and encode stay on the Mac; the handheld only decodes the PNGs.
+
+#### Manual path for missing labels
+
+Games ScreenScraper cannot fill stay on the miss report and show the file-name label on the shelf until Jeff adds a PNG:
+
+- Drop a finished label at `Slot/Labels/<DIR>/<stem>.png`, or `Slot/Labels/NES/Famicom/<stem>.png` for a Famicom cart. The stem must match the ROM file name (not including the extension).
+- Or run the preload tool on a single game with a source image (a scan, a photo, a box front) and have `slot-cartart` fit it to that system’s window, then write the same path.
+
+No BIOS, keys, or firmware are downloaded as part of this phase. The ROM source is read-only.
+
+#### Order of operations
+
+1. Rebase `cursor/rg280v-plan` onto the cartart work (`cursor/cartart`, PR #39). Do not merge either PR until Jeff says yes.
+2. Build the host preload CLI; dry-run it against the confirmed ROM list (counts, stems, already-cached labels) without calling the API until Jeff has a user login in the gitignored properties file.
+3. Run the preload on the Mac mini into `/Users/jeff/Shared-Space/rg280v/Slot/Labels/`.
+4. Build contact sheets and review them with Jeff. Fill misses by hand or with a one-game fit.
+5. When Jeff has cards and says yes to flashing: Phase 0 (Adam on TF1), then copy Games, the preloaded Labels, and the Slotted OPKs onto TF2.
 
 ### Phase 0 — Bring the hardware up (Adam only)
 
@@ -343,7 +446,7 @@ Cross-compile the cores we already vendor, where they have a MIPS path or are po
 
 ### Phase 6 — Polish
 
-Sleep and shutdown, power menu, rumble, 320×480 overlays, a computer-side or USB-tether path for cart art and RetroAchievements, wiki attribution, hide unsupported shelves in Library → Systems by default. Still no BIOS downloads, and still no card flash without a yes.
+Sleep and shutdown, power menu, rumble, 320×480 overlays, wiki attribution, hide unsupported shelves in Library → Systems by default. Cart art is already on the card from Phase A; a later USB or desktop run of the same preload tool is only for games added after the first pass. RetroAchievements still need a USB-tether or computer-side path if we want them at all. Still no BIOS downloads, and still no card flash without a yes.
 
 ### Risk summary
 
@@ -358,7 +461,7 @@ Sleep and shutdown, power menu, rumble, 320×480 overlays, a computer-side or US
 | N64 / DS / PSP | n/a | Hidden |
 | Adam image is from 2022 | Medium | Still the supported base; toolchain is the 2022-09-22 tag; we can apply the official OD update OPK later |
 | Wrong TF slot or wrong kernel | High for first boot | Written into phase 0; Cancel format prompts; checksum the image |
-| No Wi-Fi | Accepted | Hide those menus; art and achievements later over USB or a desktop tool |
+| No Wi-Fi | Accepted | Preload every label on the Mac (Phase A); hide Cart Art, Wi-Fi, and Update on the device; achievements only later over USB or a desktop tool |
 | FBNeo licence | Accepted | Slot stays free; no donation prompts |
 
 ---
@@ -370,7 +473,7 @@ Sleep and shutdown, power menu, rumble, 320×480 overlays, a computer-side or US
 - It is not a promise that N64, DS or PSP will be playable.
 - It is not a rename of the Brick or SP builds. Those stay Slot. The RG280V port and the Android APK are both called Slotted.
 
-When Jeff has cards and says to flash TF1, the first concrete step is phase 0: Adam v2.1, RG280V kernel, a known-good boot into SimpleMenu, then copy the already-built Slotted hello OPK onto TF2 and test it on the device.
+The first work, which does not need a card, is Phase A: preload every label on the Mac and review the contact sheets with Jeff. When Jeff has cards and says to flash TF1, the first on-device step is Phase 0: Adam v2.1, RG280V kernel, a known-good boot into SimpleMenu, then copy the already-built Slotted OPKs and the preloaded `Slot/Labels/` onto TF2 and test them on the device.
 
 ---
 
@@ -394,5 +497,6 @@ When Jeff has cards and says to flash TF1, the first concrete step is phase 0: A
 - rustc book, [Platform Support](https://doc.rust-lang.org/nightly/rustc/platform-support.html) and [mipsel-unknown-linux-gnu](https://doc.rust-lang.org/stable/rustc/platform-support/mipsel-unknown-linux-gnu.html) — Tier 3, no prebuilt artifacts.
 - [MaulingMonkey/rust-opendingux-test](https://github.com/MaulingMonkey/rust-opendingux-test) and [Notes.md](https://github.com/MaulingMonkey/rust-opendingux-test/blob/master/Notes.md) — custom uClibc hard-float target, soft-float trap, `std::env::args`.
 - Community boot and LED threads: [r/RG280V, faint green light / wrong TF slot](https://www.reddit.com/r/RG280V/comments/1p731sd/if_your_rg280v_has_a_faint_green_light_but_will/); [r/RG280V, black screen, red charge LED](https://www.reddit.com/r/RG280V/comments/11bigzn/rg280v_wont_power_on_black_screen_battery_works/); [r/SBCGaming, will not turn on](https://www.reddit.com/r/SBCGaming/comments/zvifk2/rg280v_not_turning_on/); [r/RG350, solid vs blinking red](https://www.reddit.com/r/RG350/comments/rexlvv/rg280v_charging_red_light_vs_blinking_red_light/).
-- This repository: `crates/slot-store/src/platform.rs` (24 systems), `docs/rg35xxsp.md` (SP card layout and 640×480 layout), `crates/slot-gfx/src/fbdev.rs` and `surface.rs` (EGL/GLES, 640×480 logical layout, 1024×768 Brick panel), `crates/slot-ui/src/turn.rs` (pre-rendered insert frames), `crates/slot/src/input/evdev.rs`, device ALSA audio.
+- This repository: `crates/slot-store/src/platform.rs` (24 systems), `docs/rg35xxsp.md` (SP card layout and 640×480 layout), `crates/slot-gfx/src/fbdev.rs` and `surface.rs` (EGL/GLES, 640×480 logical layout, 1024×768 Brick panel), `crates/slot-ui/src/turn.rs` (pre-rendered insert frames), `crates/slot/src/input/evdev.rs`, device ALSA audio, `docs/cart-art.md` and `crates/slot-cartart` (label engine and 1× / 2× sizes; PR #39), `crates/slot/src/cart_art_ss.rs` and `crates/slot-store/src/scan.rs` (ScreenScraper client and `Labels/<DIR>/<stem>.png`).
+- EVO-X1 `D:\Emulation\ROMS` counted read-only on 27 November 2026 for the Phase A estimates. The Brick card was not in F: that day.
 
