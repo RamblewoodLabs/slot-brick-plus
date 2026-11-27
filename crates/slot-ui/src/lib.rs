@@ -95,7 +95,7 @@ pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOT
 pub use power_menu::{menu_face, swap_ab_text, PauseChoice, PowerChoice, MENU_PAD};
 pub use quick_menu::{
     quick_caret_face, quick_label_face, quick_legend_faces, quick_pitch, quick_value_face,
-    quick_value_room, set_brick_pro, set_grainbrick, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, PIP,
+    quick_value_room, set_brick_pro, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, PIP,
     QUICK_EDGE, QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
 };
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};

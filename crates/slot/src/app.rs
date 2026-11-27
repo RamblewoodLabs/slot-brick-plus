@@ -487,7 +487,7 @@ pub struct App {
     powering_off: bool,
     /// An update was swapped in: Slot ends, for launch.sh to start the new one.
     updating: bool,
-    /// System → GrainBrick picked: the app's folder and the Python to run it with.
+    /// HOME → Apps → GrainBrick picked: the app's folder and the Python to run it with.
     launching: Option<(PathBuf, PathBuf)>,
     /// HOME → System → Reset Settings: asked (A again resets) or done, until the menu moves on.
     reset_asked: Option<QuickValue>,
@@ -832,7 +832,6 @@ impl App {
             let model = slot_power::model();
             eprintln!("slot: running on a TrimUI {}", model.name());
             slot_ui::set_brick_pro(model == slot_power::Model::BrickPro);
-            slot_ui::set_grainbrick(crate::apps::grainbrick(root).is_some());
             app.brick_leds = Some(crate::brick_led::BrickLeds::open(root));
         }
         #[cfg(feature = "rg35xxsp")]
@@ -1801,10 +1800,13 @@ impl App {
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
             | QuickRow::SoundVolume => None,
-            QuickRow::GrainBrick => match self.root.as_deref().map(crate::apps::python) {
-                Some(Some(_)) => None,
+            QuickRow::GrainBrick => match self.root.as_deref().map(|r| {
+                crate::apps::grainbrick(r).is_some() && crate::apps::python(r).is_some()
+            }) {
+                Some(true) => None,
                 _ => Some(QuickValue::Unavailable),
             },
+            QuickRow::Apps => None,
             QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
             QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
             QuickRow::AspectGba => Some(self.aspect_system_value(Platform::Gba)),
@@ -2547,7 +2549,7 @@ impl App {
         self.updating
     }
 
-    /// An installed app to open in Slot's place (System → GrainBrick): its folder and Python.
+    /// An installed app to open in Slot's place (HOME → Apps): its folder and Python.
     pub fn launching(&self) -> Option<&(PathBuf, PathBuf)> {
         self.launching.as_ref()
     }
@@ -3204,6 +3206,7 @@ impl App {
             | QuickRow::Clock
             | QuickRow::Online
             | QuickRow::System
+            | QuickRow::Apps
             | QuickRow::SystemSounds
             | QuickRow::Library
             | QuickRow::Lights => {
@@ -3607,7 +3610,8 @@ impl App {
             | QuickRow::AspectNes
             | QuickRow::AspectSnes
             | QuickRow::AspectPs1
-            | QuickRow::GrainBrick => return,
+            | QuickRow::GrainBrick
+            | QuickRow::Apps => return,
         }
         self.persist();
     }

@@ -2,13 +2,13 @@
 //!
 //! GrainBrick (https://github.com/ETRNLIAM/GrainBrick, a granular ambient sound instrument) is
 //! free to download but not open source, and its terms do not allow passing it on, so Slot does
-//! not ship it: System → GrainBrick appears only when the player has put it on the card, at
+//! not ship it: HOME → Apps → GrainBrick opens it only once the player has put it on the card, at
 //! `Slot/Apps/GrainBrick/` (the contents of the release's `grainbrick-beta2/` folder, with its
 //! `main.py`) or as the release extracts it, `Slot/Apps/grainbrick-beta2/`.
 //!
 //! It is a Python 3.12 program using pygame and its own NumPy, so it also needs a Python with
-//! pygame on the card or the system: `Slot/Apps/python/bin/python3` (a runtime the player
-//! provides), else the system's `python3`. Without one the row says Unavailable.
+//! pygame: `Slot/Apps/python/bin/python3` (the runtime the Brick card package carries,
+//! `brick/python-runtime`), else the system's `python3`. Without both, the row says Unavailable.
 //!
 //! Opening it: Slot settles its saves and replaces itself with `System/run-app.sh`, so the
 //! screen, the sound card and the buttons are all let go; the script runs the app and then

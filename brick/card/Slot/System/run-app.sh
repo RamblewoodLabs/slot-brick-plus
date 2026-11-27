@@ -1,5 +1,5 @@
 #!/bin/sh
-# Opens an app the player installed (System → GrainBrick) in Slot's place, then starts Slot again.
+# Opens an app the player installed (HOME → Apps → GrainBrick) in Slot's place, then starts Slot again.
 # Usage (by Slot only): run-app.sh <app folder> <python3>
 # Slot has replaced itself with this script (same process, which launch.sh or Slot OS's init is
 # waiting on), so the screen, the sound card and the buttons are free; its saves are settled.

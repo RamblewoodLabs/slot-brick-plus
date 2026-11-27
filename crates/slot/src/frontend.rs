@@ -1054,7 +1054,7 @@ impl Frontend {
         self.session.app().updating()
     }
 
-    /// System → GrainBrick was picked: its folder and the Python to run it with.
+    /// HOME → Apps → GrainBrick was picked: its folder and the Python to run it with.
     pub fn launching(&self) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         self.session.app().launching().cloned()
     }
