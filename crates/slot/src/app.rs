@@ -1062,6 +1062,9 @@ impl App {
     /// HOME → Library → Systems: a system's shelf shown or hidden. The last system with games
     /// on show can't be hidden: there would be no shelf left.
     fn toggle_system(&mut self, platform: Platform) {
+        if !platform.shipped() {
+            return;
+        }
         let mut hidden = self.state.hidden_systems;
         hidden[platform.index()] = !hidden[platform.index()];
         let left = self.all_carts.iter().any(|c| !hidden[c.platform.index()]);
@@ -5443,6 +5446,10 @@ impl App {
         if self.now().saturating_sub(at) >= PLAY_HOLD_MS {
             self.play(true);
         }
+    }
+
+    pub fn eject_after_external(&mut self) {
+        self.eject();
     }
 
     fn eject(&mut self) {

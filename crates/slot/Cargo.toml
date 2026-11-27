@@ -6,11 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-brick = ["device", "slot-gfx/brick", "slot-power/brick", "slot-ui/brick"]
+brick = ["device", "network", "slot-gfx/brick", "slot-power/brick", "slot-ui/brick"]
 # Same software as the Brick (shelves, cores, achievements) on the
 # RG35XX SP: Mali fbdev, the lid, and a 640x480 panel. See docs/rg35xxsp.md.
 rg35xxsp = ["brick", "slot-gfx/rg35xxsp", "slot-ui/rg35xxsp"]
-default = ["host"]
+# Slotted on the Anbernic RG280V (OpenDingux). Does not enable brick/host/network.
+rg280v = ["device", "slot-gfx/rg280v", "slot-ui/rg280v", "slot-store/rg280v", "slot-power/rg280v"]
+default = ["host", "network"]
+# rustls/ring: off on the RG280V (no Wi-Fi, and ring's C fails to build for mipsel uClibc).
+network = ["dep:ring", "dep:rustls", "dep:webpki-roots"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
 # The Brick build, run offscreen on a PC: see src/sim and brick/sim.sh.
@@ -32,9 +36,9 @@ libc = { workspace = true }
 lz4_flex = { workspace = true }
 miniz_oxide = { workspace = true }
 png = { workspace = true }
-ring = { workspace = true }
-rustls = { workspace = true }
-webpki-roots = { workspace = true }
+ring = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 
 [dev-dependencies]
 slot-gfx = { path = "../slot-gfx", default-features = false, features = ["test-support"] }
