@@ -53,6 +53,9 @@ pub struct SlotState {
     pub show_favorites: bool,
     /// SELECT on the Favorites shelf: recently added, or last played.
     pub favorites_sort: crate::FavoritesSort,
+    /// SELECT on a system's shelf: what it shows, in the order of Platform::ALL. None follows
+    /// HOME → Library → Sort By.
+    pub shelf_views: [Option<crate::ShelfView>; Platform::ALL.len()],
     /// Play time in hours and minutes rather than minutes alone.
     pub play_time_hours: bool,
     /// The selected game's name on a card under its cart.
@@ -199,6 +202,7 @@ impl Default for SlotState {
             hidden_systems: [false; Platform::ALL.len()],
             show_favorites: true,
             favorites_sort: crate::FavoritesSort::Added,
+            shelf_views: [None; Platform::ALL.len()],
             play_time_hours: false,
             title_card: true,
             rumble: true,
@@ -310,6 +314,11 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
     let _ = writeln!(text, "hidden_systems={}", hidden.join(","));
     let _ = writeln!(text, "show_favorites={}", s.show_favorites as u8);
     let _ = writeln!(text, "favorites_sort={}", s.favorites_sort.name());
+    for platform in Platform::ALL {
+        if let Some(view) = s.shelf_views[platform.index()] {
+            let _ = writeln!(text, "view_{}={}", platform_key(platform), view.name());
+        }
+    }
     let _ = writeln!(text, "ra_encore={}", s.ra_encore as u8);
     atomic_write(&state_path(root), text.as_bytes())
 }
@@ -333,6 +342,7 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut show_favorites = None;
     let mut ra_encore = None;
     let mut favorites_sort = None;
+    let mut shelf_views = [None; Platform::ALL.len()];
     let mut play_time_hours = None;
     let mut title_card = None;
     let mut rumble = None;
@@ -423,6 +433,11 @@ fn parse(text: &str) -> Option<SlotState> {
             "shader_ps1" => shader_ps1 = Shader::parse(value).filter(|s| Shader::NES.contains(s)),
             "ps1_dithering" => ps1_dithering = flag(value),
             _ => {
+                // view_snes=top100: what SELECT left that system's shelf showing.
+                if let Some(platform) = key.strip_prefix("view_").and_then(platform_value) {
+                    shelf_views[platform.index()] = crate::ShelfView::parse(value);
+                    continue;
+                }
                 // overlay_gb=<file name>: one for each system, empty for off.
                 let system = key.strip_prefix("overlay_").and_then(platform_value);
                 if let Some(platform) = system {
@@ -452,6 +467,7 @@ fn parse(text: &str) -> Option<SlotState> {
         hidden_systems,
         show_favorites: show_favorites.unwrap_or(fallback.show_favorites),
         favorites_sort: favorites_sort.unwrap_or(fallback.favorites_sort),
+        shelf_views,
         play_time_hours: play_time_hours.unwrap_or(fallback.play_time_hours),
         title_card: title_card.unwrap_or(fallback.title_card),
         rumble: rumble.unwrap_or(fallback.rumble),

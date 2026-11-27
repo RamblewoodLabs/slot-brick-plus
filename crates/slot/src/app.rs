@@ -448,6 +448,8 @@ pub struct App {
     slot_letter: Option<char>,
     /// What SELECT just switched the shelves' order to, shown in the slot as a letter is.
     slot_word: Option<&'static str>,
+    /// The pill in the shelf's top corner naming what SELECT has the shelf showing.
+    filter_pill: Option<(TexId, u32, u32)>,
     shelf_named: Option<Millis>,
     shelf_clock: slot_ui::Printed,
     hud: Hud,
@@ -759,6 +761,7 @@ impl App {
             name_pending: false,
             slot_letter: None,
             slot_word: None,
+            filter_pill: None,
             shelf_named: None,
             shelf_clock: slot_ui::Printed::default(),
             hud: Hud::new(),
@@ -964,7 +967,7 @@ impl App {
                     } else {
                         !show_favorites
                     };
-                    let mut carts: Vec<Cart> = if include {
+                    let all: Vec<Cart> = if include {
                         self.all_carts
                             .iter()
                             .filter(|c| c.platform == platform)
@@ -973,12 +976,24 @@ impl App {
                     } else {
                         Vec::new()
                     };
-                    slot_store::arrange(
+                    let mut carts = all.clone();
+                    slot_store::arrange_view(
                         &mut carts,
-                        self.state.library_sort,
+                        shelf_view(&self.state, platform),
                         favorites_only,
                         &self.library,
                     );
+                    // A filter left with nothing (its games gone from the card) shows them all,
+                    // rather than the shelf going missing.
+                    if carts.is_empty() {
+                        carts = all;
+                        slot_store::arrange(
+                            &mut carts,
+                            self.state.library_sort,
+                            favorites_only,
+                            &self.library,
+                        );
+                    }
                     let starred = carts
                         .iter()
                         .map(|c| self.library.get(platform, &c.stem).favorite)
@@ -1296,7 +1311,11 @@ impl App {
             return None;
         }
         let cart = self.shelf().carts.get(self.shelf().index)?;
-        Some(slot_ui::label_text(cart))
+        let name = slot_ui::label_text(cart);
+        Some(match self.ranked_place() {
+            Some(place) => format!("#{place} {name}"),
+            None => name,
+        })
     }
 
     /// A new name on the card: it fades in, holds, and fades out. Already showing, it holds
@@ -1389,39 +1408,80 @@ impl App {
         self.name_pending = true;
     }
 
-    /// SELECT on the shelf: the next order, named in the slot. On the Favorites shelf that
-    /// is recently added or last played; on every other shelf, A–Z, last played, most played.
+    /// SELECT on the shelf: the next order or filter, named in the slot and on the shelf's pill,
+    /// and kept for that shelf. On the Favorites shelf: recently added, last played, most played.
+    /// On a system's: A–Z, last played, most played, then the filters its games have data for
+    /// (TOP 100, POPULAR, BEST SELLING, FIRST PARTY).
     fn cycle_sort(&mut self) {
         if self.shelf_kind() == ShelfKind::Favorites {
-            self.state.favorites_sort = match self.state.favorites_sort {
-                FavoritesSort::Added => FavoritesSort::Recent,
-                FavoritesSort::Recent => FavoritesSort::Added,
-            };
+            let all = FavoritesSort::ALL;
+            let at = all
+                .iter()
+                .position(|v| *v == self.state.favorites_sort)
+                .unwrap_or(0);
+            self.state.favorites_sort = all[(at + 1) % all.len()];
             self.persist();
             self.arrange();
             self.slot_letter = None;
-            self.slot_word = Some(match self.state.favorites_sort {
-                FavoritesSort::Added => "ADDED",
-                FavoritesSort::Recent => "LAST PLAYED",
-            });
+            self.slot_word = Some(self.state.favorites_sort.label());
             self.shelf_named = None;
             return;
         }
-        let all = slot_store::LibrarySort::ALL;
-        let at = all
+        let Some(platform) = self.shelf_kind().system() else {
+            return;
+        };
+        let carts: Vec<Cart> = self
+            .all_carts
             .iter()
-            .position(|v| *v == self.state.library_sort)
-            .unwrap_or(0);
-        self.state.library_sort = all[(at + 1) % all.len()];
+            .filter(|c| c.platform == platform)
+            .cloned()
+            .collect();
+        let favorites_only = self.state.favorites_only && self.library.any_favorite(&carts);
+        let now = shelf_view(&self.state, platform);
+        let all = slot_store::ShelfView::ALL;
+        let at = all.iter().position(|v| *v == now).unwrap_or(0);
+        let next = (1..=all.len())
+            .map(|step| all[(at + step) % all.len()])
+            .find(|v| slot_store::view_shows(*v, &carts, favorites_only, &self.library))
+            .unwrap_or(slot_store::ShelfView::Az);
+        self.state.shelf_views[platform.index()] = Some(next);
         self.persist();
         self.arrange();
+        // A filter starts at its first game (#1), not wherever the last order had the shelf.
+        if matches!(next, slot_store::ShelfView::FirstParty) || next.ranked() {
+            self.shelf_mut().select(0);
+        }
         self.slot_letter = None;
-        self.slot_word = Some(match self.state.library_sort {
-            slot_store::LibrarySort::Az => "A–Z",
-            slot_store::LibrarySort::Recent => "LAST PLAYED",
-            slot_store::LibrarySort::MostPlayed => "MOST PLAYED",
-        });
+        self.slot_word = Some(next.label());
         self.shelf_named = None;
+    }
+
+    /// What the shelf's pill says: the order or filter SELECT has this shelf on.
+    pub fn filter_text(&self) -> Option<&'static str> {
+        if !matches!(self.phase, Phase::Shelf) || self.shelf().carts.is_empty() {
+            return None;
+        }
+        Some(match self.shelf_kind() {
+            ShelfKind::Favorites => self.state.favorites_sort.label(),
+            kind => shelf_view(&self.state, kind.system()?).label(),
+        })
+    }
+
+    /// The pill shows while a shelf is on anything but its usual A–Z (or, on Favorites, ADDED).
+    pub fn filter_pill_text(&self) -> Option<&'static str> {
+        self.filter_text().filter(|t| !matches!(*t, "A–Z" | "ADDED"))
+    }
+
+    pub fn set_filter_pill_face(&mut self, face: Option<(TexId, u32, u32)>) {
+        self.filter_pill = face;
+    }
+
+    /// The selected game's place in a ranked filter (TOP 100, POPULAR, BEST SELLING), from 1.
+    fn ranked_place(&self) -> Option<usize> {
+        let platform = self.shelf_kind().system()?;
+        shelf_view(&self.state, platform)
+            .ranked()
+            .then(|| self.shelf().index + 1)
     }
 
     /// The slot turns into a disc slot on the PlayStation's shelf, and back on the others.
@@ -3399,6 +3459,8 @@ impl App {
                 let all = slot_store::LibrarySort::ALL;
                 let at = all.iter().position(|v| *v == s.library_sort).unwrap_or(0);
                 s.library_sort = all[(at + if right { 1 } else { all.len() - 1 }) % all.len()];
+                // Sort By sets every shelf: what SELECT picked on each gives way to it.
+                s.shelf_views = Default::default();
                 self.persist();
                 self.arrange();
                 return;
@@ -3872,7 +3934,8 @@ impl App {
             // Back on the shelf: the game just played may have moved up.
             if matches!(self.phase, Phase::Shelf)
                 && (self.state.library_sort != slot_store::LibrarySort::Az
-                    || self.state.favorites_sort == FavoritesSort::Recent)
+                    || self.state.shelf_views.iter().flatten().any(|v| v.by_play())
+                    || self.state.favorites_sort != FavoritesSort::Added)
             {
                 self.save_library();
                 self.arrange();
@@ -4667,6 +4730,7 @@ impl App {
                         draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                 }
+                slot_ui::draw_filter_pill(self.filter_pill, out);
                 draw_footer(
                     self.battery,
                     self.battery_percent,
@@ -8120,4 +8184,10 @@ impl App {
         self.state.show_favorites = !self.state.show_favorites;
         self.arrange();
     }
+}
+
+/// What SELECT has a system's shelf showing: its own pick, or HOME → Library → Sort By.
+fn shelf_view(state: &SlotState, platform: Platform) -> slot_store::ShelfView {
+    state.shelf_views[platform.index()]
+        .unwrap_or_else(|| slot_store::ShelfView::from_sort(state.library_sort))
 }

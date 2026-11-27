@@ -22,7 +22,7 @@ snap next4
 press right
 wait 600
 snap next5
-# Back to the first favorite, then show last-played order.
+# Back to the first favorite, then show last-played and most-played order.
 press left
 press left
 press left
@@ -32,6 +32,9 @@ wait 400
 press select
 wait 800
 snap sort-last-played
+press select
+wait 800
+snap sort-most-played
 press select
 wait 800
 snap sort-added

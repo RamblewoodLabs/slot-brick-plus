@@ -245,8 +245,97 @@ fn a_favorites_shelf_holds_starred_games_of_every_system() {
     assert_eq!(a.slot_text().as_deref(), Some("LAST PLAYED"));
     assert_eq!(fav_order(&a), "SNES:Zelda MD:Sonic ARCADE:mslug GBA:Alpha INTV:Astrosmash GW:donkykong");
     a.apply(Action::GbaDown(Btn::Select));
+    assert_eq!(a.slot_text().as_deref(), Some("MOST PLAYED"));
+    assert_eq!(a.filter_text(), Some("MOST PLAYED"));
+    a.apply(Action::GbaDown(Btn::Select));
     assert_eq!(a.slot_text().as_deref(), Some("ADDED"));
+    assert_eq!(a.filter_text(), Some("ADDED"));
     assert_eq!(fav_order(&a), "INTV:Astrosmash MD:Sonic SNES:Zelda ARCADE:mslug GBA:Alpha GW:donkykong");
+}
+
+fn snes_order(a: &App) -> String {
+    a.system_carts()
+        .filter(|c| c.platform == Platform::Snes)
+        .map(|c| c.stem.split(" (").next().unwrap())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn ranked_app() -> (tempfile::TempDir, App) {
+    let d = tmp_root_with_carts(&["Alpha", "Beta"]);
+    for stem in [
+        "Chrono Trigger (USA)",
+        "Legend of Zelda, The - A Link to the Past (USA)",
+        "Not A Real Game (USA)",
+        "Super Mario World (USA)",
+    ] {
+        write_stub(&d, Platform::Snes, stem);
+    }
+    write_slot_state(d.path(), &SlotState { clock_set: true, ..SlotState::default() }).unwrap();
+    let (mut a, _) = app_booting_at(d.path(), 1_800_000_000);
+    while a.current_shelf_kind() != ShelfKind::System(Platform::Snes) {
+        press(&mut a, Btn::R1);
+    }
+    (d, a)
+}
+
+#[test]
+fn select_steps_a_shelf_through_the_filters_it_has_data_for_and_the_pill_names_each() {
+    let (d, mut a) = ranked_app();
+    assert_eq!(a.filter_text(), Some("A–Z"));
+    let mut seen = Vec::new();
+    for _ in 0..7 {
+        a.apply(Action::GbaDown(Btn::Select));
+        seen.push(a.filter_text().unwrap());
+        assert_eq!(a.slot_text().as_deref(), a.filter_text());
+        assert_eq!(a.filter_pill_text(), a.filter_text().filter(|t| *t != "A–Z"));
+        if a.filter_text() == Some("TOP 100") {
+            // Only the games the rankings know, best first, numbered on the title card.
+            assert_eq!(snes_order(&a).split(" | ").count(), 3, "{}", snes_order(&a));
+            assert!(!snes_order(&a).contains("Not A Real Game"));
+            assert!(a.title_card_text().unwrap().starts_with("#1 "));
+            assert_eq!(a.selected_stem(), a.system_carts().find(|c| c.platform == Platform::Snes).map(|c| c.stem.as_str()));
+            press(&mut a, Btn::Right);
+            assert!(a.title_card_text().unwrap().starts_with("#2 "));
+            press(&mut a, Btn::Left);
+        }
+        if a.filter_text() == Some("BEST SELLING") {
+            assert!(snes_order(&a).starts_with("Super Mario World"), "{}", snes_order(&a));
+        }
+        if a.filter_text() == Some("FIRST PARTY") {
+            assert_eq!(snes_order(&a), "Legend of Zelda, The - A Link to the Past | Super Mario World");
+            assert!(!a.title_card_text().unwrap().starts_with('#'));
+        }
+    }
+    assert_eq!(
+        seen,
+        ["LAST PLAYED", "MOST PLAYED", "TOP 100", "POPULAR", "BEST SELLING", "FIRST PARTY", "A–Z"]
+    );
+    // Each shelf keeps its own: SNES on TOP 100, and the GBA shelf (no data for its games)
+    // still A–Z, and SELECT there skips the filters it has nothing for.
+    for _ in 0..3 {
+        a.apply(Action::GbaDown(Btn::Select));
+    }
+    assert_eq!(a.filter_text(), Some("TOP 100"));
+    a.settle_saves();
+    let state = read_slot_state(d.path());
+    assert_eq!(state.shelf_views[Platform::Snes.index()], Some(slot_store::ShelfView::Top100));
+    assert_eq!(state.shelf_views[Platform::Gba.index()], None);
+    press(&mut a, Btn::L1);
+    assert_eq!(a.current_shelf_kind(), ShelfKind::System(Platform::Gba));
+    assert_eq!(a.filter_text(), Some("A–Z"));
+    for want in ["LAST PLAYED", "MOST PLAYED", "A–Z"] {
+        a.apply(Action::GbaDown(Btn::Select));
+        assert_eq!(a.filter_text(), Some(want));
+    }
+    // Back after a restart: the SNES shelf is still on TOP 100.
+    a.settle_saves();
+    let (mut b, _) = app_booting_at(d.path(), 1_800_000_100);
+    while b.current_shelf_kind() != ShelfKind::System(Platform::Snes) {
+        press(&mut b, Btn::R1);
+    }
+    assert_eq!(b.filter_text(), Some("TOP 100"));
+    assert_eq!(snes_order(&b).split(" | ").count(), 3);
 }
 
 #[test]

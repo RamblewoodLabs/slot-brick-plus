@@ -197,6 +197,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             hidden_systems: [false; Platform::ALL.len()],
             show_favorites: true,
             favorites_sort: slot_store::FavoritesSort::Added,
+            shelf_views: [None; Platform::ALL.len()],
             play_time_hours: false,
             title_card: true,
             rumble: true,
@@ -258,8 +259,12 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         swap_ab: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
+        favorites_sort: slot_store::FavoritesSort::MostPlayed,
         ..SlotState::default()
     };
+    let mut s = s;
+    s.shelf_views[Platform::Snes.index()] = Some(slot_store::ShelfView::Top100);
+    s.shelf_views[Platform::Arcade.index()] = Some(slot_store::ShelfView::Popular);
     write_slot_state(d.path(), &s).unwrap();
     assert_eq!(read_slot_state(d.path()), s);
     let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
@@ -285,6 +290,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "swap_ab=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
+        "favorites_sort=most",
+        "view_snes=top100",
+        "view_arcade=popular",
     ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
