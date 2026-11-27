@@ -15,6 +15,7 @@ slot-power = { path = "../slot-power" }
 slot-store = { path = "../slot-store" }
 
 [dev-dependencies]
+slot-cartart = { path = "../slot-cartart" }
 slot-gfx = { path = "../slot-gfx", features = ["test-support"] }
 tempfile.workspace = true
 
