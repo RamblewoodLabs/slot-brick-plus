@@ -964,3 +964,12 @@ fn a_nes_game_wears_the_label_of_the_cart_it_is_on() {
     assert_eq!(shown_label(&on(Some(Outline::Rounded), Some("nes.png"), None)), Some(std::path::Path::new("nes.png")));
     assert_eq!(shown_label(&on(None, None, Some("fc.png"))), Some(std::path::Path::new("fc.png")));
 }
+
+#[test]
+fn an_arcade_label_reads_the_games_title_not_its_short_name() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join("Games/ARCADE")).unwrap();
+    std::fs::write(d.path().join("Games/ARCADE/1941.zip"), b"zip").unwrap();
+    let cart = &scan(d.path()).unwrap()[0];
+    assert_eq!(label_text(cart), "1941 Counter Attack");
+}

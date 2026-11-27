@@ -285,11 +285,11 @@ impl Shelf {
 
     fn start_of_letter(&self, from: usize) -> usize {
         let n = self.carts.len();
-        let letter = slot_store::initial(&self.carts[from].stem);
+        let letter = slot_store::initial(&self.carts[from].shown_name());
         let mut at = from;
         for _ in 0..n {
             let before = (at as i32 - 1).rem_euclid(n as i32) as usize;
-            if slot_store::initial(&self.carts[before].stem) != letter {
+            if slot_store::initial(&self.carts[before].shown_name()) != letter {
                 break;
             }
             at = before;
@@ -303,11 +303,11 @@ impl Shelf {
             return;
         }
         let wrap = |i: i32| i.rem_euclid(n as i32) as usize;
-        let here = slot_store::initial(&self.carts[self.index].stem);
+        let here = slot_store::initial(&self.carts[self.index].shown_name());
         if self
             .carts
             .iter()
-            .all(|c| slot_store::initial(&c.stem) == here)
+            .all(|c| slot_store::initial(&c.shown_name()) == here)
         {
             return;
         }
@@ -316,7 +316,7 @@ impl Shelf {
                 let mut at = self.index;
                 for _ in 0..n {
                     at = wrap(at as i32 + 1);
-                    if slot_store::initial(&self.carts[at].stem) != here {
+                    if slot_store::initial(&self.carts[at].shown_name()) != here {
                         break;
                     }
                 }

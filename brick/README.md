@@ -130,7 +130,7 @@ work, `.chd` included.
 
 **Genesis, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx, Atari 7800:**
 each has a shelf. Put ROMs in `Slot/Games/MD` (`.md` `.gen` `.smd` `.bin`), `SMS` (`.sms`), `GG` (`.gg`),
-`ARCADE` (`.zip`, the zip itself, not unpacked), `PCE` (`.pce` `.sgx`), `A2600` (`.a26` `.bin`),
+`ARCADE` (`.zip`, the zip itself, not unpacked, keeping its MAME/FBNeo short name such as `mslug.zip`; the shelf shows the game's title), `PCE` (`.pce` `.sgx`), `A2600` (`.a26` `.bin`),
 `INTV` (`.int` `.bin`), `LYNX` (`.lnx`) and `A7800` (`.a78` `.bin`). Genesis is a 6-button pad
 (B is B, A is C, Y is A, X is Y, L is X, R is Z). On the 2600 and 7800, L and R are the difficulty
 switches. On Intellivision, hold L or R for the keypad. Intellivision needs `Slot/BIOS/exec.bin` and

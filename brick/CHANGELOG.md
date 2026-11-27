@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- The Arcade shelf shows each game's real title ("Metal Slug - Super Vehicle-001", not "mslug") and sorts and jumps by letter on it. Keep arcade zips named by their MAME/FBNeo short name, as the core needs: Slot looks the title up in a table made from the FBNeo and MAME DATs, so a new set is named with no work. The label stays `Labels/ARCADE/<short name>.png`.
 - CACHE ACHIEVEMENT SETS, over Wi-Fi, now saves sets only for favorited games and the 20 most recently played, including badges, and can be resumed (sets already on the card are skipped). Starring a game or starting one queues its set in the background. Unstarring stops prioritizing it but leaves a saved set on the card.
 - HOME → Online → Encore Mode (on by default): already-earned achievements pop and unlock again when you replay them. This is still softcore: the server will not count a second award.
 - An unlock toast has a short burst around the badge, and stays up a second longer so it can be enjoyed.
