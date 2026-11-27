@@ -1,0 +1,23 @@
+The cores added for Genesis / Mega Drive, Master System, Game Gear, Arcade,
+TurboGrafx-16 / PC Engine, Atari 2600, Intellivision, Atari Lynx and Atari 7800.
+Each one is under its own license; they are not all the GNU GPL. Each one's source,
+at the commit it was built from, is in vendor/<core>-src.tar.gz.
+
+    Genesis Plus GX     non-commercial (see genesis-plus-gx-LICENSE.txt)
+                        https://github.com/libretro/Genesis-Plus-GX
+    FinalBurn Neo       non-commercial (see fbneo-LICENSE.txt)
+                        https://github.com/libretro/FBNeo
+    Beetle PCE Fast     GPL-2.0+       https://github.com/libretro/beetle-pce-fast-libretro
+    Stella 2014         GPL-2.0+       https://github.com/libretro/stella2014-libretro
+    FreeIntv            GPL-2.0+       https://github.com/libretro/FreeIntv
+    Handy               zlib (see handy-zlib.txt)
+                        https://github.com/libretro/libretro-handy
+    ProSystem           GPL-2.0+       https://github.com/libretro/prosystem-libretro
+
+GPL-2.0 is the text Slot already ships (fceumm-GPL-2.0.txt).
+
+Genesis Plus GX may be redistributed but not sold or used in a commercial product or
+activity; its notice, and the licenses of the parts it includes, are reproduced in full
+in genesis-plus-gx-LICENSE.txt. FinalBurn Neo may be used and redistributed only for
+non-commercial purposes, and its license must be distributed with it verbatim; it is
+in fbneo-LICENSE.txt, unchanged. Slot is free and asks for nothing while it ships them.
