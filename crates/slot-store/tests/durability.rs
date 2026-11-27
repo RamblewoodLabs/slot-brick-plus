@@ -197,6 +197,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             hidden_systems: [false; Platform::ALL.len()],
             show_favorites: true,
             favorites_sort: slot_store::FavoritesSort::Added,
+            shelf_views: [None; Platform::ALL.len()],
             play_time_hours: false,
             title_card: true,
             rumble: true,
@@ -225,6 +226,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
             overlays: Default::default(),
+            ra_encore: true,
         }
     );
 }
@@ -257,8 +259,12 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         swap_ab: true,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
+        favorites_sort: slot_store::FavoritesSort::MostPlayed,
         ..SlotState::default()
     };
+    let mut s = s;
+    s.shelf_views[Platform::Snes.index()] = Some(slot_store::ShelfView::Top100);
+    s.shelf_views[Platform::Arcade.index()] = Some(slot_store::ShelfView::Popular);
     write_slot_state(d.path(), &s).unwrap();
     assert_eq!(read_slot_state(d.path()), s);
     let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
@@ -284,6 +290,9 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "swap_ab=1",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
+        "favorites_sort=most",
+        "view_snes=top100",
+        "view_arcade=popular",
     ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
@@ -588,4 +597,23 @@ fn the_sounds_volume_round_trips_and_a_value_off_its_steps_is_ignored() {
         std::fs::write(d.path().join("Config/slot.state"), text.replace("sound_volume=40", bad)).unwrap();
         assert_eq!(read_slot_state(d.path()).sound_volume, 100, "{bad}");
     }
+}
+
+#[test]
+fn encore_mode_is_on_by_default_and_the_toggle_is_kept() {
+    let d = tmp_root();
+    assert!(SlotState::default().ra_encore);
+    assert!(read_slot_state(d.path()).ra_encore, "a missing file is on");
+    let s = SlotState {
+        cart: Some("Emerald".into()),
+        clock_set: true,
+        ra_encore: false,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert!(!read_slot_state(d.path()).ra_encore);
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap().replace("ra_encore=0\n", "");
+    std::fs::write(&path, text).unwrap();
+    assert!(read_slot_state(d.path()).ra_encore, "an older file without the key stays on");
 }

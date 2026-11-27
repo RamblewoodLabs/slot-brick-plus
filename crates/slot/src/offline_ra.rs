@@ -12,19 +12,24 @@
 //! survives power loss. Unlocks are softcore only. A hardcore award is never queued.
 //! The server's "already unlocked" answer counts as sent. Any other refusal is kept and
 //! not submitted again.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use slot_cheevos::Console;
-use slot_store::Platform;
+use slot_store::{Cart, Library, Platform};
 
 const QUEUE: &str = "Config/Achievements/queue.txt";
 const SETS: &str = "Config/Achievements/sets";
 const SESSIONS: &str = "Config/Achievements/sessions";
 const LOGIN: &str = "Config/Achievements/login.json";
+const CACHE_QUEUE: &str = "Config/Achievements/cache-queue.txt";
+const CACHE_MISSES: &str = "Config/Achievements/cache-misses.txt";
+
+/// Recently played games included in the set cache, on top of every favorite.
+pub const RECENT_SET_CACHE: usize = 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Unlock {
@@ -1023,6 +1028,297 @@ fn json_number(body: &str, key: &str) -> Option<i64> {
     rest[..end].parse().ok()
 }
 
+/// A game whose set should be cached: a favorite, a recent play, or an explicit queue entry.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CacheKey {
+    pub platform: Platform,
+    pub stem: String,
+}
+
+fn platform_from_dir(name: &str) -> Option<Platform> {
+    Platform::ALL
+        .into_iter()
+        .find(|p| name.eq_ignore_ascii_case(p.dir_name()))
+}
+
+fn cache_key(platform: Platform, stem: &str) -> CacheKey {
+    CacheKey {
+        platform,
+        stem: stem.to_string(),
+    }
+}
+
+fn place_of(platform: Platform, stem: &str) -> String {
+    format!("{}\t{}", platform.dir_name(), flat(stem))
+}
+
+fn load_key_lines(root: &Path, rel: &str) -> Vec<CacheKey> {
+    let text = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((dir, stem)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(platform) = platform_from_dir(dir.trim()) else {
+            continue;
+        };
+        let stem = stem.trim();
+        if stem.is_empty() {
+            continue;
+        }
+        let key = cache_key(platform, stem);
+        if seen.insert(key.clone()) {
+            out.push(key);
+        }
+    }
+    out
+}
+
+fn save_key_lines(root: &Path, rel: &str, keys: &[CacheKey]) {
+    let mut text = String::new();
+    for key in keys {
+        text.push_str(&format!("{}\t{}\n", key.platform.dir_name(), key.stem));
+    }
+    let path = root.join(rel);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = slot_store::atomic_write(&path, text.as_bytes());
+}
+
+/// Games waiting to be cached because they were starred or launched.
+pub fn cache_queue(root: &Path) -> Vec<CacheKey> {
+    load_key_lines(root, CACHE_QUEUE)
+}
+
+/// Remember this game for the next background cache pass.
+pub fn queue_set(root: &Path, platform: Platform, stem: &str) {
+    if stem.is_empty() {
+        return;
+    }
+    let mut keys = load_key_lines(root, CACHE_QUEUE);
+    let key = cache_key(platform, stem);
+    if !keys.contains(&key) {
+        keys.push(key);
+        save_key_lines(root, CACHE_QUEUE, &keys);
+    }
+    // A fresh star or play should try again even if an earlier pass found no set.
+    let misses: Vec<CacheKey> = load_key_lines(root, CACHE_MISSES)
+        .into_iter()
+        .filter(|k| k != &cache_key(platform, stem))
+        .collect();
+    save_key_lines(root, CACHE_MISSES, &misses);
+}
+
+/// Stop prioritizing this game. An already cached set is left on the card.
+pub fn unqueue_set(root: &Path, platform: Platform, stem: &str) {
+    let keys: Vec<CacheKey> = load_key_lines(root, CACHE_QUEUE)
+        .into_iter()
+        .filter(|k| k.platform != platform || k.stem != stem)
+        .collect();
+    save_key_lines(root, CACHE_QUEUE, &keys);
+}
+
+fn cache_misses(root: &Path) -> HashSet<CacheKey> {
+    load_key_lines(root, CACHE_MISSES).into_iter().collect()
+}
+
+fn remember_miss(root: &Path, key: &CacheKey) {
+    let mut keys = load_key_lines(root, CACHE_MISSES);
+    if !keys.contains(key) {
+        keys.push(key.clone());
+        save_key_lines(root, CACHE_MISSES, &keys);
+    }
+}
+
+fn forget_queued(root: &Path, key: &CacheKey) {
+    let keys: Vec<CacheKey> = load_key_lines(root, CACHE_QUEUE)
+        .into_iter()
+        .filter(|k| k != key)
+        .collect();
+    save_key_lines(root, CACHE_QUEUE, &keys);
+}
+
+/// Favorites first, then the most recently played games up to `RECENT_SET_CACHE`,
+/// then any leftover queue entries that are still in `carts`. Each game once.
+pub fn cache_targets(carts: &[Cart], library: &Library, queued: &[CacheKey]) -> Vec<Cart> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for cart in carts {
+        if library.get(cart.platform, &cart.stem).favorite
+            && seen.insert(cache_key(cart.platform, &cart.stem))
+        {
+            out.push(cart.clone());
+        }
+    }
+    let mut recent: Vec<&Cart> = carts
+        .iter()
+        .filter(|c| library.get(c.platform, &c.stem).last_played > 0)
+        .collect();
+    recent.sort_by_key(|c| std::cmp::Reverse(library.get(c.platform, &c.stem).last_played));
+    for cart in recent.into_iter().take(RECENT_SET_CACHE) {
+        if seen.insert(cache_key(cart.platform, &cart.stem)) {
+            out.push(cart.clone());
+        }
+    }
+    for key in queued {
+        if seen.contains(key) {
+            continue;
+        }
+        if let Some(cart) = carts
+            .iter()
+            .find(|c| c.platform == key.platform && c.stem == key.stem)
+        {
+            seen.insert(key.clone());
+            out.push(cart.clone());
+        }
+    }
+    out
+}
+
+/// Keys that the next cache pass should consider, from library.txt and the queue.
+pub fn cache_wanted(library: &Library, queued: &[CacheKey]) -> Vec<CacheKey> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for (platform, stem, record) in library.records() {
+        if record.favorite && seen.insert(cache_key(platform, stem)) {
+            out.push(cache_key(platform, stem));
+        }
+    }
+    let mut recent: Vec<(i64, CacheKey)> = library
+        .records()
+        .filter(|(_, _, r)| r.last_played > 0)
+        .map(|(p, s, r)| (r.last_played, cache_key(p, s)))
+        .collect();
+    recent.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+    for (_, key) in recent.into_iter().take(RECENT_SET_CACHE) {
+        if seen.insert(key.clone()) {
+            out.push(key);
+        }
+    }
+    for key in queued {
+        if seen.insert(key.clone()) {
+            out.push(key.clone());
+        }
+    }
+    out
+}
+
+fn cached_places(root: &Path) -> HashSet<CacheKey> {
+    let mut out = HashSet::new();
+    let dir = root.join(SETS);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.extension().is_some_and(|e| e == "list") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("where=") else {
+                continue;
+            };
+            let Some((dir, stem)) = rest.split_once('\t') else {
+                continue;
+            };
+            let Some(platform) = platform_from_dir(dir) else {
+                continue;
+            };
+            out.insert(cache_key(platform, stem));
+        }
+    }
+    out
+}
+
+fn set_cached_hash(root: &Path, hash: &str) -> bool {
+    let key = hash.to_ascii_lowercase();
+    set_json(root, &key).is_file()
+}
+
+fn cache_gate() -> &'static Mutex<Gate> {
+    static GATE: OnceLock<Mutex<Gate>> = OnceLock::new();
+    GATE.get_or_init(|| {
+        Mutex::new(Gate {
+            next: Instant::now(),
+            running: false,
+        })
+    })
+}
+
+fn cache_line() -> &'static Mutex<Option<String>> {
+    static LINE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    LINE.get_or_init(|| Mutex::new(None))
+}
+
+/// Latest "Caching 3/12: Sonic" line, if a cache pass is running.
+pub fn cache_status() -> Option<String> {
+    cache_line()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+pub fn cache_busy() -> bool {
+    cache_gate()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .running
+}
+
+fn try_begin_cache() -> bool {
+    let mut gate = cache_gate().lock().unwrap_or_else(|e| e.into_inner());
+    if gate.running {
+        return false;
+    }
+    gate.running = true;
+    true
+}
+
+fn end_cache() {
+    if let Ok(mut gate) = cache_gate().lock() {
+        gate.running = false;
+    }
+    *cache_line().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+fn pending_uncached(root: &Path, retry_misses: bool) -> bool {
+    let wanted = cache_wanted(&Library::read(root), &cache_queue(root));
+    if wanted.is_empty() {
+        return false;
+    }
+    let cached = cached_places(root);
+    let misses = if retry_misses {
+        HashSet::new()
+    } else {
+        cache_misses(root)
+    };
+    wanted
+        .iter()
+        .any(|k| !cached.contains(k) && !misses.contains(k))
+}
+
+/// When Wi-Fi is up, cache any starred or recently played set that is not on the card yet.
+pub fn poke_cache(root: &Path, user: &str, token: &str) {
+    if cache_busy() || !pending_uncached(root, false) {
+        return;
+    }
+    let _ = CacheRun::begin(
+        root.to_path_buf(),
+        user.to_string(),
+        token.to_string(),
+        false,
+    );
+}
+
 /// Asks the server for one hashed game's set and session, and stores both.
 pub fn cache_hash(
     root: &Path,
@@ -1080,39 +1376,83 @@ pub struct CacheRun {
 }
 
 impl CacheRun {
+    /// HOME → Online → RetroAchievements → CACHE ACHIEVEMENT SETS: favorites,
+    /// the last `RECENT_SET_CACHE` played games, and anything still queued.
+    /// Already cached sets are skipped, so a cancelled pass can be resumed.
     pub fn start(root: PathBuf, user: String, token: String) -> Self {
+        Self::begin(root, user, token, true)
+    }
+
+    fn begin(root: PathBuf, user: String, token: String, retry_misses: bool) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        if !try_begin_cache() {
+            let _ = tx.send(CacheEvent::Done {
+                cached: 0,
+                missed: 0,
+                failed: 0,
+            });
+            return Self { cancel, rx };
+        }
         let flag = cancel.clone();
-        let _ = std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("slot-ra-cache".into())
             .spawn(move || {
                 let carts = slot_store::scan(&root).unwrap_or_default();
-                let total = carts.len();
+                let library = Library::read(&root);
+                let queued = cache_queue(&root);
+                let mut targets = cache_targets(&carts, &library, &queued);
+                let cached_already = cached_places(&root);
+                let misses = if retry_misses {
+                    HashSet::new()
+                } else {
+                    cache_misses(&root)
+                };
+                targets.retain(|cart| {
+                    let key = cache_key(cart.platform, &cart.stem);
+                    !cached_already.contains(&key) && !misses.contains(&key)
+                });
+                let total = targets.len();
                 let mut cached = 0;
                 let mut missed = 0;
                 let mut failed = 0;
-                for (done, cart) in carts.into_iter().enumerate() {
+                for (done, cart) in targets.into_iter().enumerate() {
                     if flag.load(std::sync::atomic::Ordering::Relaxed) {
                         break;
                     }
-                    let _ = tx.send(CacheEvent::Step {
-                        done,
-                        total,
-                        name: cart.stem.clone(),
-                    });
+                    let name = cart.stem.clone();
+                    let line = format!("Caching {}/{total}: {name}", done + 1);
+                    *cache_line().lock().unwrap_or_else(|e| e.into_inner()) = Some(line);
+                    let _ = tx.send(CacheEvent::Step { done, total, name });
+                    let key = cache_key(cart.platform, &cart.stem);
                     let Some(console) = console_of(cart.platform) else {
                         missed += 1;
+                        remember_miss(&root, &key);
+                        forget_queued(&root, &key);
                         continue;
                     };
                     let Some(hash) = slot_cheevos::hash_rom(console, &cart.rom) else {
                         missed += 1;
+                        remember_miss(&root, &key);
+                        forget_queued(&root, &key);
                         continue;
                     };
-                    let place = format!("{}\t{}", cart.platform.dir_name(), flat(&cart.stem));
+                    if set_cached_hash(&root, &hash) {
+                        cached += 1;
+                        forget_queued(&root, &key);
+                        continue;
+                    }
+                    let place = place_of(cart.platform, &cart.stem);
                     match cache_hash(&root, &user, &token, &hash, &place, post_form) {
-                        Ok(true) => cached += 1,
-                        Ok(false) => missed += 1,
+                        Ok(true) => {
+                            cached += 1;
+                            forget_queued(&root, &key);
+                        }
+                        Ok(false) => {
+                            missed += 1;
+                            remember_miss(&root, &key);
+                            forget_queued(&root, &key);
+                        }
                         Err(_) => failed += 1,
                     }
                     for _ in 0..4 {
@@ -1127,7 +1467,19 @@ impl CacheRun {
                     missed,
                     failed,
                 });
+                if cached > 0 {
+                    let note = if cached == 1 {
+                        "Cached 1 achievement set".into()
+                    } else {
+                        format!("Cached {cached} achievement sets")
+                    };
+                    *notes().lock().unwrap_or_else(|e| e.into_inner()) = Some(note);
+                }
+                end_cache();
             });
+        if spawned.is_err() {
+            end_cache();
+        }
         Self { cancel, rx }
     }
 
@@ -1456,5 +1808,106 @@ mod tests {
         let rejected = br#"{"Success":false,"Error":"Invalid user/token combination"}"#;
         let answer = exchange(root, Some(ask), Ok((200, rejected.to_vec())), 3).unwrap();
         assert!(String::from_utf8_lossy(&answer.1).contains("Invalid"));
+    }
+
+    fn test_cart(platform: Platform, stem: &str) -> Cart {
+        Cart {
+            platform,
+            stem: stem.into(),
+            rom: std::path::PathBuf::from(format!("Games/{}/{stem}.rom", platform.dir_name())),
+            label: None,
+            famicom_label: None,
+            title: stem.into(),
+            code: String::new(),
+            shell: None,
+        }
+    }
+
+    #[test]
+    fn cache_targets_are_favorites_and_the_most_recently_played() {
+        let carts: Vec<Cart> = (0..40)
+            .map(|i| test_cart(Platform::Gba, &format!("Game{i:02}")))
+            .collect();
+        let mut library = Library::default();
+        library.get_mut(Platform::Gba, "Game00").favorite = true;
+        library.get_mut(Platform::Gba, "Game01").favorite = true;
+        library.get_mut(Platform::Gba, "Game01").last_played = 5;
+        for i in 10..40 {
+            library
+                .get_mut(Platform::Gba, &format!("Game{i:02}"))
+                .last_played = i as i64;
+        }
+        let got = cache_targets(&carts, &library, &[]);
+        let stems: Vec<_> = got.iter().map(|c| c.stem.as_str()).collect();
+        assert_eq!(stems[0], "Game00");
+        assert_eq!(stems[1], "Game01");
+        // 20 most recent: Game39 .. Game20. Game01 is already included as a favorite.
+        assert_eq!(stems.len(), 22);
+        assert_eq!(stems[2], "Game39");
+        assert_eq!(stems[21], "Game20");
+        assert!(!stems.contains(&"Game19"));
+        assert!(!stems.contains(&"Game02"));
+    }
+
+    #[test]
+    fn a_queued_game_is_cached_and_an_unstar_leaves_a_saved_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let carts = vec![
+            test_cart(Platform::Gba, "Star"),
+            test_cart(Platform::Md, "Played"),
+            test_cart(Platform::Snes, "Other"),
+        ];
+        let mut library = Library::default();
+        library.get_mut(Platform::Gba, "Star").favorite = true;
+        library.get_mut(Platform::Md, "Played").last_played = 50;
+        queue_set(root, Platform::Snes, "Other");
+        queue_set(root, Platform::Snes, "Other");
+        let queued = cache_queue(root);
+        assert_eq!(queued.len(), 1);
+        let got = cache_targets(&carts, &library, &queued);
+        assert_eq!(
+            got.iter().map(|c| c.stem.as_str()).collect::<Vec<_>>(),
+            ["Star", "Played", "Other"]
+        );
+
+        // A set already on the card is not deleted when the game is unqueued.
+        let sets = root.join("Config/Achievements/sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        std::fs::write(sets.join("abc.json"), b"{}").unwrap();
+        std::fs::write(
+            sets.join("abc.list"),
+            "game=Other\nid=1\nwhere=SNES\tOther\n",
+        )
+        .unwrap();
+        unqueue_set(root, Platform::Snes, "Other");
+        assert!(cache_queue(root).is_empty());
+        assert!(sets.join("abc.json").is_file());
+        assert!(sets.join("abc.list").is_file());
+        let library = Library::default();
+        let got = cache_targets(&carts, &library, &cache_queue(root));
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn cache_wanted_caps_recent_plays_at_twenty() {
+        let mut library = Library::default();
+        for i in 0..30 {
+            library
+                .get_mut(Platform::Nes, &format!("N{i:02}"))
+                .last_played = i as i64 + 1;
+        }
+        library.get_mut(Platform::Nes, "Fav").favorite = true;
+        let wanted = cache_wanted(&library, &[cache_key(Platform::Gb, "Queued")]);
+        assert!(wanted.iter().any(|k| k.stem == "Fav"));
+        assert!(wanted.iter().any(|k| k.stem == "Queued"));
+        let recent: Vec<_> = wanted
+            .iter()
+            .filter(|k| k.stem.starts_with('N'))
+            .map(|k| k.stem.as_str())
+            .collect();
+        assert_eq!(recent.len(), 20);
+        assert_eq!(recent[0], "N29");
+        assert_eq!(recent[19], "N10");
     }
 }

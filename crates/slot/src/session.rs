@@ -573,7 +573,13 @@ impl Session {
         // Logged in to RetroAchievements: this game earns achievements (softcore).
         if let Some(account) = crate::ra::load(&self.root) {
             if let Some(console) = slot_cheevos::Console::from_id(platform.def().ra) {
-                emu.achievements(&self.root, &account.user, &account.token, console);
+                emu.achievements(
+                    &self.root,
+                    &account.user,
+                    &account.token,
+                    console,
+                    self.app.ra_encore(),
+                );
             }
         }
         self.app.set_snapshot(Box::new(emu.snapshot()));

@@ -130,7 +130,7 @@ work, `.chd` included.
 
 **Genesis, Master System, Game Gear, Arcade, TurboGrafx-16, Atari 2600, Intellivision, Lynx, Atari 7800:**
 each has a shelf. Put ROMs in `Slot/Games/MD` (`.md` `.gen` `.smd` `.bin`), `SMS` (`.sms`), `GG` (`.gg`),
-`ARCADE` (`.zip`, the zip itself, not unpacked), `PCE` (`.pce` `.sgx`), `A2600` (`.a26` `.bin`),
+`ARCADE` (`.zip`, the zip itself, not unpacked, keeping its MAME/FBNeo short name such as `mslug.zip`; the shelf shows the game's title), `PCE` (`.pce` `.sgx`), `A2600` (`.a26` `.bin`),
 `INTV` (`.int` `.bin`), `LYNX` (`.lnx`) and `A7800` (`.a78` `.bin`). Genesis is a 6-button pad
 (B is B, A is C, Y is A, X is Y, L is X, R is Z). On the 2600 and 7800, L and R are the difficulty
 switches. On Intellivision, hold L or R for the keypad. Intellivision needs `Slot/BIOS/exec.bin` and
@@ -182,9 +182,9 @@ connection and **Cache achievement sets** need Wi-Fi.
 Your password is sent once, over HTTPS, and never stored: Slot keeps only the login token, in `Slot/Config/retroachievements.txt`; delete that file or choose **LOG OUT** to forget
 it. While logged in, games earn achievements in softcore mode (save states, rewind and
 fast-forward stay allowed): a small toast slides into the top-right corner with how many a
-game has when it starts, and with each unlock and its badge as it happens. A game's badges
+game has when it starts, and with each unlock and its badge as it happens, with a short burst around the badge. HOME → Online → Encore Mode (on by default) lets already-earned achievements pop again when you replay them; the server still will not count a second softcore award. A game's badges
 are fetched when it starts and kept in `Slot/System/Cache/Badges`. **Cache achievement sets**
-does that for the whole library, and keeps each set in `Slot/Config/Achievements`. Unlocks
+does that for favorited games and the 20 most recently played, and keeps each set in `Slot/Config/Achievements`. Starring a game or starting one queues its set. Unstarring stops prioritizing it but leaves a saved set on the card. Unlocks
 made offline are kept there too, with the time they happened, and sent when Wi-Fi returns
 even if the Brick was powered off in between. If that file is torn, the spare copy is used.
 The server is asked in softcore only. A hardcore unlock is not stored to send later, because

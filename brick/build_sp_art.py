@@ -295,7 +295,30 @@ def self_test():
         url = thumbnail_url("Sega - Mega Drive - Genesis", "Named_Boxarts", "A&B")
         assert url.endswith("/Sega_-_Mega_Drive_-_Genesis/master/Named_Boxarts/A_B.png"), url
         assert marquee_url("mslug").endswith("/marquees/mslug.png")
+    intv_scan_keeps_its_whole_label()
     print("self-test ok")
+
+
+def intv_scan_keeps_its_whole_label():
+    """An Intellivision cart scan's end label goes on whole: its bottom line of text is not cut off."""
+    import io
+    from PIL import Image, ImageDraw
+    scan = Image.new("RGB", (600, 741), (24, 24, 24))
+    d = ImageDraw.Draw(scan)
+    x0, y0, x1, y1 = 46, 590, 554, 705  # the label, as ScreenScraper's scans place it
+    d.rectangle((x0, y0, x1, y1), fill=(220, 0, 0))
+    d.rectangle((x0 + 40, y1 - 14, x1 - 40, y1 - 6), fill=(255, 255, 255))  # text along its bottom
+    buf = io.BytesIO()
+    scan.save(buf, "PNG")
+    data, how = label_fit.choose("INTV", [("physicalmedia", buf.getvalue())])
+    out = Image.open(io.BytesIO(data)).convert("RGB")
+    w, h = label_fit.window("INTV")
+    assert out.size == (w * label_fit.SCALE, h * label_fit.SCALE), out.size
+    assert how == "physicalmedia whole", how
+    whites = [y for y in range(out.height) if out.getpixel((out.width // 2, y)) == (255, 255, 255)
+              or min(out.getpixel((out.width // 2, y))) > 230]
+    assert whites and max(whites) > out.height * 0.8, whites
+    assert min(out.getpixel((out.width // 2, 2))) < 60 or out.getpixel((out.width // 2, 2))[0] > 150
 
 
 def main(argv):

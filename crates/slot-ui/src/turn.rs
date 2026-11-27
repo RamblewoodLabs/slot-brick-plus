@@ -826,4 +826,60 @@ mod tests {
             }
         }
     }
+
+    /// Face-on HuCard pins are a dull gold, about (110, 90, 60).
+    fn gold_rows(rgba: &[u8], w: u32, h: u32) -> (u32, u32, u32) {
+        let mut top = 0u32;
+        let mut bot = 0u32;
+        let mut mid = 0u32;
+        for (i, p) in rgba.chunks_exact(4).enumerate() {
+            if p[3] < 200 {
+                continue;
+            }
+            let (r, g, b) = (p[0] as i16, p[1] as i16, p[2] as i16);
+            if !(90..=160).contains(&r)
+                || !(70..=130).contains(&g)
+                || b >= 90
+                || r <= g + 8
+                || g <= b + 15
+            {
+                continue;
+            }
+            let y = i as u32 / w;
+            if y * 3 < h {
+                top += 1;
+            } else if y * 3 > h * 2 {
+                bot += 1;
+            } else {
+                mid += 1;
+            }
+        }
+        (top, mid, bot)
+    }
+
+    #[test]
+    fn a_hucard_goes_in_connector_first_with_the_pins_facing_away() {
+        let turn = of(Platform::Pce).expect("HuCard turn");
+        assert!(turn.flip, "the last frame is the face it goes in with");
+        let (first, fw, fh) = decode8(turn.frames[0].shell).expect("first shell");
+        let (last, lw, lh) = decode8(turn.frames.last().unwrap().shell).expect("last shell");
+        let (ft, _, fb) = gold_rows(&first, fw, fh);
+        assert!(
+            ft > 20 && ft > fb * 2,
+            "on the shelf the HuCard's contacts should be at the top, got top={ft} bot={fb}"
+        );
+        let (lt, lm, lb) = gold_rows(&last, lw, lh);
+        let gold = lt + lm + lb;
+        assert!(
+            gold < 8,
+            "the last frame still shows face-on gold pins (they would point out of the slot): top={lt} mid={lm} bot={lb}"
+        );
+        assert!(
+            faces(&cart(Platform::Pce), None)
+                .expect("faces")
+                .seated
+                .is_some(),
+            "flip seats the last frame for the slide"
+        );
+    }
 }
