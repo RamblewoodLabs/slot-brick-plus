@@ -131,12 +131,12 @@ fn the_rows_run_in_the_order_the_user_chose() {
     #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
     assert_eq!(
         QuickRow::ONLINE.map(QuickRow::label),
-        ["Wi-Fi", "Cart Art", "RetroAchievements", "Update"]
+        ["Wi-Fi", "Cart Art", "RetroAchievements", "Encore Mode", "Update"]
     );
     #[cfg(feature = "rg35xxsp")]
     assert_eq!(
         QuickRow::ONLINE.map(QuickRow::label),
-        ["Wi-Fi", "Cart Art", "RetroAchievements"]
+        ["Wi-Fi", "Cart Art", "RetroAchievements", "Encore Mode"]
     );
     #[cfg(feature = "brick")]
     assert_eq!(

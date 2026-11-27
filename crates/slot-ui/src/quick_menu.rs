@@ -1212,8 +1212,9 @@ impl QuickMenu<'_> {
 
 /// Room kept at the top for the battery and Wi-Fi, so a long page does not cover them.
 const STATUS_H: f32 = 40.0;
-/// Room kept between the top of the last row and the legend (row type is ~32px).
-const LAST_ROW_CLEAR: f32 = 29.0;
+/// Room kept between the top of the last row and the split above the legend: the row's
+/// drawn box (its type drop plus the row height) ends on the legend, not past it.
+const LAST_ROW_CLEAR: f32 = TYPE_DROP + MENU_H as f32 - (LEGEND_Y - QUICK_SPLIT);
 
 /// How a page is laid out: short pages are centred; a long one (Library → Systems) scrolls
 /// so each row keeps the usual pitch and stays clear of the legend.
