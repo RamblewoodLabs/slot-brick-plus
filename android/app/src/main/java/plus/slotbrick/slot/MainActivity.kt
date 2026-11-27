@@ -47,6 +47,14 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) persistTree(uri)
     }
 
+    private val playGame = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == PlayActivity.RESULT_FALLBACK) {
+            launchRetroArchFallback()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -153,7 +161,7 @@ class MainActivity : AppCompatActivity() {
             systemRow.scrollToPosition(systemIndex)
         }
         statusView.text = statusText()
-        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Y/Select: settings   Start: folder"
+        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Y/Select: settings   Start: folder   (embedded cores: Start+Select pauses)"
         preview.onHover(currentSystem, currentGames.getOrNull(gameIndex))
     }
 
@@ -164,9 +172,13 @@ class MainActivity : AppCompatActivity() {
         val count = if (games.isEmpty()) "no games in this folder yet" else "${games.size} game(s)"
         if (emu == null) return "${sys.name}: $count"
         val resolved = EmulatorLauncher.resolve(this, emu)
-        val coreNote = if (sys.core != null) {
-            "  Interim: RetroArch + ${sys.core} core."
-        } else ""
+        val coreNote = when {
+            sys.core != null && SlotNative.isCoreEmbedded(sys.core) ->
+                "  Plays in Slotted (${sys.core}). Start+Select pauses."
+            sys.core != null ->
+                "  Interim: RetroArch + ${sys.core} core."
+            else -> ""
+        }
         return if (resolved != null) {
             "${sys.name}: $count   ${emu.name} is installed.$coreNote"
         } else {
@@ -189,6 +201,11 @@ class MainActivity : AppCompatActivity() {
         }
         // Free the second screen before an external emulator takes over.
         preview.releaseForLaunch()
+        val core = sys.core
+        if (core != null && SlotNative.isCoreEmbedded(core)) {
+            if (launchEmbedded(sys, game)) return
+            Toast.makeText(this, "Embedded core could not start. Trying RetroArch.", Toast.LENGTH_LONG).show()
+        }
         if (emu.id == "eden") {
             Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slotted never bundles them.", Toast.LENGTH_LONG).show()
         }
@@ -196,6 +213,37 @@ class MainActivity : AppCompatActivity() {
             val so = SlotNative.coreFileName(sys.core ?: "")
             Toast.makeText(this, "Opening RetroArch. If it fails, install the $so core in RetroArch’s updater (interim until Slotted embeds cores).", Toast.LENGTH_LONG).show()
         }
+        EmulatorLauncher.launch(this, sys, game)
+    }
+
+
+    private fun launchEmbedded(sys: SystemDef, game: RomGame): Boolean {
+        val core = sys.core ?: return false
+        return try {
+            val local = RomAccess.materialize(this, game.uri, game.name)
+            val intent = android.content.Intent(this, PlayActivity::class.java).apply {
+                putExtra(PlayActivity.EXTRA_CORE, core)
+                putExtra(PlayActivity.EXTRA_ROM, local.path)
+                putExtra(PlayActivity.EXTRA_SYSTEM, sys.id)
+            }
+            playGame.launch(intent)
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("slot", "embedded launch: $e")
+            false
+        }
+    }
+
+    private fun launchRetroArchFallback() {
+        val sys = currentSystem ?: return
+        val game = currentGames.getOrNull(gameIndex) ?: return
+        val emu = Registry.emulatorsById[sys.emulatorId] ?: return
+        if (EmulatorLauncher.resolve(this, emu) == null) {
+            promptInstall(emu)
+            return
+        }
+        val so = SlotNative.coreFileName(sys.core ?: "")
+        Toast.makeText(this, "Opening RetroArch ($so).", Toast.LENGTH_LONG).show()
         EmulatorLauncher.launch(this, sys, game)
     }
 
