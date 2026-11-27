@@ -11,3 +11,6 @@ local.properties
 # NDK libretro core extract/build trees (rebuild with android/build-cores.sh).
 /core-src/
 /core-build/
+
+# Packed from vendor/ppsspp-assets by build-apk.sh.
+app/src/main/assets/ppsspp/
