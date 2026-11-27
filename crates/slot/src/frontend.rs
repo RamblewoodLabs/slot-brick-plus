@@ -949,6 +949,16 @@ impl Frontend {
         true
     }
 
+    #[cfg(feature = "rg280v")]
+    pub fn take_external_launch(&mut self) -> Option<std::process::Command> {
+        self.session.take_external_launch()
+    }
+
+    #[cfg(feature = "rg280v")]
+    pub fn finish_external_launch(&mut self) {
+        self.session.finish_external_launch();
+    }
+
     pub fn advance(&mut self, input: &mut dyn InputSource) {
         let now = self.now();
         input.set_stick_to_game(self.session.stick_to_game());

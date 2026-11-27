@@ -42,6 +42,7 @@ pub mod quiet;
 pub mod ra;
 pub mod resample;
 pub mod rewind;
+pub mod rg280v;
 pub mod rg35xxsp;
 pub mod root;
 pub mod session;

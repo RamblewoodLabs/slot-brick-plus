@@ -147,3 +147,14 @@ unsafe fn registers(ctx: *mut c_void) -> (usize, Option<usize>) {
     let ss = &(*(*(ctx as *mut libc::ucontext_t)).uc_mcontext).__ss;
     (ss.__rip as usize, None)
 }
+
+/// Other Linux arches (MIPS on the RG280V, etc.): log the crash without PC/LR.
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "aarch64", target_arch = "x86_64"))
+))]
+unsafe fn registers(_ctx: *mut c_void) -> (usize, Option<usize>) {
+    let _ = _ctx;
+    (0, None)
+}
+
