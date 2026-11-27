@@ -1,9 +1,10 @@
 # Slotted
 
 This folder holds **Slotted**, the Android app. The Brick and RG35XX SP firmware stays **Slot**, and the repository name is unchanged. The application id is `com.ramblewoodlabs.slotted` (the previous placeholder was `plus.slotbrick.slot`, so this build installs as a new app — uninstall the old one if it is still on the device). The debug APK can pick Jeff's ROM
-tree, list games by folder, detect the standalone emulators, launch them
-(or RetroArch, for now, for libretro systems), and prompt to install a
-missing emulator.
+tree, list games by folder, detect the standalone emulators, and launch them.
+The first-wave handheld systems (GB/GBC/GBA, NES, SNES, Genesis/SMS/GG, PS1)
+play inside Slotted; other libretro systems still open RetroArch until their
+cores are embedded. Missing standalone emulators get an install prompt.
 
 The plan, inventory and art-scraper notes live in
 [`../docs/android/PLAN.md`](../docs/android/PLAN.md).
@@ -16,6 +17,7 @@ The plan, inventory and art-scraper notes live in
 - Android command-line tools, platform 35, build-tools 35, NDK 27.2
   (`/opt/homebrew/share/android-commandlinetools`)
 - `cargo-ndk` and the Gradle wrapper under `android/`
+- CMake and Ninja (`brew install cmake ninja`) to build the mGBA core
 
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17
@@ -48,9 +50,11 @@ The debug APK is written to:
    `3DS`, `dreamcast`, `saturn`, `psvita`, `xbox`, and the older system
    folders.
 6. Install the standalone emulators Slotted asks for (Dolphin, ARMSX2, Eden,
-   Azahar, Vita3K, hakuX) from their official pages. For the 24 older
-   systems plus Dreamcast and Saturn, install RetroArch and the named core
-   from RetroArch’s updater. This is interim until Slotted embeds those cores.
+   Azahar, Vita3K, hakuX) from their official pages. GB, GBC, GBA, NES, SNES,
+   Genesis, Master System, Game Gear, and PS1 play inside Slotted. For the
+   remaining libretro systems (plus Dreamcast and Saturn), install RetroArch
+   and the named core from RetroArch’s updater. This is interim until those
+   cores are embedded too.
 7. For Switch, install official Eden and supply your own `prod.keys` and
    firmware, dumped from a Switch you own. Slotted never bundles them.
 
@@ -90,5 +94,16 @@ with no account. Video snaps only come from ScreenScraper. Attribution is
 on the About screen. Quotas and thread limits reported by the API are
 respected.
 
-Embedding libretro cores (to replace the RetroArch hand-off) is not in this
-build; it is the next Android step.
+## Embedded cores
+
+The debug APK embeds mGBA (GB/GBC/GBA), FCEUmm (NES), Snes9x (SNES),
+Genesis Plus GX (Genesis, Master System, Game Gear) and PCSX ReARMed (PS1),
+built from the vendored sources in `vendor/` with the NDK
+(`android/build-cores.sh`, also invoked by `android/build-apk.sh`).
+
+Those systems play inside Slotted (Start+Select or Back pauses: save/load
+state, reset, or hand off to RetroArch). Other libretro systems still open
+RetroArch until their cores are embedded the same way.
+
+Genesis Plus GX is non-commercial; shipping it is allowed because Slotted
+is free. License texts are copied into the APK from `licenses/`.

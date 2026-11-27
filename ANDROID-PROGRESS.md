@@ -97,3 +97,34 @@ Jeff: "let's call the app slotted." On `cursor/android-phase3` only.
 - Gradle `archivesName` is `Slotted` so the debug APK should be `Slotted-debug.apk`.
 - Brick/SP firmware name **Slot** and the repo name are unchanged.
 - Next: rebuild, push, update PR #36, wait for CI. Do not merge.
+
+## 2026-11-26 8:20 PM PT — Embed first-wave libretro cores
+
+Starting on `cursor/android-phase3`. Plan: build mGBA, FCEUmm, Snes9x,
+Genesis Plus GX and PCSX ReARMed for arm64-v8a from the vendored sources
+with the NDK; add a minimal Rust libretro host and a PlayActivity; keep
+RetroArch as the fallback for everything else. Licenses stay with the
+app (Genesis Plus GX is non-commercial; Slotted is free). No SD card,
+no E:/F:. Commits in small chunks. Do not merge.
+
+
+## 2026-11-26 8:31 PM PT — First-wave libretro cores embedded
+
+On `cursor/android-phase3` in `/Users/jeff/sbp-android-p3`. No SD card, no E:/F:. PR #36 is not merged.
+
+Built from the vendored sources in `vendor/` (same pins as `brick/build-cores.sh`) with NDK 27.2 for arm64-v8a:
+
+- mGBA — GB / GBC / GBA (standalone audio/DMA patches only; no Brick link-cable patches)
+- FCEUmm — NES
+- Snes9x — SNES
+- Genesis Plus GX — Genesis / Master System / Game Gear (non-commercial; allowed because Slotted is free)
+- PCSX ReARMed — PS1 (ari64 dynarec + NEON; `LIBPTHREAD=` / `LIBDL=` because Bionic has both in libc)
+
+A minimal Rust libretro host in `android/slot-android` (`host.rs`) loads the core `.so`, converts software frames to RGB565 for a GLES2 texture, queues stereo audio into `AudioTrack`, and handles SRAM (`.srm`) plus serialize/unserialize savestates. `PlayActivity` maps an Xbox-layout pad to Nintendo libretro buttons. Start+Select or Back opens a pause menu (save, load, reset, RetroArch fallback, exit). SAF ROMs use a real path when possible, otherwise a cache copy. RetroArch remains the fallback for every other libretro system and if an embedded start fails.
+
+License texts from `licenses/` are copied into `assets/licenses` and named on the About screen.
+
+Debug APK (release-optimized native host): `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/Slotted-debug.apk` (~29 MB).
+SHA-256: `8cf0111b36f6c2ff3db9cd45077ecd0203baf503b4c10cf4b4f890f1f3720cf6`
+
+Next: remaining 24-system cores (N64 / PPSSPP need a GLES hardware-render path), RetroAchievements counts, and Jeff's ScreenScraper forum registration for video / full art.
