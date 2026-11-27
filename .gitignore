@@ -26,3 +26,7 @@ dist-os/
 # Local Favorites-shelf cargo target and sim screenshots.
 target-favs/
 preview/
+
+# Local navigation-perf cargo target and timing logs.
+target-perf/
+logs/

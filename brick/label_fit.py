@@ -31,7 +31,8 @@ PHYSICAL = {
     "PCE": ((0.06, 0.32, 0.94, 0.94), 0.79, 1.0),
     "A2600": ((0.07, 0.08, 0.93, 0.93), 0.84, 1.0),
     "A7800": ((0.07, 0.04, 0.93, 0.93), 0.84, 1.0),
-    "INTV": ((0.07, 0.775, 0.93, 0.915), 0.81, math.sqrt(2)),
+    # The end label as the scan shows it, flat: 4.4:1, the shape of the shell's 250x59 window.
+    "INTV": ((0.076, 0.796, 0.924, 0.951), 0.81, 1.0),
     "LYNX": ((0.05, 0.04, 0.96, 0.84), 0.96, 1.0),
     "COLECO": ((0.06, 0.02, 0.94, 0.66), 0.87, 1.0),
     "A5200": ((0.12, 0.04, 0.88, 0.78), 1.09, 1.0),
@@ -218,7 +219,12 @@ def choose(card, candidates):
     def miss(im):
         return abs(math.log(im.width / im.height / aspect))
     near = [(k, im) for k, im in pictures if miss(im) <= NEAR]
-    if near:
+    if near and near[0][0] == "physicalmedia" and card == "INTV":
+        # A cart's own label is already the window's shape: set it whole, its edge carried
+        # out to any sliver left over, so no title letter is cut off.
+        kind, im = near[0]
+        out, how = extend(im, size, border_colour(im) or (0, 0, 0)), "physicalmedia whole"
+    elif near:
         kind, im = near[0]
         out, how = cover(im, size, top=(kind == "covers")), f"{kind} cut"
     elif any(border_colour(im) for _, im in pictures):

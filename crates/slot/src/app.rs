@@ -8,11 +8,10 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Outline,
-    FavoritesSort, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
-    StateRing, Theme,
-    AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
-    VOLUME_MAX,
+    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, FavoritesSort, GbPalette,
+    Outline, Platform, Shader, ShelfKind, ShellChoice, ShellFinish, SlotState, StateEntry,
+    StateRing, Theme, AUTOSAVE_MINS, BATTERY_SHUTDOWNS, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS,
+    RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
@@ -326,9 +325,16 @@ pub struct App {
     turn: Option<TurnTex>,
     /// Two-line notices waiting their turn across the top of the screen (RetroAchievements).
     /// Title, detail, badge image, when it was queued.
-    banners: std::collections::VecDeque<(String, String, Option<std::path::PathBuf>, Millis)>,
+    banners: std::collections::VecDeque<(String, String, Option<std::path::PathBuf>, Millis, bool)>,
     /// The one showing: id, title, detail, badge image, when it came up.
-    banner: Option<(u64, String, String, Option<std::path::PathBuf>, Millis)>,
+    banner: Option<(
+        u64,
+        String,
+        String,
+        Option<std::path::PathBuf>,
+        Millis,
+        bool,
+    )>,
     banner_seq: u64,
     /// The rendered face, for the banner of that id.
     banner_face: Option<(u64, TexId)>,
@@ -442,6 +448,8 @@ pub struct App {
     slot_letter: Option<char>,
     /// What SELECT just switched the shelves' order to, shown in the slot as a letter is.
     slot_word: Option<&'static str>,
+    /// The pill in the shelf's top corner naming what SELECT has the shelf showing.
+    filter_pill: Option<(TexId, u32, u32)>,
     shelf_named: Option<Millis>,
     shelf_clock: slot_ui::Printed,
     hud: Hud,
@@ -529,13 +537,27 @@ pub struct FaceWant {
 
 /// How long a toast stays up, and how long it takes to slide in and out.
 const BANNER_MS: Millis = 4500;
+/// An unlock toast stays a second longer, so the burst can be enjoyed.
+const UNLOCK_BANNER_MS: Millis = 5500;
 const BANNER_SLIDE: Millis = 300;
+
+fn banner_hold(celebrate: bool) -> Millis {
+    if celebrate {
+        UNLOCK_BANNER_MS
+    } else {
+        BANNER_MS
+    }
+}
 /// The longest a toast waits for its badge to download.
 const BADGE_WAIT: Millis = 1500;
 
 fn shelves_of(carts: Vec<Cart>) -> Vec<(ShelfKind, Shelf)> {
     let mut rows: Vec<(ShelfKind, Vec<Cart>)> = std::iter::once((ShelfKind::Favorites, Vec::new()))
-        .chain(Platform::ALL.iter().map(|p| (ShelfKind::System(*p), Vec::new())))
+        .chain(
+            Platform::ALL
+                .iter()
+                .map(|p| (ShelfKind::System(*p), Vec::new())),
+        )
         .collect();
     for cart in carts {
         if let Some((_, row)) = rows
@@ -590,6 +612,9 @@ fn gigabytes(bytes: u64) -> String {
 /// See App::boot_early. (An App is moved between threads only there, so it must be Send.)
 static EARLY_APP: std::sync::Mutex<Option<std::thread::JoinHandle<App>>> =
     std::sync::Mutex::new(None);
+
+static SYNC_PERSIST_FOR_TESTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 impl App {
     pub fn new(carts: Vec<Cart>) -> Self {
@@ -736,6 +761,7 @@ impl App {
             name_pending: false,
             slot_letter: None,
             slot_word: None,
+            filter_pill: None,
             shelf_named: None,
             shelf_clock: slot_ui::Printed::default(),
             hud: Hud::new(),
@@ -862,6 +888,15 @@ impl App {
     /// the games, while none is a favorite). Each cart keeps its face, and each shelf the cart
     /// it had selected.
     fn arrange(&mut self) {
+        // Index once: writing a cart's plastic or label back used to scan every
+        // game for every game (thousands of times on a full card).
+        let mut index: HashMap<Platform, HashMap<String, usize>> = HashMap::new();
+        for (i, cart) in self.all_carts.iter().enumerate() {
+            index
+                .entry(cart.platform)
+                .or_default()
+                .insert(cart.stem.clone(), i);
+        }
         let mut faces = HashMap::new();
         let mut picked = Vec::new();
         for (kind, shelf) in &mut self.shelves {
@@ -876,12 +911,13 @@ impl App {
                 // What changed on the shelf (a label, a plastic) is kept for next time.
                 // The Favorites shelf holds copies; the system's shelf is the one that writes back.
                 if kind.system() == Some(cart.platform) {
-                    if let Some(kept) = self
-                        .all_carts
-                        .iter_mut()
-                        .find(|c| c.platform == cart.platform && c.stem == cart.stem)
+                    if let Some(&i) = index
+                        .get(&cart.platform)
+                        .and_then(|m| m.get(cart.stem.as_str()))
                     {
-                        *kept = cart.clone();
+                        if self.all_carts[i] != *cart {
+                            self.all_carts[i] = cart.clone();
+                        }
                     }
                 }
                 if let Some(face) = face {
@@ -891,20 +927,20 @@ impl App {
         }
         // Hidden systems have no shelf; with every system that has games hidden, all are shown,
         // unless the Favorites shelf is the one left on purpose.
-        let show_favorites = self.state.show_favorites && self.library.any_favorite(&self.all_carts);
+        let show_favorites =
+            self.state.show_favorites && self.library.any_favorite(&self.all_carts);
         let any_system_shown = self.all_carts.iter().any(|c| self.state.shows(c.platform));
-        let shown: Vec<Cart> = if any_system_shown {
-            self.all_carts
-                .iter()
-                .filter(|c| self.state.shows(c.platform))
-                .cloned()
-                .collect()
-        } else if show_favorites {
-            Vec::new()
-        } else {
-            self.all_carts.clone()
-        };
-        let favorites_only = self.state.favorites_only && self.library.any_favorite(&shown);
+        // Same rule as the old `shown` list, without cloning the whole library first.
+        let favorites_only = self.state.favorites_only
+            && if any_system_shown {
+                self.all_carts.iter().any(|c| {
+                    self.state.shows(c.platform) && self.library.get(c.platform, &c.stem).favorite
+                })
+            } else if show_favorites {
+                false
+            } else {
+                self.library.any_favorite(&self.all_carts)
+            };
         for ((kind, shelf), pick) in self.shelves.iter_mut().zip(picked) {
             let (carts, starred) = match *kind {
                 ShelfKind::Favorites => {
@@ -926,17 +962,38 @@ impl App {
                     (carts, starred)
                 }
                 ShelfKind::System(platform) => {
-                    let mut carts: Vec<Cart> = shown
-                        .iter()
-                        .filter(|c| c.platform == platform)
-                        .cloned()
-                        .collect();
-                    slot_store::arrange(
+                    let include = if any_system_shown {
+                        self.state.shows(platform)
+                    } else {
+                        !show_favorites
+                    };
+                    let all: Vec<Cart> = if include {
+                        self.all_carts
+                            .iter()
+                            .filter(|c| c.platform == platform)
+                            .cloned()
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let mut carts = all.clone();
+                    slot_store::arrange_view(
                         &mut carts,
-                        self.state.library_sort,
+                        shelf_view(&self.state, platform),
                         favorites_only,
                         &self.library,
                     );
+                    // A filter left with nothing (its games gone from the card) shows them all,
+                    // rather than the shelf going missing.
+                    if carts.is_empty() {
+                        carts = all;
+                        slot_store::arrange(
+                            &mut carts,
+                            self.state.library_sort,
+                            favorites_only,
+                            &self.library,
+                        );
+                    }
                     let starred = carts
                         .iter()
                         .map(|c| self.library.get(platform, &c.stem).favorite)
@@ -992,6 +1049,11 @@ impl App {
             Sfx::Unpop(take)
         });
         self.save_library();
+        if favorite {
+            self.queue_achievement_set(cart.platform, &cart.stem);
+        } else {
+            self.unqueue_achievement_set(cart.platform, &cart.stem);
+        }
         // A new star makes the combined Favorites shelf appear; an un-star may remove it,
         // and a game that is no longer a favorite leaves a shelf of favorites.
         self.arrange();
@@ -1081,6 +1143,22 @@ impl App {
             self.picker_heard.1 = true;
             self.sound(Sfx::CartClose);
         }
+    }
+
+    /// Starred or just played: cache this game's achievement set when Wi-Fi is up.
+    fn queue_achievement_set(&self, platform: Platform, stem: &str) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        crate::offline_ra::queue_set(root, platform, stem);
+    }
+
+    /// Unstarred: stop prioritizing this set. A copy already on the card is left there.
+    fn unqueue_achievement_set(&self, platform: Platform, stem: &str) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        crate::offline_ra::unqueue_set(root, platform, stem);
     }
 
     /// The library written out, on a thread of its own: it is small, but the card may be slow.
@@ -1233,7 +1311,11 @@ impl App {
             return None;
         }
         let cart = self.shelf().carts.get(self.shelf().index)?;
-        Some(slot_ui::label_text(cart))
+        let name = slot_ui::label_text(cart);
+        Some(match self.ranked_place() {
+            Some(place) => format!("#{place} {name}"),
+            None => name,
+        })
     }
 
     /// A new name on the card: it fades in, holds, and fades out. Already showing, it holds
@@ -1326,39 +1408,80 @@ impl App {
         self.name_pending = true;
     }
 
-    /// SELECT on the shelf: the next order, named in the slot. On the Favorites shelf that
-    /// is recently added or last played; on every other shelf, A–Z, last played, most played.
+    /// SELECT on the shelf: the next order or filter, named in the slot and on the shelf's pill,
+    /// and kept for that shelf. On the Favorites shelf: recently added, last played, most played.
+    /// On a system's: A–Z, last played, most played, then the filters its games have data for
+    /// (TOP 100, POPULAR, BEST SELLING, FIRST PARTY).
     fn cycle_sort(&mut self) {
         if self.shelf_kind() == ShelfKind::Favorites {
-            self.state.favorites_sort = match self.state.favorites_sort {
-                FavoritesSort::Added => FavoritesSort::Recent,
-                FavoritesSort::Recent => FavoritesSort::Added,
-            };
+            let all = FavoritesSort::ALL;
+            let at = all
+                .iter()
+                .position(|v| *v == self.state.favorites_sort)
+                .unwrap_or(0);
+            self.state.favorites_sort = all[(at + 1) % all.len()];
             self.persist();
             self.arrange();
             self.slot_letter = None;
-            self.slot_word = Some(match self.state.favorites_sort {
-                FavoritesSort::Added => "ADDED",
-                FavoritesSort::Recent => "LAST PLAYED",
-            });
+            self.slot_word = Some(self.state.favorites_sort.label());
             self.shelf_named = None;
             return;
         }
-        let all = slot_store::LibrarySort::ALL;
-        let at = all
+        let Some(platform) = self.shelf_kind().system() else {
+            return;
+        };
+        let carts: Vec<Cart> = self
+            .all_carts
             .iter()
-            .position(|v| *v == self.state.library_sort)
-            .unwrap_or(0);
-        self.state.library_sort = all[(at + 1) % all.len()];
+            .filter(|c| c.platform == platform)
+            .cloned()
+            .collect();
+        let favorites_only = self.state.favorites_only && self.library.any_favorite(&carts);
+        let now = shelf_view(&self.state, platform);
+        let all = slot_store::ShelfView::ALL;
+        let at = all.iter().position(|v| *v == now).unwrap_or(0);
+        let next = (1..=all.len())
+            .map(|step| all[(at + step) % all.len()])
+            .find(|v| slot_store::view_shows(*v, &carts, favorites_only, &self.library))
+            .unwrap_or(slot_store::ShelfView::Az);
+        self.state.shelf_views[platform.index()] = Some(next);
         self.persist();
         self.arrange();
+        // A filter starts at its first game (#1), not wherever the last order had the shelf.
+        if matches!(next, slot_store::ShelfView::FirstParty) || next.ranked() {
+            self.shelf_mut().select(0);
+        }
         self.slot_letter = None;
-        self.slot_word = Some(match self.state.library_sort {
-            slot_store::LibrarySort::Az => "A–Z",
-            slot_store::LibrarySort::Recent => "LAST PLAYED",
-            slot_store::LibrarySort::MostPlayed => "MOST PLAYED",
-        });
+        self.slot_word = Some(next.label());
         self.shelf_named = None;
+    }
+
+    /// What the shelf's pill says: the order or filter SELECT has this shelf on.
+    pub fn filter_text(&self) -> Option<&'static str> {
+        if !matches!(self.phase, Phase::Shelf) || self.shelf().carts.is_empty() {
+            return None;
+        }
+        Some(match self.shelf_kind() {
+            ShelfKind::Favorites => self.state.favorites_sort.label(),
+            kind => shelf_view(&self.state, kind.system()?).label(),
+        })
+    }
+
+    /// The pill shows while a shelf is on anything but its usual A–Z (or, on Favorites, ADDED).
+    pub fn filter_pill_text(&self) -> Option<&'static str> {
+        self.filter_text().filter(|t| !matches!(*t, "A–Z" | "ADDED"))
+    }
+
+    pub fn set_filter_pill_face(&mut self, face: Option<(TexId, u32, u32)>) {
+        self.filter_pill = face;
+    }
+
+    /// The selected game's place in a ranked filter (TOP 100, POPULAR, BEST SELLING), from 1.
+    fn ranked_place(&self) -> Option<usize> {
+        let platform = self.shelf_kind().system()?;
+        shelf_view(&self.state, platform)
+            .ranked()
+            .then(|| self.shelf().index + 1)
     }
 
     /// The slot turns into a disc slot on the PlayStation's shelf, and back on the others.
@@ -1392,29 +1515,31 @@ impl App {
     }
 
     fn seat_of(&self, stem: &str, platform: Option<Platform>) -> Option<(usize, usize)> {
-        let matches = |cart: &Cart| {
-            cart.stem == stem && platform.is_none_or(|want| cart.platform == want)
-        };
-        let on_system = self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-            if platform.is_some() && kind.system() != platform {
-                return None;
-            }
-            if platform.is_none() && kind == &ShelfKind::Favorites {
-                return None;
-            }
-            shelf
-                .carts
-                .iter()
-                .position(matches)
-                .map(|i| (at, i))
-        });
-        on_system.or_else(|| {
-            self.shelves.iter().enumerate().find_map(|(at, (kind, shelf))| {
-                if *kind != ShelfKind::Favorites {
+        let matches =
+            |cart: &Cart| cart.stem == stem && platform.is_none_or(|want| cart.platform == want);
+        let on_system = self
+            .shelves
+            .iter()
+            .enumerate()
+            .find_map(|(at, (kind, shelf))| {
+                if platform.is_some() && kind.system() != platform {
+                    return None;
+                }
+                if platform.is_none() && kind == &ShelfKind::Favorites {
                     return None;
                 }
                 shelf.carts.iter().position(matches).map(|i| (at, i))
-            })
+            });
+        on_system.or_else(|| {
+            self.shelves
+                .iter()
+                .enumerate()
+                .find_map(|(at, (kind, shelf))| {
+                    if *kind != ShelfKind::Favorites {
+                        return None;
+                    }
+                    shelf.carts.iter().position(matches).map(|i| (at, i))
+                })
         })
     }
 
@@ -1586,6 +1711,7 @@ impl App {
             QuickRow::SwapAb => Some(QuickValue::flag(self.state.swap_ab)),
             QuickRow::AutoClock => Some(QuickValue::flag(self.state.auto_clock)),
             QuickRow::UpdateCheck => Some(QuickValue::flag(self.state.update_check)),
+            QuickRow::RaEncore => Some(QuickValue::flag(self.state.ra_encore)),
             QuickRow::LibrarySort => Some(match self.state.library_sort {
                 slot_store::LibrarySort::Az => QuickValue::SortAz,
                 slot_store::LibrarySort::Recent => QuickValue::SortRecent,
@@ -2517,6 +2643,10 @@ impl App {
         self.state.ps1_dithering
     }
 
+    pub fn ra_encore(&self) -> bool {
+        self.state.ra_encore
+    }
+
     pub fn gb_palette(&self) -> Option<GbPalette> {
         self.state.gb_palettes.then_some(self.state.gb_palette)
     }
@@ -3080,6 +3210,7 @@ impl App {
             | QuickRow::GbPalettes
             | QuickRow::AutoClock
             | QuickRow::UpdateCheck
+            | QuickRow::RaEncore
             | QuickRow::LibrarySort
             | QuickRow::LibraryShow
             | QuickRow::LibraryPlayTime
@@ -3344,6 +3475,8 @@ impl App {
                 let all = slot_store::LibrarySort::ALL;
                 let at = all.iter().position(|v| *v == s.library_sort).unwrap_or(0);
                 s.library_sort = all[(at + if right { 1 } else { all.len() - 1 }) % all.len()];
+                // Sort By sets every shelf: what SELECT picked on each gives way to it.
+                s.shelf_views = Default::default();
                 self.persist();
                 self.arrange();
                 return;
@@ -3389,6 +3522,7 @@ impl App {
             QuickRow::LibraryPlayTime => s.play_time_hours = !s.play_time_hours,
             QuickRow::LibraryTitleCard => s.title_card = !s.title_card,
             QuickRow::UpdateCheck => s.update_check = !s.update_check,
+            QuickRow::RaEncore => s.ra_encore = !s.ra_encore,
             QuickRow::AutoClock => {
                 s.auto_clock = !s.auto_clock;
                 // Turned on: the clock is set as soon as Wi-Fi allows.
@@ -3817,13 +3951,15 @@ impl App {
                 if let Some(platform) = platform {
                     self.library.get_mut(platform, cart).last_played = self.utc_secs();
                     self.save_library();
+                    self.queue_achievement_set(platform, cart);
                 }
             }
             self.record_cart(seated);
             // Back on the shelf: the game just played may have moved up.
             if matches!(self.phase, Phase::Shelf)
                 && (self.state.library_sort != slot_store::LibrarySort::Az
-                    || self.state.favorites_sort == FavoritesSort::Recent)
+                    || self.state.shelf_views.iter().flatten().any(|v| v.by_play())
+                    || self.state.favorites_sort != FavoritesSort::Added)
             {
                 self.save_library();
                 self.arrange();
@@ -3893,18 +4029,18 @@ impl App {
         if self
             .banner
             .as_ref()
-            .is_some_and(|b| now.saturating_sub(b.4) >= BANNER_MS)
+            .is_some_and(|b| now.saturating_sub(b.4) >= banner_hold(b.5))
         {
             self.banner = None;
         }
         // A toast whose badge is still downloading waits for it, but not for long.
-        let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis)| {
+        let ready = |b: &(String, String, Option<std::path::PathBuf>, Millis, bool)| {
             b.2.as_ref().is_none_or(|p| p.exists()) || now.saturating_sub(b.3) >= BADGE_WAIT
         };
         if self.banner.is_none() && self.banners.front().is_some_and(ready) {
-            if let Some((title, detail, badge, _)) = self.banners.pop_front() {
+            if let Some((title, detail, badge, _, celebrate)) = self.banners.pop_front() {
                 self.banner_seq += 1;
-                self.banner = Some((self.banner_seq, title, detail, badge, now));
+                self.banner = Some((self.banner_seq, title, detail, badge, now, celebrate));
             }
         }
         #[cfg(feature = "brick")]
@@ -3965,6 +4101,7 @@ impl App {
                 if let Some(root) = &self.root {
                     if let Some(account) = crate::ra::load(root) {
                         crate::offline_ra::poke(root, &account.user, &account.token);
+                        crate::offline_ra::poke_cache(root, &account.user, &account.token);
                     }
                 }
             }
@@ -4136,16 +4273,31 @@ impl App {
         self.persist();
     }
 
+    /// Tests that read Config/slot.state after a setting change call this once
+    /// so persist() still writes before they look. The device never does.
+    pub fn sync_persist_for_tests() {
+        SYNC_PERSIST_FOR_TESTS.store(true, Ordering::Relaxed);
+    }
+
     fn persist(&self) {
         let Some(root) = &self.root else {
             return;
         };
-        self.state_writer.flush();
-        let written = write_slot_state(root, &self.state);
-        if let Err(e) = &written {
-            eprintln!("slot: slot.state: {e}");
+        // On the device, a sync write (two fsyncs) stalls every menu toggle
+        // and the All/Favorites switch on a slow card. The worker keeps only
+        // the latest state; doze, power-off and settle_saves flush the queue.
+        // Integration tests call sync_persist_for_tests() so they can keep
+        // reading Config/slot.state right after apply.
+        if SYNC_PERSIST_FOR_TESTS.load(Ordering::Relaxed) {
+            self.state_writer.flush();
+            let written = write_slot_state(root, &self.state);
+            if let Err(e) = &written {
+                eprintln!("slot: slot.state: {e}");
+            }
+            self.card_failing.store(written.is_err(), Ordering::Relaxed);
+        } else {
+            self.state_writer.save(root, &self.state);
         }
-        self.card_failing.store(written.is_err(), Ordering::Relaxed);
     }
 
     /// Volume/brightness/mute: written in the background so held keys never stall a frame.
@@ -4298,6 +4450,11 @@ impl App {
         if u >= 1.0 || tex.frames.is_empty() {
             return (None, tex.seated);
         }
+        let u = if platform == Some(Platform::Gw) {
+            slot_ui::turn::ease_gw(u)
+        } else {
+            u
+        };
         let n = tex.frames.len();
         let i = ((u * n as f32) as usize).min(n - 1);
         (Some(tex.frames[i]), None)
@@ -4340,8 +4497,23 @@ impl App {
 
     /// A toast with an image on its left (a badge, cached at `badge` or on its way there).
     pub fn announce_with(&mut self, title: &str, detail: &str, badge: Option<std::path::PathBuf>) {
-        self.banners
-            .push_back((title.to_string(), detail.to_string(), badge, self.now()));
+        self.push_banner(title, detail, badge, false);
+    }
+
+    fn push_banner(
+        &mut self,
+        title: &str,
+        detail: &str,
+        badge: Option<std::path::PathBuf>,
+        celebrate: bool,
+    ) {
+        self.banners.push_back((
+            title.to_string(),
+            detail.to_string(),
+            badge,
+            self.now(),
+            celebrate,
+        ));
     }
 
     /// What RetroAchievements said, as a toast (or nothing worth interrupting play for).
@@ -4368,11 +4540,16 @@ impl App {
                 ..
             } => {
                 self.companion.note_cheer();
-                self.announce_with(&title, &format!("{points} pts - {description}"), badge)
+                self.push_banner(
+                    &title,
+                    &format!("{points} pts - {description}"),
+                    badge,
+                    true,
+                )
             }
             Notice::GameCompleted { title, .. } => {
                 self.companion.note_cheer();
-                self.announce_with("Every achievement earned", &title, badge)
+                self.push_banner("Every achievement earned", &title, badge, true)
             }
             Notice::LeaderboardStarted { title, .. } => {
                 self.announce("Leaderboard attempt", &title)
@@ -4385,10 +4562,21 @@ impl App {
     }
 
     /// The toast showing, if its face still has to be rendered: (id, title, detail, badge).
-    pub fn banner_to_render(&self) -> Option<(u64, String, String, Option<std::path::PathBuf>)> {
-        let (id, title, detail, badge, _) = self.banner.as_ref()?;
-        (self.banner_face.map(|(f, _)| f) != Some(*id))
-            .then(|| (*id, title.clone(), detail.clone(), badge.clone()))
+    pub fn banner_to_render(
+        &self,
+    ) -> Option<(u64, String, String, Option<std::path::PathBuf>, Option<f32>)> {
+        let (id, title, detail, badge, since, celebrate) = self.banner.as_ref()?;
+        let age = self.now().saturating_sub(*since);
+        let burst_age = age.saturating_sub(BANNER_SLIDE);
+        let burst = if *celebrate {
+            Some((burst_age as f32 / slot_ui::BURST_MS as f32).clamp(0.0, 1.0))
+        } else {
+            None
+        };
+        // Include the frame at BURST_MS so the last update is the clean card.
+        let animating = *celebrate && burst_age <= slot_ui::BURST_MS as Millis;
+        let need = self.banner_face.map(|(f, _)| f) != Some(*id) || animating;
+        need.then(|| (*id, title.clone(), detail.clone(), badge.clone(), burst))
     }
 
     pub fn set_banner_face(&mut self, id: u64, tex: TexId) {
@@ -4401,7 +4589,8 @@ impl App {
     }
 
     fn draw_banner(&self, out: &mut Vec<Draw>) {
-        let (Some((id, _, _, _, since)), Some((face_id, tex))) = (&self.banner, self.banner_face)
+        let (Some((id, _, _, _, since, celebrate)), Some((face_id, tex))) =
+            (&self.banner, self.banner_face)
         else {
             return;
         };
@@ -4410,8 +4599,9 @@ impl App {
         }
         // Slides in from past the right edge, rests in the corner, slides back out.
         let age = self.now().saturating_sub(*since);
+        let hold = banner_hold(*celebrate);
         let shown = (age as f32 / BANNER_SLIDE as f32)
-            .min(BANNER_MS.saturating_sub(age) as f32 / BANNER_SLIDE as f32)
+            .min(hold.saturating_sub(age) as f32 / BANNER_SLIDE as f32)
             .clamp(0.0, 1.0);
         let eased = 1.0 - (1.0 - shown) * (1.0 - shown);
         let away = slot_gfx::OUT_W as f32 - slot_ui::BANNER_X;
@@ -4564,6 +4754,7 @@ impl App {
                         draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
                     }
                 }
+                slot_ui::draw_filter_pill(self.filter_pill, out);
                 draw_footer(
                     self.battery,
                     self.battery_percent,
@@ -7992,4 +8183,35 @@ impl CartMenu {
             .unwrap_or(0);
         self.shape = 0;
     }
+}
+
+#[cfg(test)]
+impl App {
+    pub(crate) fn test_set_library(&mut self, library: slot_store::Library) {
+        self.library = library;
+    }
+
+    pub(crate) fn test_set_state(&mut self, state: SlotState) {
+        self.state = state;
+    }
+
+    pub(crate) fn test_arrange(&mut self) {
+        self.arrange();
+    }
+
+    pub(crate) fn test_toggle_favorites_only(&mut self) {
+        self.state.favorites_only = !self.state.favorites_only;
+        self.arrange();
+    }
+
+    pub(crate) fn test_toggle_favorites_shelf(&mut self) {
+        self.state.show_favorites = !self.state.show_favorites;
+        self.arrange();
+    }
+}
+
+/// What SELECT has a system's shelf showing: its own pick, or HOME → Library → Sort By.
+fn shelf_view(state: &SlotState, platform: Platform) -> slot_store::ShelfView {
+    state.shelf_views[platform.index()]
+        .unwrap_or_else(|| slot_store::ShelfView::from_sort(state.library_sort))
 }

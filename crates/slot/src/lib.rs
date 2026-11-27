@@ -52,6 +52,9 @@ pub mod update;
 pub mod video_mode;
 pub mod wallpaper;
 
+#[cfg(test)]
+mod perf_nav;
+
 #[cfg(feature = "brick")]
 pub mod brick_led;
 

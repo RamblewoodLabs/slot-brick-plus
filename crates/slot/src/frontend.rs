@@ -341,6 +341,8 @@ struct Clocks {
     discs: Vec<Option<TexId>>,
     title_card: Option<String>,
     title_card_tex: Option<TexId>,
+    filter: Option<&'static str>,
+    filter_tex: Option<TexId>,
 }
 
 #[derive(Default)]
@@ -824,10 +826,10 @@ impl Frontend {
             self.pip_tex = Some(tex);
             self.session.app_mut().set_pip_face(tex);
         }
-        if let Some((id, title, detail, badge)) = self.session.app().banner_to_render() {
+        if let Some((id, title, detail, badge, burst)) = self.session.app().banner_to_render() {
             let px = slot_ui::BADGE_PX;
             let badge = badge.and_then(|p| slot_ui::cover(&p, px, px));
-            let f = slot_ui::banner_face(&title, &detail, badge.as_deref());
+            let f = slot_ui::banner_face_at(&title, &detail, badge.as_deref(), burst);
             let tex = match self.banner_tex {
                 Some(t) => {
                     compositor.update_texture(t, f.w, f.h, &f.rgba);
@@ -1167,6 +1169,15 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
             (upload(compositor, &mut clocks.played_tex, face), w)
         });
         app.set_played_face(face);
+    }
+    let filter = app.filter_pill_text();
+    if filter != clocks.filter {
+        clocks.filter = filter;
+        let face = filter.map(slot_ui::filter_pill_face).filter(|f| f.w > 0).map(|face| {
+            let (w, h) = (face.w, face.h);
+            (upload(compositor, &mut clocks.filter_tex, face), w, h)
+        });
+        app.set_filter_pill_face(face);
     }
     let title_card = app.title_card_text();
     if title_card != clocks.title_card {
