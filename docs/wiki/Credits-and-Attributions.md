@@ -111,6 +111,12 @@ AUTHORS file, and check the PR #31 licences against each tarball's licence file.
 (as the media source), Docker, Rust, Python with Pillow, numpy and OpenCV, Raspberry Pi Imager, balenaEtcher, Rufus,
 SD Card Formatter.
 
+## Apps Slot can open (not shipped)
+
+| App | Author | Licence | How Slot uses it |
+| :--- | :--- | :--- | :--- |
+| [GrainBrick](https://github.com/ETRNLIAM/GrainBrick) *(PR #38)* | ETRNLIAM | Free to download; its own code is **not open source**, and nothing grants permission to redistribute it. It bundles SoundTouch (LGPL-2.1+), parts of Mutable Instruments Rings (MIT) and NumPy (BSD), whose notices are in its own folder. | **Not bundled.** HOME → System → GrainBrick (Brick only) appears when the player has installed it in `Slot/Apps/GrainBrick/`. Slot hands over to it and starts again when it quits. It needs a Python 3.12 + pygame runtime that the player provides (`Slot/Apps/python/`). See `licenses/grainbrick-not-included.txt`. |
+
 ## Licence obligations and known gaps
 
 These come from comparing the licence files with what ships. The wiki only reports them; nothing has been fixed yet.
