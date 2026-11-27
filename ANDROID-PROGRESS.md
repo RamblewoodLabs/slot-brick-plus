@@ -78,3 +78,11 @@ Next: compile the debug APK, fix whatever the compiler catches, open a new PR.
 Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/app-debug.apk` (22 MB).
 
 Did not touch any SD card or E:/F:. Next: commit, push, open the Phase 3 PR.
+
+## 2026-11-26 7:15 PM PT — Phase 3 PR opened
+
+- Commit: `2d6e4f096ac37d0240c4db032daa7429d7caa60e`
+- PR: https://github.com/RamblewoodLabs/slot-brick-plus/pull/36
+- Merge of #35 remains `4fd6a8dbff47c4c5907b4286aa03f5d41bc8712f` on main.
+- Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/app-debug.apk` (22 MB)
+- No SD card, no E:/F:.
