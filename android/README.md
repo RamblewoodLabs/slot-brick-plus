@@ -84,8 +84,10 @@ Slotted does **not** ship a ScreenScraper developer id. Jeff needs to:
    ScreenScraper username and password.
 3. Optionally, copy `android/screenscraper.properties.example` to
    `android/screenscraper.properties` (gitignored) and rebuild, so the
-   developer id is the APK default. Leave the fields empty until then — do
-   not invent credentials.
+   developer id is the APK default. The Gradle build bakes that file into
+   APK assets and leaves the tracked empty placeholder untouched. Leave
+   the fields empty until issued credentials are in hand — do not invent
+   them.
 
 Until that id is in place, Slotted still fetches **stills** (box art, snaps,
 titles) from [libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails)

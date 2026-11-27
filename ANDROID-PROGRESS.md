@@ -144,3 +144,20 @@ Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/Slott
 SHA-256: `1838d9b80e1b2b6d075362525c76f5014faa8d7883161227838c50f37d5dabc0`
 
 Next: Flycast and Beetle Saturn; RetroAchievements counts; Jeff's ScreenScraper forum registration.
+
+
+## 2026-11-27 9:17 AM PT — Bake ScreenScraper developer credentials
+
+On `cursor/android-phase3` in `/Users/jeff/sbp-android-p3`. No SD card, no E:/F:. PR #36 is not merged.
+
+ScreenScraper approved the Slotted developer account (numeric id 6315). A local, gitignored `android/screenscraper.properties` (mode 600) now holds the issued `devid` / `devpassword` and `softname=Slotted`. That file is not committed. The tracked placeholder at `android/app/src/main/assets/screenscraper.properties` stays empty.
+
+Gradle (`android/app/build.gradle.kts`) bakes the local file into merged APK assets at build time when it is present, without logging the values or overwriting the tracked placeholder.
+
+API check from this Mac, developer credentials only (no user account): `jeuInfos.php` for Mega Drive (`systemeid=1`) and `Sonic The Hedgehog (USA, Europe).md` returned HTTP 200, game name Sonic The Hedgehog (id 5), plus media URLs for box art (`box-2D`), a screenshot (`ss`), a wheel, and a video (`video-normalized`).
+
+Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/Slotted-debug.apk` (~62 MB).
+SHA-256: `1da13fa396009b4fe20b6d59b2c45ae5b565646bc6c24f7d0ab2ff94a7a6165e`
+
+The baked asset inside the APK matches the local properties file. Next: Jeff can install this APK and enter his own ScreenScraper user account in Settings to use the full quota. Flycast, Beetle Saturn, and RetroAchievements counts remain.
+

@@ -1,3 +1,6 @@
+import com.android.build.gradle.tasks.MergeSourceSetFolders
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -53,3 +56,23 @@ dependencies {
 base {
     archivesName.set("Slotted")
 }
+
+// If a local, gitignored android/screenscraper.properties is present, bake it
+// into the merged APK assets as the default developer credentials. The tracked
+// placeholder at src/main/assets/screenscraper.properties stays empty and is
+// never overwritten on disk.
+val localScreenScraperProps = rootProject.projectDir.resolve("screenscraper.properties")
+
+afterEvaluate {
+    tasks.withType<MergeSourceSetFolders>().configureEach {
+        if (!name.startsWith("merge") || !name.endsWith("Assets")) return@configureEach
+        inputs.file(localScreenScraperProps).optional(true).withPropertyName("localScreenScraperProps")
+        doLast {
+            if (!localScreenScraperProps.isFile) return@doLast
+            val dest = File(outputDir.get().asFile, "screenscraper.properties")
+            localScreenScraperProps.copyTo(dest, overwrite = true)
+            logger.lifecycle("Baked local ScreenScraper credentials into APK assets (values not logged).")
+        }
+    }
+}
+
