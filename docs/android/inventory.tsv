@@ -1,0 +1,217 @@
+system_folder	files	bytes	size_human	top_extensions	on_sp_brick	notes
+3DO	46	4547388569	4.24 GB	.chd:44	no	populated
+3DS	283	282927762560	263.54 GB	.cia:145,.cci:138	no	populated
+adam	1	850	850 B	.txt:1	no	empty placeholder
+ags	2	440	440 B	.txt:2	no	empty placeholder
+amiga	2	970	970 B	.txt:2	no	empty placeholder
+amiga1200	2	992	992 B	.txt:2	no	empty placeholder
+amiga600	2	988	988 B	.txt:2	no	empty placeholder
+amigacd32	2	1022	1.0 KB	.txt:2	no	empty placeholder
+amstradcpc	2	969	969 B	.txt:2	no	empty placeholder (see CPC)
+android	2	431	431 B	.txt:2	no	empty placeholder
+apple2	2	800	800 B	.txt:2	no	empty placeholder
+apple2gs	2	674	674 B	.txt:2	no	empty placeholder
+arcade	2	1725	1.7 KB	.txt:2	yes (ARCADE)	empty here; games live in FBNEO, mame, CPS1/2/3, neogeo
+arcadia	2	693	693 B	.txt:2	no	empty placeholder
+archimedes	1	959	959 B	.txt:1	no	empty placeholder
+arduboy	2	680	680 B	.txt:2	no	empty placeholder
+astrocde	2	725	725 B	.txt:2	no	empty placeholder
+ATARI2600	52	237571	232.0 KB	.zip:50	yes (A2600)	
+ATARI5200	35	533369	520.9 KB	.a52:32	yes (A5200)	
+ATARI7800	32	1021548	997.6 KB	.zip:30	yes (A7800)	
+ATARI800	51	1564475	1.49 MB	.xex:47	yes (A800)	
+atarijaguar	48	116462626	111.07 MB	.jag:46	no	populated
+atarijaguarcd	2	682	682 B	.txt:2	no	empty placeholder
+atarilynx	87	19029806	18.15 MB	.lnx:84	yes (LYNX)	
+atarist	2	671	671 B	.txt:2	no	empty placeholder
+atarixe	2	809	809 B	.txt:2	no	empty placeholder
+atomiswave	2	797	797 B	.txt:2	no	empty placeholder
+bbcmicro	2	749	749 B	.txt:2	no	empty placeholder
+c16	2	1289	1.3 KB	.txt:2	no	empty placeholder
+C64	40	3341460	3.19 MB	.7z:39	no	populated
+cavestory	2	556	556 B	.txt:2	no	empty placeholder
+cdimono1	2	753	753 B	.txt:2	no	empty placeholder
+cdtv	2	900	900 B	.txt:2	no	empty placeholder
+chailove	2	591	591 B	.txt:2	no	empty placeholder
+channelf	2	846	846 B	.txt:2	no	empty placeholder
+cloud	2	341	341 B	.txt:2	no	empty placeholder
+coco	2	841	841 B	.txt:2	no	empty placeholder
+colecovision	97	1830043	1.75 MB	.col:95	yes (COLECO)	
+consolearcade	1	1067	1.0 KB	.txt:1	no	empty placeholder
+CPC	281	53376816	50.90 MB	.dsk:272	no	populated
+cps	2	1341	1.3 KB	.txt:2	no	empty placeholder (see CPS1/2/3)
+CPS1	53	135400441	129.13 MB	.zip:49	partial (Arcade)	populated Capcom subset
+CPS2	40	544271551	519.05 MB	.zip:36	partial (Arcade)	populated Capcom subset
+CPS3	14	446662836	425.97 MB	.zip:10	partial (Arcade)	populated Capcom subset
+crvision	2	687	687 B	.txt:2	no	empty placeholder
+DAPHNE	1	764	764 B	.txt:1	no	empty placeholder
+desktop	2	541	541 B	.txt:2	no	empty placeholder
+doom	2	857	857 B	.txt:2	no	empty placeholder
+DOS	40	774791339	738.90 MB	.zip:38	no	populated
+dragon32	2	1190	1.2 KB	.txt:2	no	empty placeholder
+dreamcast	428	196259044063	182.77 GB	.chd:318,.bin:79,.cdi:17	no	populated
+easyrpg	2	598	598 B	.txt:2	no	empty placeholder
+electron	1	1065	1.0 KB	.txt:1	no	empty placeholder
+emulators	1	363	363 B	.txt:1	no	empty placeholder
+epic	2	441	441 B	.txt:2	no	empty placeholder
+famicom	2	1185	1.2 KB	.txt:2	no	empty placeholder (NES covers Famicom)
+fba	2	872	872 B	.txt:2	no	empty placeholder
+FBNEO	303	3391204586	3.16 GB	.zip:299	yes (ARCADE)	primary arcade set in this library
+fds	2	920	920 B	.txt:2	no	empty placeholder
+flash	2	580	580 B	.txt:2	no	empty placeholder
+fm7	1	1072	1.0 KB	.txt:1	no	empty placeholder
+fmtowns	2	803	803 B	.txt:2	no	empty placeholder
+fpinball	1	237	237 B	.txt:1	no	empty placeholder
+gamate	1	474	474 B	.txt:1	no	empty placeholder
+gameandwatch	61	55374844	52.81 MB	.mgw:59	yes (GW)	
+gamecom	2	688	688 B	.txt:2	no	empty placeholder
+gamegear	228	79627600	75.94 MB	.gg:226	yes (GG)	
+GB	541	121170768	115.56 MB	.gb:539	yes (GB)	
+GBA	951	7500595644	6.99 GB	.gba:949	yes (GBA)	
+gbah	1	1837	1.8 KB	.txt:1	no	empty placeholder
+GBC	461	626559508	597.53 MB	.gbc:460	yes (GBC)	
+gbch	1	2588	2.5 KB	.txt:1	no	empty placeholder
+gbh	1	2580	2.5 KB	.txt:1	no	empty placeholder
+gc	125	175370904433	163.33 GB	.iso:104,.gcz:19	no	GameCube; high-end target
+genesis	975	1316021416	1.23 GB	.md:884,.zip:65	yes (MD)	
+genh	1	1171	1.1 KB	.txt:1	no	empty placeholder
+gmaster	1	478	478 B	.txt:1	no	empty placeholder
+gx4000	2	884	884 B	.txt:2	no	empty placeholder
+Intellivision	168	2962304	2.82 MB	.int:167	yes (INTV)	
+j2me	2	655	655 B	.txt:2	no	empty placeholder
+kodi	2	495	495 B	.txt:2	no	empty placeholder
+laserdisc	1	756	756 B	.txt:1	no	empty placeholder
+lcdgames	2	879	879 B	.txt:2	no	empty placeholder
+lowresnx	1	265	265 B	.txt:1	no	empty placeholder
+lutris	2	421	421 B	.txt:2	no	empty placeholder
+lutro	2	555	555 B	.txt:2	no	empty placeholder
+macintosh	2	1077	1.1 KB	.txt:2	no	empty placeholder
+mame	379	1231456615	1.15 GB	.zip:375	partial (Arcade)	populated
+mark3	1	940	940 B	.txt:1	no	empty placeholder
+mame-advmame	1	252	252 B	.txt:1	no	empty placeholder
+mastersystem	242	71475200	68.16 MB	.sms:242	yes (SMS)	
+megacd	2	1353	1.3 KB	.txt:2	no	empty placeholder
+megacdjp	2	1090	1.1 KB	.txt:2	no	empty placeholder
+megadrive	2	1238	1.2 KB	.txt:2	no	empty placeholder (see genesis)
+megadrivejp	2	1244	1.2 KB	.txt:2	no	empty placeholder
+megaduck	2	828	828 B	.txt:2	no	empty placeholder
+mess	2	549	549 B	.txt:2	no	empty placeholder
+model2	2	673	673 B	.txt:2	no	empty placeholder
+model3	2	429	429 B	.txt:2	no	empty placeholder
+moonlight	2	450	450 B	.txt:2	no	empty placeholder
+moto	2	619	619 B	.txt:2	no	empty placeholder
+MSDOS	21	5343447	5.10 MB	.zip:21	no	small extra DOS set
+msu-md	1	1042	1.0 KB	.txt:1	no	empty placeholder
+msx	2	1030	1.0 KB	.txt:2	no	empty placeholder
+msx1	2	1035	1.0 KB	.txt:2	no	empty placeholder
+msx2	2	1039	1.0 KB	.txt:2	no	empty placeholder
+msxturbor	2	952	952 B	.txt:2	no	empty placeholder
+mugen	2	442	442 B	.txt:2	no	empty placeholder
+multivision	2	697	697 B	.txt:2	no	empty placeholder
+n3ds	2	1639	1.6 KB	.txt:2	no	empty placeholder (see 3DS)
+n64	731	9244740450	8.61 GB	.zip:461,.7z:262	yes (N64)	
+n64dd	2	858	858 B	.txt:2	no	empty placeholder
+naomi	2	764	764 B	.txt:2	no	empty placeholder
+naomi2	1	429	429 B	.txt:1	no	empty placeholder
+naomigd	2	739	739 B	.txt:2	no	empty placeholder
+nds	246	15380655424	14.32 GB	.nds:235	yes (NDS)	
+neogeo	123	2390212464	2.23 GB	.zip:120	partial (Arcade)	populated
+neogeocd	2	823	823 B	.txt:2	no	empty placeholder
+neogeocdjp	2	831	831 B	.txt:2	no	empty placeholder
+NES	690	146272155	139.49 MB	.nes:688	yes (NES)	
+nesh	1	1358	1.3 KB	.txt:1	no	empty placeholder
+ngage	1	399	399 B	.txt:1	no	empty placeholder
+ngp	2	800	800 B	.txt:2	no	empty placeholder
+ngpc	2	822	822 B	.txt:2	no	empty placeholder
+odyssey2	2	815	815 B	.txt:2	no	empty placeholder
+openbor	2	444	444 B	.txt:2	no	empty placeholder
+oric	2	659	659 B	.txt:2	no	empty placeholder
+palm	2	537	537 B	.txt:2	no	empty placeholder
+pc	2	1031	1.0 KB	.txt:2	no	empty placeholder
+pc88	2	659	659 B	.txt:2	no	empty placeholder
+pc98	2	980	980 B	.txt:2	no	empty placeholder
+pcarcade	1	257	257 B	.txt:1	no	empty placeholder
+pcengine	2	1032	1.0 KB	.txt:2	no	empty placeholder (see tg16)
+pcenginecd	2	1047	1.0 KB	.txt:2	no	empty placeholder
+pcfx	2	670	670 B	.txt:2	no	empty placeholder
+PICO	1131	35110453	33.49 MB	.png:1130	no	PICO-8 carts
+pico8	2	664	664 B	.txt:2	no	empty placeholder (see PICO)
+plus4	1	619	619 B	.txt:1	no	empty placeholder
+pokemini	2	555	555 B	.txt:2	no	empty placeholder
+PORTS	1	754	754 B	.txt:1	no	empty placeholder
+primehack	2	733	733 B	.txt:2	no	empty placeholder
+PS2	119	419641670582	390.84 GB	.iso:116	no	high-end target
+PS3	54723	366625543507	341.45 GB	.snu,.xvag,.str,...	no	looks like unpacked game data, not ISO/PKG
+ps4	3	555	555 B	.txt:3	no	empty placeholder
+PSP	636	362010738232	337.14 GB	.iso:533,.cso:100	yes (PSP)	
+psvita	23	35454472377	33.02 GB	.vpk:21	no	populated
+PSX	135	26152166564	24.35 GB	.chd:78,.bin:54	yes (PS1)	
+pv1000	2	641	641 B	.txt:2	no	empty placeholder
+quake	2	1002	1.0 KB	.txt:2	no	empty placeholder
+remoteplay	2	350	350 B	.txt:2	no	empty placeholder
+samcoupe	2	466	466 B	.txt:2	no	empty placeholder
+satellaview	2	1377	1.3 KB	.txt:2	no	empty placeholder
+saturn	134	23134453647	21.54 GB	.chd:68,.bin:59	no	populated
+saturnjp	2	1054	1.0 KB	.txt:2	no	empty placeholder
+scummvm	2	652	652 B	.txt:2	no	empty placeholder
+scv	1	461	461 B	.txt:1	no	empty placeholder
+sega32x	36	104334122	99.50 MB	.32x:33	yes (32X)	
+sega32xjp	2	806	806 B	.txt:2	no	empty placeholder
+sega32xna	2	810	810 B	.txt:2	no	empty placeholder
+segacd	2	1074	1.0 KB	.txt:2	no	empty placeholder
+sfc	2	1643	1.6 KB	.txt:2	no	empty placeholder (see snes)
+sg-1000	2	1192	1.2 KB	.txt:2	no	empty placeholder
+sgb	2	820	820 B	.txt:2	no	empty placeholder
+snes	768	1084243968	1.01 GB	.sfc:768	yes (SNES)	
+snes-msu1	1	2342	2.3 KB	.txt:1	no	empty placeholder
+snesh	1	2335	2.3 KB	.txt:1	no	empty placeholder
+sneshd	2	844	844 B	.txt:2	no	empty placeholder
+snesna	2	1656	1.6 KB	.txt:2	no	empty placeholder
+solarus	2	397	397 B	.txt:2	no	empty placeholder
+spectravideo	2	717	717 B	.txt:2	no	empty placeholder
+steam	2	419	419 B	.txt:2	no	empty placeholder
+stratagus	2	400	400 B	.txt:2	no	empty placeholder
+stv	1	501	501 B	.txt:1	no	empty placeholder
+sufami	2	1225	1.2 KB	.txt:2	no	empty placeholder
+supergrafx	2	897	897 B	.txt:2	no	empty placeholder
+supervision	2	854	854 B	.txt:2	no	empty placeholder
+supracan	1	485	485 B	.txt:1	no	empty placeholder
+Switch	270	808752568551	753.28 GB	.nsp:249,.xci:17	no	high-end target
+Switch Updates	208	111843174897	104.17 GB	.nsp:206	no	updates/DLC for Switch
+Switch2	217568	114873415728	106.99 GB	.zs,.extm,.bwav,...	no	on D:; unpacked dump tree, not XCI/NSP
+symbian	2	754	754 B	.txt:2	no	empty placeholder
+tanodragon	2	800	800 B	.txt:2	no	empty placeholder
+TeknoParrot ROMS	26	45368690517	42.25 GB	.rar:24	no	PC arcade; not an Android target
+tg-cd	2	1036	1.0 KB	.txt:2	no	empty placeholder
+tg16	95	38797996	37.00 MB	.pce:94	yes (PCE)	
+ti99	2	532	532 B	.txt:2	no	empty placeholder
+tic80	2	567	567 B	.txt:2	no	empty placeholder
+to8	2	598	598 B	.txt:2	no	empty placeholder
+triforce	1	385	385 B	.txt:1	no	empty placeholder
+trs-80	2	667	667 B	.txt:2	no	empty placeholder
+type-x	1	248	248 B	.txt:1	no	empty placeholder
+uzebox	2	527	527 B	.txt:2	no	empty placeholder
+vectrex	37	207973	203.1 KB	.vec:35	yes (VECTREX)	
+vic20	2	1168	1.1 KB	.txt:2	no	empty placeholder
+videopac	2	824	824 B	.txt:2	no	empty placeholder
+vircon32	1	342	342 B	.txt:1	no	empty placeholder
+virtualboy	2	682	682 B	.txt:2	no	empty placeholder
+vpinball	1	246	246 B	.txt:1	no	empty placeholder
+vsmile	2	642	642 B	.txt:2	no	empty placeholder
+wasm4	2	505	505 B	.txt:2	no	empty placeholder
+wii	2	1467	1.4 KB	.txt:2	no	empty — no Wii library in this folder
+wiiu	33	179301301145	166.98 GB	.wua:31	no	Cemu compact archives
+windows	1	980	980 B	.txt:1	no	empty placeholder
+windows3x	1	549	549 B	.txt:1	no	empty placeholder
+windows9x	1	548	548 B	.txt:1	no	empty placeholder
+wonderswan	2	824	824 B	.txt:2	no	empty placeholder
+wonderswancolor	2	815	815 B	.txt:2	no	empty placeholder
+x1	2	938	938 B	.txt:2	no	empty placeholder
+x68000	2	955	955 B	.txt:2	no	empty placeholder
+xbox	22	58745080013	54.71 GB	.iso:18,.chd:2	no	populated
+xbox360	2	556	556 B	.txt:2	no	empty placeholder
+XBPlay2	1	289	289 B	.txt:1	no	empty placeholder
+zmachine	2	599	599 B	.txt:2	no	empty placeholder
+zx81	2	521	521 B	.txt:2	no	empty placeholder
+zxnext	1	507	507 B	.txt:1	no	empty placeholder
+zxspectrum	2	857	857 B	.txt:2	no	empty placeholder

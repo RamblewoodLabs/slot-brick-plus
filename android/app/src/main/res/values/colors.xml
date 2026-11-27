@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="slot_bg">#FF1A120C</color>
+    <color name="slot_plank">#FF5A3A22</color>
+    <color name="slot_text">#FFF0EAD8</color>
+    <color name="slot_muted">#FF8A7A60</color>
+    <color name="slot_accent">#FFF2E4B0</color>
+    <color name="slot_selected">#FF3A2A18</color>
+    <color name="slot_cart">#FF2C1C10</color>
+</resources>
