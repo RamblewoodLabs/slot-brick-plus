@@ -34,6 +34,8 @@ if [ -d brick/labels-local ]; then
 fi
 cp brick/card/Slot/System/Fonts/GohuFont.ttf "$OUT/Slot/System/Fonts/"
 cp -R brick/card/Slot/System/licenses "$OUT/Slot/System/"
+# Every licence the Brick card carries: the cores, libraries, overlays, sounds and fonts.
+cp -R licenses/. "$OUT/Slot/System/licenses/"
 cp LICENSE "$OUT/Slot/System/licenses/slot-GPL-3.0.txt"
 
 cp target/aarch64-unknown-linux-gnu/device/slot "$OUT/Slot/System/"
