@@ -32,6 +32,7 @@ pub mod link_state;
 pub mod menu_status;
 pub mod net;
 pub mod offline_ra;
+pub mod od_launch;
 pub mod overlay;
 pub mod persist;
 pub mod pip;
