@@ -17,7 +17,7 @@ pub fn of(platform: Platform) -> Option<&'static Turn> {
 /// How long a platform's cart takes to turn; 0 when it goes straight in.
 pub fn seconds(platform: Platform) -> f32 {
     if platform == Platform::Gw {
-        return GW_FRAMES as f32 / GW_FPS;
+        return GW_SECONDS;
     }
     of(platform).map_or(0.0, Turn::seconds)
 }
@@ -31,8 +31,17 @@ pub fn turns(platform: Platform) -> bool {
 /// rendered for each game by brick/gw-art and kept beside its label as one strip,
 /// `Labels/GW/open/<stem>.png`: the frames side by side, each the shelf face's size.
 pub const GW_FRAMES: usize = 18;
-pub const GW_FPS: f32 = 30.0;
+/// How the strip was authored: 18 frames at 30 fps, 0.6 s.
+pub const GW_STRIP_FPS: f32 = 30.0;
+/// Playback is about 1.6× that original, just under a second, so it can be savored.
+pub const GW_SECONDS: f32 = GW_FRAMES as f32 / GW_STRIP_FPS * 1.6;
 pub const GW_OPEN_DIR: &str = "open";
+
+/// Ease-in-out for the open or light-up: slow at both ends, a little quicker in the middle.
+pub fn ease_gw(u: f32) -> f32 {
+    let u = u.clamp(0.0, 1.0);
+    u * u * (3.0 - 2.0 * u)
+}
 
 /// The frames of a Game & Watch's strip, each placed over the shelf face; it goes in open
 /// (the last frame). None when the strip is not whole frames of the face's size.
@@ -251,11 +260,30 @@ mod tests {
         assert_eq!(faces.frames.len(), 3);
         for (i, f) in faces.frames.iter().enumerate() {
             assert_eq!((f.face.w, f.face.h, f.x, f.y), (w, h, 0, 0));
-            assert!(f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100), "frame {i}");
+            assert!(
+                f.face.rgba.chunks_exact(4).all(|p| p[0] == i as u8 * 100),
+                "frame {i}"
+            );
         }
-        assert_eq!(faces.seated.unwrap().rgba[0], 200, "it goes in as the last frame shows it");
-        assert!(gw_faces(&strip[..strip.len() / 2]).is_none(), "a broken strip");
-        assert!(turns(Platform::Gw) && seconds(Platform::Gw) > 0.5);
+        assert_eq!(
+            faces.seated.unwrap().rgba[0],
+            200,
+            "it goes in as the last frame shows it"
+        );
+        assert!(
+            gw_faces(&strip[..strip.len() / 2]).is_none(),
+            "a broken strip"
+        );
+        assert!(turns(Platform::Gw));
+        let secs = seconds(Platform::Gw);
+        assert!((secs - GW_SECONDS).abs() < 1e-6);
+        // 1.6× the authored 0.6 s, in the 0.95–1.0 s range.
+        assert!((secs - 0.96).abs() < 1e-6, "{secs}");
+        assert_eq!(ease_gw(0.0), 0.0);
+        assert_eq!(ease_gw(1.0), 1.0);
+        assert!((ease_gw(0.5) - 0.5).abs() < 1e-6);
+        assert!(ease_gw(0.25) < 0.25, "starts slowly");
+        assert!(ease_gw(0.75) > 0.75, "settles slowly");
     }
 
     #[test]
@@ -374,5 +402,61 @@ mod tests {
                 assert_eq!((mw, mh), (w, h), "{p:?} map {i}");
             }
         }
+    }
+
+    /// Face-on HuCard pins are a dull gold, about (110, 90, 60).
+    fn gold_rows(rgba: &[u8], w: u32, h: u32) -> (u32, u32, u32) {
+        let mut top = 0u32;
+        let mut bot = 0u32;
+        let mut mid = 0u32;
+        for (i, p) in rgba.chunks_exact(4).enumerate() {
+            if p[3] < 200 {
+                continue;
+            }
+            let (r, g, b) = (p[0] as i16, p[1] as i16, p[2] as i16);
+            if !(90..=160).contains(&r)
+                || !(70..=130).contains(&g)
+                || b >= 90
+                || r <= g + 8
+                || g <= b + 15
+            {
+                continue;
+            }
+            let y = i as u32 / w;
+            if y * 3 < h {
+                top += 1;
+            } else if y * 3 > h * 2 {
+                bot += 1;
+            } else {
+                mid += 1;
+            }
+        }
+        (top, mid, bot)
+    }
+
+    #[test]
+    fn a_hucard_goes_in_connector_first_with_the_pins_facing_away() {
+        let turn = of(Platform::Pce).expect("HuCard turn");
+        assert!(turn.flip, "the last frame is the face it goes in with");
+        let (first, fw, fh) = decode8(turn.frames[0].shell).expect("first shell");
+        let (last, lw, lh) = decode8(turn.frames.last().unwrap().shell).expect("last shell");
+        let (ft, _, fb) = gold_rows(&first, fw, fh);
+        assert!(
+            ft > 20 && ft > fb * 2,
+            "on the shelf the HuCard's contacts should be at the top, got top={ft} bot={fb}"
+        );
+        let (lt, lm, lb) = gold_rows(&last, lw, lh);
+        let gold = lt + lm + lb;
+        assert!(
+            gold < 8,
+            "the last frame still shows face-on gold pins (they would point out of the slot): top={lt} mid={lm} bot={lb}"
+        );
+        assert!(
+            faces(&cart(Platform::Pce), None)
+                .expect("faces")
+                .seated
+                .is_some(),
+            "flip seats the last frame for the slide"
+        );
     }
 }

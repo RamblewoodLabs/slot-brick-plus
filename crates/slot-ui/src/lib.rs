@@ -36,7 +36,9 @@ mod toast;
 pub mod turn;
 
 pub use backdrop::{bezel_face, draw_backdrop, wallpaper_face};
-pub use banner::{banner_face, BADGE_PX, BANNER_H, BANNER_W, BANNER_X, BANNER_Y};
+pub use banner::{
+    banner_face, banner_face_at, BADGE_PX, BANNER_H, BANNER_W, BANNER_X, BANNER_Y, BURST_MS,
+};
 pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
 pub use battery::{draw_gauge, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
 pub use board::{

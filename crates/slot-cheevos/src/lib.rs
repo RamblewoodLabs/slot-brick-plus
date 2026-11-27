@@ -24,6 +24,7 @@ extern "C" {
     fn slot_cheevos_free(s: *mut Raw);
     fn slot_cheevos_respond(call: *mut c_void, body: *const c_char, length: usize, status: c_int);
     fn slot_cheevos_login(s: *mut Raw, user: *const c_char, token: *const c_char);
+    fn slot_cheevos_set_encore_mode(s: *mut Raw, enabled: c_int);
     fn slot_cheevos_set_memory(s: *mut Raw, descriptors: *const c_void, count: c_uint, console: c_uint) -> c_int;
     fn slot_cheevos_load_game(s: *mut Raw, path: *const c_char, console: c_uint);
     fn slot_cheevos_frame(s: *mut Raw);
@@ -309,6 +310,12 @@ impl Cheevos {
         }
         unsafe { (*shared).state.lock().unwrap_or_else(|e| e.into_inner()).raw = raw as usize };
         Some(Cheevos { raw, shared })
+    }
+
+    /// Encore mode: already-earned achievements trigger and toast again. Set this
+    /// before `load_game`.
+    pub fn set_encore_mode(&self, enabled: bool) {
+        unsafe { slot_cheevos_set_encore_mode(self.raw, c_int::from(enabled)) };
     }
 
     pub fn login(&self, user: &str, token: &str) {
