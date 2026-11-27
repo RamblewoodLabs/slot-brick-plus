@@ -1,0 +1,9 @@
+# Used when building from rg280v/. Does not affect Brick or SP builds,
+# which run from the repository root against rust-toolchain.toml 1.96.
+[target.mipsel-gcw0-linux-uclibc]
+linker = "/opt/gcw0-toolchain/bin/mipsel-linux-gcc"
+ar = "/opt/gcw0-toolchain/bin/mipsel-linux-ar"
+
+# Custom target JSON is nightly-only.
+[build]
+rustflags = ["-Zunstable-options"]
