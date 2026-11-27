@@ -263,7 +263,7 @@ Do not use or recommend AetherSX2 or NetherSX2.
 
 1. Rebase onto merged main if more SP/Brick PRs land.
 2. EGL `slot-gfx` host and the real `slot-ui` shelf on Android.
-3. Embed the remaining libretro cores (N64, PSP, Dreamcast, Saturn, and the rest of the 24) and retire the RetroArch interim. First-wave GB/GBC/GBA, NES, SNES, Genesis/SMS/GG, and PS1 already play inside Slotted.
+3. Embed Flycast (Dreamcast) and Beetle Saturn, then retire the RetroArch interim. The 24 handheld systems, including N64 and PSP, already play inside Slotted.
 4. ScreenScraper art flow.
 5. Thor second-screen layout, if Jeff wants it.
 6. Vita Title ID lookup that does not depend on the filename, if Vita3K adds a better intent.
@@ -308,23 +308,26 @@ Landed on `cursor/android-phase3` after PR #35 merged to main as `4fd6a8d`.
   disables the second screen. On a single-screen device the same preview
   appears as a panel on the main shelf.
 
-### Embedded cores (first wave)
+### Embedded cores
 
-mGBA (GB/GBC/GBA), FCEUmm (NES), Snes9x (SNES), Genesis Plus GX
-(Genesis / Master System / Game Gear), and PCSX ReARMed (PS1) are built
-from the vendored sources in `vendor/` with the NDK
-(`android/build-cores.sh`) and play inside Slotted through a minimal
-libretro host in `android/slot-android`. Software frames go to a GLES2
-texture; audio goes to `AudioTrack`; SRAM and savestates live under
-the app's files dir. Start+Select or Back opens a pause menu (save, load,
-reset, or hand off to RetroArch). Genesis Plus GX is non-commercial;
-shipping it is allowed because Slotted is free. License texts from
-`licenses/` are copied into the APK. RetroArch remains the fallback for
-every other libretro system.
+The 24 handheld systems are built from the vendored sources in `vendor/`
+with the NDK (`android/build-cores.sh`, same pins as the Brick/SP scripts)
+and play inside Slotted through a minimal libretro host in
+`android/slot-android`. Software frames go to a GLES texture; N64
+(mupen64plus-next) and PSP (PPSSPP) use a libretro GLES3 hardware-render
+FBO. Audio goes to `AudioTrack`; SRAM and savestates live under the app's
+files dir. Start+Select or Back opens a pause menu (save, load, reset, or
+hand off to RetroArch). Analog sticks are forwarded for N64 and PSP.
+Genesis Plus GX, FinalBurn Neo and PicoDrive are non-commercial; shipping
+them is allowed because Slotted is free. License texts from `licenses/`
+are copied into the APK. PPSSPP's
+own fonts, shaders and compat lists are packed from `vendor/ppsspp-assets`;
+BIOS and firmware are not. RetroArch remains the fallback for Dreamcast
+(Flycast) and Saturn (Beetle Saturn), and if an embedded start fails.
 
 ### Still next
 
-1. Embed the rest of the 24 handheld systems (and later Flycast / Beetle Saturn). N64 and PPSSPP need a GLES hardware-render path the first-wave software host does not have yet.
+1. Embed Flycast (Dreamcast) and Beetle Saturn, then drop the RetroArch interim.
 2. RetroAchievements counts on the preview.
 3. Jeff's ScreenScraper forum registration (blocks video and the richer art).
 4. Switch 2 shelf policy, and where the 2+ TB library lives on the device.

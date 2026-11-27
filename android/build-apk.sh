@@ -37,7 +37,17 @@ cp "$ROOT/licenses/mgba-MPL-2.0.txt" \
    "$ROOT/licenses/genesis-plus-gx-LICENSE.txt" \
    "$ROOT/licenses/pcsx_rearmed-GPL-2.0.txt" \
    "$ROOT/licenses/GPL-3.0.txt" \
+   "$ROOT/licenses/fbneo-LICENSE.txt" \
+   "$ROOT/licenses/handy-zlib.txt" \
+   "$ROOT/licenses/gw-libretro-zlib.txt" \
+   "$ROOT/licenses/picodrive-COPYING.txt" \
    "$ANDROID_DIR/app/src/main/assets/licenses/"
+# PPSSPP's own assets (not BIOS). Rebuilt from vendor/ each APK; gitignored.
+if [ -d "$ROOT/vendor/ppsspp-assets" ]; then
+  rm -rf "$ANDROID_DIR/app/src/main/assets/ppsspp"
+  mkdir -p "$ANDROID_DIR/app/src/main/assets/ppsspp"
+  cp -R "$ROOT/vendor/ppsspp-assets/." "$ANDROID_DIR/app/src/main/assets/ppsspp/"
+fi
 
 echo "==== native lib (arm64-v8a) ===="
 cd "$ANDROID_DIR/slot-android"

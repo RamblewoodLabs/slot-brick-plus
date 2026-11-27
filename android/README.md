@@ -2,9 +2,9 @@
 
 This folder holds **Slotted**, the Android app. The Brick and RG35XX SP firmware stays **Slot**, and the repository name is unchanged. The application id is `com.ramblewoodlabs.slotted` (the previous placeholder was `plus.slotbrick.slot`, so this build installs as a new app — uninstall the old one if it is still on the device). The debug APK can pick Jeff's ROM
 tree, list games by folder, detect the standalone emulators, and launch them.
-The first-wave handheld systems (GB/GBC/GBA, NES, SNES, Genesis/SMS/GG, PS1)
-play inside Slotted; other libretro systems still open RetroArch until their
-cores are embedded. Missing standalone emulators get an install prompt.
+The 24 handheld systems (including N64, DS and PSP) play inside Slotted.
+Dreamcast and Saturn still open RetroArch until Flycast and Beetle Saturn
+are embedded. Missing standalone emulators get an install prompt.
 
 The plan, inventory and art-scraper notes live in
 [`../docs/android/PLAN.md`](../docs/android/PLAN.md).
@@ -50,10 +50,9 @@ The debug APK is written to:
    `3DS`, `dreamcast`, `saturn`, `psvita`, `xbox`, and the older system
    folders.
 6. Install the standalone emulators Slotted asks for (Dolphin, ARMSX2, Eden,
-   Azahar, Vita3K, hakuX) from their official pages. GB, GBC, GBA, NES, SNES,
-   Genesis, Master System, Game Gear, and PS1 play inside Slotted. For the
-   remaining libretro systems (plus Dreamcast and Saturn), install RetroArch
-   and the named core from RetroArch’s updater. This is interim until those
+   Azahar, Vita3K, hakuX) from their official pages. The 24 handheld systems
+   (including N64, DS and PSP) play inside Slotted. For Dreamcast and Saturn,
+   install RetroArch and the named core from RetroArch’s updater until those
    cores are embedded too.
 7. For Switch, install official Eden and supply your own `prod.keys` and
    firmware, dumped from a Switch you own. Slotted never bundles them.
@@ -96,14 +95,16 @@ respected.
 
 ## Embedded cores
 
-The debug APK embeds mGBA (GB/GBC/GBA), FCEUmm (NES), Snes9x (SNES),
-Genesis Plus GX (Genesis, Master System, Game Gear) and PCSX ReARMed (PS1),
-built from the vendored sources in `vendor/` with the NDK
-(`android/build-cores.sh`, also invoked by `android/build-apk.sh`).
+`android/build-cores.sh` (also invoked by `android/build-apk.sh`) builds the
+24 handheld cores from the vendored sources in `vendor/` with the NDK, using
+the same pins as the Brick/SP scripts. Software-rendered systems play through
+the in-process host; N64 (mupen64plus-next) and PSP (PPSSPP) use a GLES3
+libretro hardware-render path.
 
-Those systems play inside Slotted (Start+Select or Back pauses: save/load
-state, reset, or hand off to RetroArch). Other libretro systems still open
-RetroArch until their cores are embedded the same way.
+Start+Select or Back pauses (save/load state, reset, or hand off to RetroArch).
+Dreamcast (Flycast) and Saturn (Beetle Saturn) still open RetroArch.
 
-Genesis Plus GX is non-commercial; shipping it is allowed because Slotted
-is free. License texts are copied into the APK from `licenses/`.
+Genesis Plus GX, FinalBurn Neo and PicoDrive are non-commercial; shipping
+them is allowed because Slotted is free. License texts are copied into the APK from `licenses/`. This Android build of
+PPSSPP is without FFmpeg (the vendor tarball only has Linux prebuilts). Building mGBA
+and PPSSPP requires CMake (`brew install cmake ninja`).

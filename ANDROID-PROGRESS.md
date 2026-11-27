@@ -128,3 +128,19 @@ Debug APK (release-optimized native host): `/Users/jeff/sbp-android-p3/android/a
 SHA-256: `8cf0111b36f6c2ff3db9cd45077ecd0203baf503b4c10cf4b4f890f1f3720cf6`
 
 Next: remaining 24-system cores (N64 / PPSSPP need a GLES hardware-render path), RetroAchievements counts, and Jeff's ScreenScraper forum registration for video / full art.
+
+
+## 2026-11-26 8:52 PM PT — Remaining handheld cores + GLES HW path
+
+On `cursor/android-phase3` in `/Users/jeff/sbp-android-p3`. No SD card, no E:/F:. PR #36 is not merged.
+
+Software cores added, same pins as the Brick/SP scripts: FBNeo (arcade; non-commercial, allowed because Slotted is free), Beetle PCE Fast, Stella 2014, FreeIntv, Handy, ProSystem, gw-libretro, Gearcoleco, a5200, Atari800, vecx (HAS_GPU=0), PicoDrive (32X; non-commercial, same rule), melonDS (software renderer, arm64 JIT; Android strerror_r patch).
+
+GLES3 libretro hardware-render path in `android/slot-android/src/hw.rs`: the core gets an FBO in PlayActivity's current context, plus analog sticks. Embedded: mupen64plus-next (N64) and PPSSPP (PSP). PPSSPP is built without FFmpeg — the vendor tarball only has Linux/glibc prebuilts, which will not link against Bionic. PPSSPP fonts, shaders and compat lists are packed from `vendor/ppsspp-assets`. BIOS and firmware are not bundled.
+
+Dreamcast (Flycast) and Saturn (Beetle Saturn) still open RetroArch. This pass did not sideload or play a ROM on a device.
+
+Debug APK: `/Users/jeff/sbp-android-p3/android/app/build/outputs/apk/debug/Slotted-debug.apk` (~62 MB, FBNeo dominates the uncompressed size).
+SHA-256: `1838d9b80e1b2b6d075362525c76f5014faa8d7883161227838c50f37d5dabc0`
+
+Next: Flycast and Beetle Saturn; RetroAchievements counts; Jeff's ScreenScraper forum registration.
