@@ -1,10 +1,11 @@
 //! A minimal libretro host for Slotted on Android.
 //!
-//! Software-rendered cores (the first wave: mGBA, FCEUmm, Snes9x,
-//! Genesis Plus GX, PCSX ReARMed) write a framebuffer and an audio
-//! batch each frame. GLES upload and AudioTrack playback happen on the
-//! Java side. SRAM is flushed to the save directory on stop; save
-//! states are files in the same directory.
+//! Software-rendered cores write a framebuffer and an audio batch each
+//! frame; GLES upload and AudioTrack playback happen on the Java side.
+//! GPU cores (N64, PSP) request a libretro HW context; we give them an
+//! FBO in the current GLES3 context and expose the color texture.
+//! SRAM is flushed to the save directory on stop; save states are files
+//! in the same directory.
 use libloading::{Library, Symbol};
 use log::{info, warn};
 use std::cell::RefCell;
@@ -19,6 +20,21 @@ pub const EMBEDDED_CORES: &[&str] = &[
     "snes9x",
     "genesis_plus_gx",
     "pcsx_rearmed",
+    "fbneo",
+    "mednafen_pce_fast",
+    "stella2014",
+    "freeintv",
+    "handy",
+    "prosystem",
+    "gw",
+    "gearcoleco",
+    "a5200",
+    "atari800",
+    "vecx",
+    "picodrive",
+    "melonds",
+    "mupen64plus_next",
+    "ppsspp",
 ];
 
 pub fn is_embedded(core: &str) -> bool {
@@ -57,6 +73,11 @@ const ENV_SET_CORE_OPTIONS_DISPLAY: u32 = 55;
 const ENV_SET_CORE_OPTIONS_V2: u32 = 67;
 const ENV_SET_CORE_OPTIONS_V2_INTL: u32 = 68;
 const ENV_SET_SUPPORT_ACHIEVEMENTS: u32 = 42;
+const ENV_SET_HW_RENDER: u32 = 14;
+const ENV_GET_PREFERRED_HW_RENDER: u32 = 56;
+const DEVICE_JOYPAD: u32 = 1;
+const DEVICE_ANALOG: u32 = 5;
+const HW_FRAME: usize = usize::MAX;
 
 const MEMORY_SAVE_RAM: u32 = 0;
 
@@ -200,6 +221,11 @@ pub struct Host {
     loaded: bool,
     rom_buf: Option<Vec<u8>>,
     rom_path: CString,
+    stick: (i16, i16),
+    stick_r: (i16, i16),
+    hw: Option<Box<crate::hw::Gl>>,
+    hw_frame: bool,
+    hw_max: (u32, u32),
 }
 
 thread_local! {
@@ -211,6 +237,8 @@ impl Host {
         stop();
         std::fs::create_dir_all(system_dir).ok();
         std::fs::create_dir_all(save_dir).ok();
+        // GPU cores may resolve GL symbols at load; open the system libs first.
+        let _ = crate::hw::preload();
         let api = unsafe { Api::load(core_so)? };
         let version = unsafe { (api.api_version)() };
         if version != 1 {
@@ -242,6 +270,11 @@ impl Host {
             loaded: false,
             rom_buf: None,
             rom_path: cstring(rom_path),
+            stick: (0, 0),
+            stick_r: (0, 0),
+            hw: None,
+            hw_frame: false,
+            hw_max: (0, 0),
         };
         unsafe {
             (host.api.set_environment)(env_cb);
@@ -252,67 +285,104 @@ impl Host {
             (host.api.set_input_state)(input_state_cb);
         }
         CURRENT.with(|c| c.replace(Some(host)));
-        CURRENT.with(|c| {
-            let mut slot = c.borrow_mut();
-            let host = slot.as_mut().unwrap();
-            unsafe { (host.api.init)() };
-            let mut info = RetroSystemInfo {
-                library_name: ptr::null(),
-                library_version: ptr::null(),
-                valid_extensions: ptr::null(),
-                need_fullpath: false,
-                block_extract: false,
-            };
-            unsafe { (host.api.get_system_info)(&mut info) };
-            let name = unsafe { optional_cstr(info.library_name) };
-            info!("loaded core {name}");
-            let need_path = info.need_fullpath;
-            let rom_c = host.rom_path.clone();
-            let mut game = RetroGameInfo {
-                path: rom_c.as_ptr(),
-                data: ptr::null(),
-                size: 0,
-                meta: ptr::null(),
-            };
-            if !need_path {
-                match std::fs::read(rom_path) {
-                    Ok(buf) => {
-                        game.data = buf.as_ptr() as *const c_void;
-                        game.size = buf.len();
-                        host.rom_buf = Some(buf);
-                        // pointer stays valid: rom_buf is not moved until unload
-                        if let Some(buf) = host.rom_buf.as_ref() {
-                            game.data = buf.as_ptr() as *const c_void;
-                            game.size = buf.len();
-                        }
-                    }
-                    Err(e) => return Err(format!("read ROM: {e}")),
+        // Do not hold a RefCell borrow across core calls: env/video/input
+        // callbacks also borrow CURRENT.
+        let (init, get_system_info, load_game, get_av, set_pad) = CURRENT.with(|c| {
+            let h = c.borrow();
+            let h = h.as_ref().unwrap();
+            (
+                h.api.init.clone(),
+                h.api.get_system_info.clone(),
+                h.api.load_game.clone(),
+                h.api.get_system_av_info.clone(),
+                h.api.set_controller_port_device.clone(),
+            )
+        });
+        unsafe { init() };
+        let mut info = RetroSystemInfo {
+            library_name: ptr::null(),
+            library_version: ptr::null(),
+            valid_extensions: ptr::null(),
+            need_fullpath: false,
+            block_extract: false,
+        };
+        unsafe { get_system_info(&mut info) };
+        let name = unsafe { optional_cstr(info.library_name) };
+        info!("loaded core {name}");
+        let need_path = info.need_fullpath;
+        let rom_c = CURRENT.with(|c| c.borrow().as_ref().unwrap().rom_path.clone());
+        let mut game = RetroGameInfo {
+            path: rom_c.as_ptr(),
+            data: ptr::null(),
+            size: 0,
+            meta: ptr::null(),
+        };
+        if !need_path {
+            let buf = std::fs::read(rom_path).map_err(|e| format!("read ROM: {e}"))?;
+            CURRENT.with(|c| {
+                let mut slot = c.borrow_mut();
+                let host = slot.as_mut().unwrap();
+                host.rom_buf = Some(buf);
+                if let Some(buf) = host.rom_buf.as_ref() {
+                    game.data = buf.as_ptr() as *const c_void;
+                    game.size = buf.len();
                 }
+            });
+        }
+        let ok = unsafe { load_game(&game) };
+        if !ok {
+            return Err("core rejected the ROM".into());
+        }
+        CURRENT.with(|c| {
+            if let Some(h) = c.borrow_mut().as_mut() {
+                h.loaded = true;
             }
-            let ok = unsafe { (host.api.load_game)(&game) };
-            if !ok {
-                return Err("core rejected the ROM".into());
+        });
+        let mut av = RetroSystemAvInfo {
+            geometry: RetroGameGeometry {
+                base_width: 0,
+                base_height: 0,
+                max_width: 0,
+                max_height: 0,
+                aspect_ratio: 0.0,
+            },
+            timing: RetroSystemTiming {
+                fps: 60.0,
+                sample_rate: 44100.0,
+            },
+        };
+        unsafe { get_av(&mut av) };
+        CURRENT.with(|c| {
+            if let Some(h) = c.borrow_mut().as_mut() {
+                h.apply_av(&av);
             }
-            host.loaded = true;
-            let mut av = RetroSystemAvInfo {
-                geometry: RetroGameGeometry {
-                    base_width: 0,
-                    base_height: 0,
-                    max_width: 0,
-                    max_height: 0,
-                    aspect_ratio: 0.0,
-                },
-                timing: RetroSystemTiming {
-                    fps: 60.0,
-                    sample_rate: 44100.0,
-                },
-            };
-            unsafe { (host.api.get_system_av_info)(&mut av) };
-            host.apply_av(&av);
-            unsafe { (host.api.set_controller_port_device)(0, 1) }; // JOYPAD
-            host.load_sram();
-            Ok(())
-        })
+        });
+        unsafe { set_pad(0, 1) }; // JOYPAD
+        let reset = CURRENT.with(|c| {
+            let mut slot = c.borrow_mut();
+            let host = slot.as_mut()?;
+            if host.hw.is_none() {
+                return None;
+            }
+            let w = av.geometry.max_width.max(av.geometry.base_width).max(1);
+            let h = av.geometry.max_height.max(av.geometry.base_height).max(1);
+            host.hw_max = (w, h);
+            host.hw.as_mut().map(|gl| {
+                let fbo = gl.framebuffer(w, h);
+                crate::hw::CURRENT_FBO
+                    .store(fbo as usize, std::sync::atomic::Ordering::Release);
+                gl.request.context_reset
+            })
+        });
+        if let Some(Some(reset)) = reset {
+            unsafe { reset() };
+        }
+        CURRENT.with(|c| {
+            if let Some(h) = c.borrow_mut().as_mut() {
+                h.load_sram();
+            }
+        });
+        Ok(())
     }
 
     fn apply_av(&mut self, av: &RetroSystemAvInfo) {
@@ -380,15 +450,15 @@ impl Host {
 }
 
 pub fn stop() {
-    CURRENT.with(|c| {
-        if let Some(host) = c.borrow_mut().take() {
-            if host.loaded {
-                host.save_sram();
-                unsafe { (host.api.unload_game)() };
-            }
-            unsafe { (host.api.deinit)() };
+    let host = CURRENT.with(|c| c.borrow_mut().take());
+    crate::hw::CURRENT_FBO.store(0, std::sync::atomic::Ordering::Release);
+    if let Some(host) = host {
+        if host.loaded {
+            host.save_sram();
+            unsafe { (host.api.unload_game)() };
         }
-    });
+        unsafe { (host.api.deinit)() };
+    }
 }
 
 pub fn set_buttons(mask: u16) {
@@ -400,14 +470,50 @@ pub fn set_buttons(mask: u16) {
 }
 
 pub fn run_frame() -> bool {
-    CURRENT.with(|c| {
+    let run = CURRENT.with(|c| {
         let mut slot = c.borrow_mut();
-        let Some(host) = slot.as_mut() else { return false };
+        let host = slot.as_mut()?;
         if !host.loaded {
-            return false;
+            return None;
         }
-        unsafe { (host.api.run)() };
-        true
+        host.hw_frame = false;
+        Some(host.api.run.clone())
+    });
+    let Some(run) = run else { return false };
+    unsafe { run() };
+    CURRENT.with(|c| {
+        if let Some(h) = c.borrow().as_ref() {
+            if let Some(gl) = h.hw.as_ref() {
+                gl.unbind();
+            }
+        }
+    });
+    true
+}
+
+pub fn set_sticks(left: (i16, i16), right: (i16, i16)) {
+    CURRENT.with(|c| {
+        if let Some(h) = c.borrow_mut().as_mut() {
+            h.stick = left;
+            h.stick_r = right;
+        }
+    });
+}
+
+pub fn is_hw_frame() -> bool {
+    CURRENT.with(|c| c.borrow().as_ref().map(|h| h.hw_frame && h.hw.is_some()).unwrap_or(false))
+}
+
+pub fn hw_texture_id() -> u32 {
+    CURRENT.with(|c| c.borrow().as_ref().and_then(|h| h.hw.as_ref().map(|gl| gl.color_texture())).unwrap_or(0))
+}
+
+pub fn hw_bottom_left_origin() -> bool {
+    CURRENT.with(|c| {
+        c.borrow()
+            .as_ref()
+            .and_then(|h| h.hw.as_ref().map(|gl| gl.request.bottom_left_origin))
+            .unwrap_or(false)
     })
 }
 
@@ -521,13 +627,12 @@ pub fn load_state(path: &Path) -> Result<(), String> {
 }
 
 pub fn reset() {
-    CURRENT.with(|c| {
-        if let Some(h) = c.borrow().as_ref() {
-            if h.loaded {
-                unsafe { (h.api.reset)() };
-            }
-        }
+    let reset = CURRENT.with(|c| {
+        c.borrow().as_ref().and_then(|h| if h.loaded { Some(h.api.reset.clone()) } else { None })
     });
+    if let Some(reset) = reset {
+        unsafe { reset() };
+    }
 }
 
 pub fn default_state_path() -> Option<PathBuf> {
@@ -667,6 +772,30 @@ unsafe extern "C" fn env_cb(cmd: c_uint, data: *mut c_void) -> bool {
                 }
                 true
             }
+            ENV_SET_HW_RENDER => {
+                if data.is_null() {
+                    return false;
+                }
+                let cb = unsafe { &mut *(data as *mut crate::hw::HwRenderCallback) };
+                let Some(request) = crate::hw::Request::from_callback(cb) else {
+                    return false;
+                };
+                let Some(gl) = crate::hw::Gl::attach(request) else {
+                    warn!("no GLES context for libretro HW render");
+                    return false;
+                };
+                cb.get_current_framebuffer = Some(crate::hw::hw_get_current_framebuffer);
+                cb.get_proc_address = Some(crate::hw::hw_get_proc_address);
+                host.hw = Some(Box::new(gl));
+                true
+            }
+            ENV_GET_PREFERRED_HW_RENDER => {
+                if data.is_null() || !crate::hw::preload() {
+                    return false;
+                }
+                unsafe { *(data as *mut c_uint) = crate::hw::CONTEXT_OPENGLES3 };
+                true
+            }
             ENV_GET_CORE_OPTIONS_VERSION => {
                 if !data.is_null() {
                     unsafe { *(data as *mut c_uint) = 0 };
@@ -684,14 +813,26 @@ unsafe extern "C" fn env_cb(cmd: c_uint, data: *mut c_void) -> bool {
 }
 
 unsafe extern "C" fn video_cb(data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
-    if data.is_null() || width == 0 || height == 0 {
+    if data.is_null() {
         return;
     }
     CURRENT.with(|c| {
         let mut slot = c.borrow_mut();
         let Some(host) = slot.as_mut() else { return };
-        host.width = width;
-        host.height = height;
+        if width > 0 {
+            host.width = width;
+        }
+        if height > 0 {
+            host.height = height;
+        }
+        if data as usize == HW_FRAME {
+            host.hw_frame = true;
+            return;
+        }
+        host.hw_frame = false;
+        if width == 0 || height == 0 {
+            return;
+        }
         host.pitch = pitch;
         let bytes = pitch * height as usize;
         if host.frame.len() < bytes {
@@ -733,15 +874,22 @@ unsafe extern "C" fn audio_batch_cb(data: *const i16, frames: usize) -> usize {
 
 unsafe extern "C" fn input_poll_cb() {}
 
-unsafe extern "C" fn input_state_cb(port: c_uint, _device: c_uint, _index: c_uint, id: c_uint) -> i16 {
-    if port != 0 || id > 15 {
+unsafe extern "C" fn input_state_cb(port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
+    if port != 0 {
         return 0;
     }
+    let dev = device & 0xff;
     CURRENT.with(|c| {
-        c.borrow()
-            .as_ref()
-            .map(|h| if h.buttons & (1 << id) != 0 { 1 } else { 0 })
-            .unwrap_or(0)
+        let slot = c.borrow();
+        let Some(h) = slot.as_ref() else { return 0 };
+        if dev == DEVICE_ANALOG {
+            let stick = if index == 0 { h.stick } else { h.stick_r };
+            return if id == 0 { stick.0 } else if id == 1 { stick.1 } else { 0 };
+        }
+        if (dev == DEVICE_JOYPAD || dev == 0) && id <= 15 {
+            return if h.buttons & (1 << id) != 0 { 1 } else { 0 };
+        }
+        0
     })
 }
 

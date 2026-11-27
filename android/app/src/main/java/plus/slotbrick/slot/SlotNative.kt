@@ -14,6 +14,10 @@ internal object SlotNative {
     @JvmStatic external fun startGame(coreSo: String, romPath: String, systemDir: String, saveDir: String): String
     @JvmStatic external fun stopGame()
     @JvmStatic external fun setButtons(mask: Int)
+    @JvmStatic external fun setSticks(lx: Int, ly: Int, rx: Int, ry: Int)
+    @JvmStatic external fun isHwFrame(): Boolean
+    @JvmStatic external fun hwTextureId(): Int
+    @JvmStatic external fun hwBottomLeftOrigin(): Boolean
     @JvmStatic external fun runFrame(): Boolean
     @JvmStatic external fun frameWidth(): Int
     @JvmStatic external fun frameHeight(): Int

@@ -1,6 +1,7 @@
 //! JNI entry points for the Slotted Android app.
 
 mod host;
+mod hw;
 mod registry;
 
 use jni::objects::{JByteBuffer, JClass, JString};
@@ -226,6 +227,42 @@ pub extern "system" fn Java_plus_slotbrick_slot_SlotNative_defaultStatePath(
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     env.new_string(s).expect("path").into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_plus_slotbrick_slot_SlotNative_setSticks(
+    _env: JNIEnv,
+    _class: JClass,
+    lx: jint,
+    ly: jint,
+    rx: jint,
+    ry: jint,
+) {
+    host::set_sticks((lx as i16, ly as i16), (rx as i16, ry as i16));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_plus_slotbrick_slot_SlotNative_isHwFrame(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if host::is_hw_frame() { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_plus_slotbrick_slot_SlotNative_hwTextureId(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    host::hw_texture_id() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_plus_slotbrick_slot_SlotNative_hwBottomLeftOrigin(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if host::hw_bottom_left_origin() { JNI_TRUE } else { JNI_FALSE }
 }
 
 #[no_mangle]
