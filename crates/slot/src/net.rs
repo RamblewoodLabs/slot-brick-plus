@@ -550,7 +550,7 @@ fn open_get(
         stream
             .write_all(text.as_bytes())
             .map_err(|e| tls_error(&e))?;
-        Box::<dyn Read + Send>::new(stream)
+        Box::new(stream) as Box<dyn Read + Send>
         }
     } else {
         let mut tcp = tcp;

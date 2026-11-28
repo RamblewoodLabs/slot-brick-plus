@@ -259,7 +259,7 @@ The cart changes as you go. `A` saves, `B` puts it back, and **Reset to original
 
 Both need Wi-Fi and are greyed out in the `HOME` menu while it is off.
 
-- **Cart Art:** **GET CART ART** gives every game without a label a scan of its real cartridge label. Labels you already have are never replaced. GB, GBC and GBA labels come from the art set behind Cart Studio, NES and SNES labels from the LaunchBox Games Database. Below the button, every game with a label is listed: press `A` twice on one to delete its label. It is quick but basic; use [Choosing a label](#choosing-a-label) for more control.
+- **Cart Art:** log in to your free [ScreenScraper](https://www.screenscraper.fr) account on the **SCREENSCRAPER** row (on-screen keyboard, with a login test that shows your daily lookups, and sign out), then **GET CART ART** gives every game without a label its real cart label, on every system, fitted to the cart and twice as sharp. Labels you already have are never replaced. Below the button, every game with a label is listed: press `A` twice on one to delete its label. It is quick but basic; use [Choosing a label](#choosing-a-label) for more control.
 - **RetroAchievements:** log in to your [RetroAchievements](https://retroachievements.org) account. Only the login token is kept, never your password. Games then earn achievements in softcore mode, with a small toast and a short burst for each unlock, including ones you already earned if **Encore Mode** (HOME → Online, on by default) is on. Hardcore mode isn't available. While online, **Cache achievement sets** saves sets for favorited games and the 20 most recently played, and starring or starting a game queues its set. Away from Wi-Fi those sets still unlock, the list is still there to read, and the unlocks are sent when Wi-Fi returns. A hardcore unlock is not queued: the server does not accept those from an offline session.
 
 
@@ -429,6 +429,7 @@ runs the simulator's unit tests and scenarios before it builds anything.
 | [KrutzOtrem](https://github.com/KrutzOtrem/Trimui-Brick-Overlays) | The bundled overlays: *Vanilla* (GB, GBC, GBA) and *CRT* (NES, SNES), MIT |
 | [Hugo Chargois](https://font.gohu.org/) | GohuFont, one of the fonts under HOME → System → Font, WTFPL |
 | freesound_community and others on Pixabay | Slot's sounds: the favorite star's pops, the HOME menu's, a GBA cart opening and a label going on; Pixabay Content License, see `licenses/` |
+| [ETRNLIAM](https://github.com/ETRNLIAM/GrainBrick) | GrainBrick, the granular sound instrument HOME → Apps → GrainBrick opens on the Brick when you have installed it yourself. Free to download but not open source, so it is **not included** with Slot; see `licenses/grainbrick-not-included.txt` |
 | [TrimUI](https://github.com/trimui/firmware_brick), [Debian](https://www.debian.org) | Slot OS (experimental) runs TrimUI's boot chain, kernel, drivers and firmware from their firmware 1.1.1 (the [Brick Pro's](https://github.com/trimui/firmware_brickpro) for its image), and Debian 12 packages (glibc, ALSA, busybox, wpa_supplicant, hostapd); licences in `slot-os/licenses` on a Slot OS card |
 
 

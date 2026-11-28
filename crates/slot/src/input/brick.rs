@@ -122,6 +122,11 @@ struct Event([u8; 56]);
 
 /// The Brick's buttons: through the firmware's SDL joystick on stock, where trimui_inputd
 /// runs; read from the GPIO pins on Slot OS, which has neither.
+/// Whether the firmware's SDL is there (stock, where trimui_inputd makes the joystick).
+pub fn sdl_available() -> bool {
+    SdlPad::available()
+}
+
 pub enum BrickInput {
     Sdl(SdlPad),
     Gpio(super::brick_gpio::GpioInput),

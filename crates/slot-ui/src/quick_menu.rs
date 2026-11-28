@@ -120,13 +120,15 @@ pub enum QuickRow {
     ShowPsp,
     ShowFavorites,
     RaEncore,
+    GrainBrick,
+    Apps,
 }
 
 impl QuickRow {
     /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
     pub const PIP: bool = false;
 
-    pub const ALL: [QuickRow; 105] = [
+    pub const ALL: [QuickRow; 107] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -232,6 +234,8 @@ impl QuickRow {
         QuickRow::ShowPsp,
         QuickRow::ShowFavorites,
         QuickRow::RaEncore,
+        QuickRow::GrainBrick,
+        QuickRow::Apps,
     ];
 
     #[cfg(not(feature = "brick"))]
@@ -260,7 +264,27 @@ impl QuickRow {
         QuickRow::About,
     ];
 
-    #[cfg(feature = "brick")]
+    /// The Brick's HOME: Apps opens the apps installed on the card (GrainBrick).
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    pub const MAIN: [QuickRow; 6] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Online,
+        QuickRow::Apps,
+        QuickRow::System,
+    ];
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    const MAIN_PIP: [QuickRow; 7] = [
+        QuickRow::Screen,
+        QuickRow::Game,
+        QuickRow::Library,
+        QuickRow::Companion,
+        QuickRow::Online,
+        QuickRow::Apps,
+        QuickRow::System,
+    ];
+    #[cfg(feature = "rg35xxsp")]
     pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
@@ -268,7 +292,7 @@ impl QuickRow {
         QuickRow::Online,
         QuickRow::System,
     ];
-    #[cfg(feature = "brick")]
+    #[cfg(feature = "rg35xxsp")]
     const MAIN_PIP: [QuickRow; 6] = [
         QuickRow::Screen,
         QuickRow::Game,
@@ -277,6 +301,9 @@ impl QuickRow {
         QuickRow::Online,
         QuickRow::System,
     ];
+    /// HOME → Apps: apps the player installs on the card, which Slot opens in its place.
+    /// Each says Unavailable until it and what it needs are on the card.
+    pub const APPS: [QuickRow; 1] = [QuickRow::GrainBrick];
 
     /// The HOME menu. Companion is on it only while [`PIP`](Self::PIP) is on.
     pub fn home() -> &'static [QuickRow] {
@@ -636,6 +663,7 @@ impl QuickRow {
             | QuickRow::About => &Self::SYSTEM,
             #[cfg(feature = "brick")]
             QuickRow::UpdateCheck => &Self::SYSTEM,
+            QuickRow::GrainBrick => &Self::APPS,
             QuickRow::ShowFavorites
             | QuickRow::ShowGba
             | QuickRow::ShowGb
@@ -703,6 +731,7 @@ impl QuickRow {
             QuickRow::SoundVolume => Some(QuickRow::SystemSounds),
             QuickRow::Wifi => Some(QuickRow::Online),
             QuickRow::AutoSave => Some(QuickRow::Saving),
+            QuickRow::GrainBrick => Some(QuickRow::Apps),
             #[cfg(feature = "brick")]
             QuickRow::DateTime => Some(QuickRow::Clock),
             first if first == QuickRow::SYSTEM[0] => Some(QuickRow::System),
@@ -721,6 +750,7 @@ impl QuickRow {
             QuickRow::ScreenPs1 => Some(QuickRow::SCREEN_PS1[0]),
             QuickRow::Game => Some(QuickRow::GAME[0]),
             QuickRow::System => Some(QuickRow::SYSTEM[0]),
+            QuickRow::Apps => Some(QuickRow::APPS[0]),
             QuickRow::Library => Some(QuickRow::LIBRARY[0]),
             QuickRow::LibrarySystems => Some(QuickRow::SYSTEMS[0]),
             QuickRow::About => Some(QuickRow::ABOUT[0]),
@@ -749,6 +779,8 @@ impl QuickRow {
             QuickRow::Saving => "Saving",
             QuickRow::AutoClock => "Auto Clock",
             QuickRow::UpdateCheck => "Check for Updates",
+            QuickRow::GrainBrick => "GrainBrick",
+            QuickRow::Apps => "Apps",
             QuickRow::Companion => "Companion",
             QuickRow::Aspect
             | QuickRow::AspectGb
@@ -858,6 +890,8 @@ impl QuickRow {
                 | QuickRow::Achievements
                 | QuickRow::Update
                 | QuickRow::System
+                | QuickRow::Apps
+                | QuickRow::GrainBrick
                 | QuickRow::Library
                 | QuickRow::Companion
                 | QuickRow::LibrarySystems

@@ -487,6 +487,8 @@ pub struct App {
     powering_off: bool,
     /// An update was swapped in: Slot ends, for launch.sh to start the new one.
     updating: bool,
+    /// HOME → Apps → GrainBrick picked: the app's folder and the Python to run it with.
+    launching: Option<(PathBuf, PathBuf)>,
     /// HOME → System → Reset Settings: asked (A again resets) or done, until the menu moves on.
     reset_asked: Option<QuickValue>,
     /// The pop last played for a star (Sfx::Pop), so the next is another; the same for labels.
@@ -704,6 +706,7 @@ impl App {
             link_transport: None,
             restarting: false,
             updating: false,
+            launching: None,
             reset_asked: None,
             last_pop: None,
             last_label: None,
@@ -1800,6 +1803,13 @@ impl App {
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
             | QuickRow::SoundVolume => None,
+            QuickRow::GrainBrick => match self.root.as_deref().map(|r| {
+                crate::apps::grainbrick(r).is_some() && crate::apps::python(r).is_some()
+            }) {
+                Some(true) => None,
+                _ => Some(QuickValue::Unavailable),
+            },
+            QuickRow::Apps => None,
             QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
             QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
             QuickRow::AspectGba => Some(self.aspect_system_value(Platform::Gba)),
@@ -2542,6 +2552,16 @@ impl App {
         self.updating
     }
 
+    /// An installed app to open in Slot's place (HOME → Apps): its folder and Python.
+    pub fn launching(&self) -> Option<&(PathBuf, PathBuf)> {
+        self.launching.as_ref()
+    }
+
+    /// The app could not be started: stay in Slot.
+    pub fn launch_failed(&mut self) {
+        self.launching = None;
+    }
+
     pub fn restore_brick_leds(&self) {
         #[cfg(feature = "brick")]
         if let Some(leds) = &self.brick_leds {
@@ -3155,6 +3175,15 @@ impl App {
                 };
             }
             QuickRow::AboutLabel => self.phase = Phase::About,
+            QuickRow::GrainBrick => {
+                if let Some(root) = &self.root {
+                    if let (Some(app), Some(python)) =
+                        (crate::apps::grainbrick(root), crate::apps::python(root))
+                    {
+                        self.launching = Some((app, python));
+                    }
+                }
+            }
             QuickRow::AboutVersion
             | QuickRow::AboutBuild
             | QuickRow::AboutDevice
@@ -3180,6 +3209,7 @@ impl App {
             | QuickRow::Clock
             | QuickRow::Online
             | QuickRow::System
+            | QuickRow::Apps
             | QuickRow::SystemSounds
             | QuickRow::Library
             | QuickRow::Lights => {
@@ -3582,7 +3612,9 @@ impl App {
             | QuickRow::AspectGba
             | QuickRow::AspectNes
             | QuickRow::AspectSnes
-            | QuickRow::AspectPs1 => return,
+            | QuickRow::AspectPs1
+            | QuickRow::GrainBrick
+            | QuickRow::Apps => return,
         }
         self.persist();
     }

@@ -1,0 +1,75 @@
+# dir	ssid	rom name (No-Intro / Redump / MAME set)	note
+GB	9	Tetris (World) (Rev 1).gb	
+GB	9	Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb	
+GB	9	Gargoyle's Quest - Ghosts'n Goblins (USA, Europe).gb	rare
+GBC	10	Pokemon - Crystal Version (USA, Europe) (Rev 1).gbc	
+GBC	10	Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2) (SGB Enhanced).gbc	
+GBC	10	Shantae (USA).gbc	rare
+GBA	12	Pokemon - Emerald Version (USA, Europe).gba	
+GBA	12	Metroid Fusion (USA).gba	
+GBA	12	Ninja Five-O (USA).gba	rare
+NES	3	Super Mario Bros. (World).nes	
+NES	3	Legend of Zelda, The (USA).nes	
+NES	3	Little Samson (USA).nes	rare
+NES	3	Rockman 2 - Dr. Wily no Nazo (Japan).nes	famicom
+SNES	4	Super Metroid (Japan, USA) (En,Ja).sfc	
+SNES	4	Super Mario World (USA).sfc	
+SNES	4	Demon's Crest (USA).sfc	rare
+SNES	4	Super Mario Kart (Europe).sfc	pal
+PS1	57	Crash Bandicoot (USA).cue	
+PS1	57	Metal Gear Solid (USA) (Disc 1) (Rev 1).cue	
+PS1	57	Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue	rare
+MD	1	Sonic The Hedgehog (USA, Europe).md	
+MD	1	Streets of Rage 2 (USA).md	
+MD	1	Ristar (USA, Europe).md	rare
+SMS	2	Alex Kidd in Miracle World (USA, Europe) (Rev 1).sms	
+SMS	2	Sonic The Hedgehog (USA, Europe).sms	
+SMS	2	Wonder Boy III - The Dragon's Trap (USA, Europe).sms	rare
+GG	21	Columns (USA, Europe).gg	
+GG	21	Sonic The Hedgehog (Japan, USA) (En).gg	
+GG	21	Shinobi II - The Silent Fury (World).gg	rare
+ARCADE	75	sf2.zip	
+ARCADE	75	mslug.zip	
+ARCADE	75	ddragon.zip	rare
+PCE	31	Bonk's Adventure (USA).pce	
+PCE	31	Blazing Lazers (USA).pce	
+PCE	31	Neutopia (USA).pce	rare
+A2600	26	Pitfall! - Pitfall Harry's Jungle Adventure (USA).a26	
+A2600	26	Adventure (USA).a26	
+A2600	26	Solaris (USA).a26	rare
+INTV	115	BurgerTime (USA).int	
+INTV	115	Astrosmash (USA, Europe).int	
+INTV	115	Night Stalker (USA, Europe).int	rare
+LYNX	28	California Games (USA, Europe).lnx	
+LYNX	28	Chip's Challenge (USA, Europe).lnx	
+LYNX	28	Todd's Adventures in Slime World (USA, Europe).lnx	rare
+A7800	41	Ms. Pac-Man (USA).a78	
+A7800	41	Food Fight (USA).a78	
+A7800	41	Ninja Golf (USA).a78	rare
+GW	52	gnw_dkong.zip	
+GW	52	gnw_octopus.zip	
+GW	52	gnw_fire.zip	rare
+COLECO	48	Donkey Kong (USA).col	
+COLECO	48	Zaxxon (USA).col	
+COLECO	48	Venture (USA).col	rare
+A5200	40	Pac-Man (USA).a52	
+A5200	40	Star Raiders (USA).a52	
+A5200	40	Pitfall II - Lost Caverns (USA).a52	rare
+A800	43	Star Raiders (USA).rom	
+A800	43	Boulder Dash (USA).atr	
+A800	43	M.U.L.E. (USA).atr	rare
+VECTREX	102	Mine Storm (World).vec	
+VECTREX	102	Scramble (USA, Europe).vec	
+VECTREX	102	Berzerk (USA, Europe).vec	rare
+32X	19	Doom (Europe, USA).32x	
+32X	19	Knuckles' Chaotix (Europe, USA).32x	
+32X	19	Kolibri (USA, Europe).32x	rare
+N64	14	Super Mario 64 (USA).z64	
+N64	14	Legend of Zelda, The - Ocarina of Time (USA).z64	
+N64	14	Mischief Makers (USA).z64	rare
+NDS	15	New Super Mario Bros. (USA).nds	
+NDS	15	Mario Kart DS (USA) (En,Fr,De,Es,It).nds	
+NDS	15	Ninja Gaiden - Dragon Sword (USA) (En,Fr,De,Es,It).nds	rare
+PSP	61	Grand Theft Auto - Liberty City Stories (USA).iso	
+PSP	61	God of War - Chains of Olympus (USA).iso	
+PSP	61	LocoRoco (USA).iso	rare

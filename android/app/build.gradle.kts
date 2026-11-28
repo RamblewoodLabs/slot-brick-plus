@@ -1,3 +1,6 @@
+import com.android.build.gradle.tasks.MergeSourceSetFolders
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,11 +10,11 @@ android {
     namespace = "plus.slotbrick.slot"
     compileSdk = 35
     defaultConfig {
-        applicationId = "plus.slotbrick.slot"
+        applicationId = "com.ramblewoodlabs.slotted"
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0-scaffold"
+        versionName = "0.3.0-phase3"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -44,4 +47,32 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
 }
+
+// User-facing APK name. namespace stays plus.slotbrick.slot so JNI symbols
+// and Kotlin packages do not need a rename.
+base {
+    archivesName.set("Slotted")
+}
+
+// If a local, gitignored android/screenscraper.properties is present, bake it
+// into the merged APK assets as the default developer credentials. The tracked
+// placeholder at src/main/assets/screenscraper.properties stays empty and is
+// never overwritten on disk.
+val localScreenScraperProps = rootProject.projectDir.resolve("screenscraper.properties")
+
+afterEvaluate {
+    tasks.withType<MergeSourceSetFolders>().configureEach {
+        if (!name.startsWith("merge") || !name.endsWith("Assets")) return@configureEach
+        inputs.file(localScreenScraperProps).optional(true).withPropertyName("localScreenScraperProps")
+        doLast {
+            if (!localScreenScraperProps.isFile) return@doLast
+            val dest = File(outputDir.get().asFile, "screenscraper.properties")
+            localScreenScraperProps.copyTo(dest, overwrite = true)
+            logger.lifecycle("Baked local ScreenScraper credentials into APK assets (values not logged).")
+        }
+    }
+}
+

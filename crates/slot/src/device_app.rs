@@ -350,6 +350,16 @@ pub fn run() {
             cpu.restore();
             frontend.restart();
         }
+        #[cfg(all(feature = "brick", not(feature = "sim")))]
+        if let Some((app, python)) = frontend.launching() {
+            cpu.restore();
+            frontend.exec_app(&root, &app, &python);
+        }
+        #[cfg(feature = "sim")]
+        if let Some((app, _)) = frontend.launching() {
+            eprintln!("slot: sim: would open {}", app.display());
+            frontend.launch_failed();
+        }
         #[cfg(feature = "brick")]
         if frontend.updating() {
             cpu.restore();

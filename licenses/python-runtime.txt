@@ -1,0 +1,43 @@
+Slot/Apps/python: the Python runtime Slot puts on the TrimUI Brick card for HOME -> Apps.
+
+Slot does not include any app; this runtime lets an app the player installed (GrainBrick, see
+grainbrick-not-included.txt) run on the Brick, which has no Python of its own. It is built by
+brick/python-runtime/build.sh from the pinned downloads in brick/python-runtime/sources.txt.
+Parts not needed on the Brick are left out (test suite, IDLE, Tk, pip, dbm and pygame's
+examples, tests and docs).
+
+Python 3.12.16
+  The Python Software Foundation License Version 2 (and the older licences it carries):
+  python-PSF-2.0.txt. Source: https://www.python.org/downloads/release/python-31216/
+  Built by python-build-standalone 20261124 (https://github.com/astral-sh/python-build-standalone,
+  MPL-2.0 build scripts), which links in bzip2, expat, libedit, libffi, liblzma (xz), libuuid,
+  mpdecimal, ncurses, OpenSSL 3.5, SQLite and zlib: their licences are in
+  python-runtime-components.txt. (It uses libedit, not GNU readline.)
+
+pygame 2.6.1 (lib/python3.12/site-packages/pygame)
+  GNU LGPL 2.1: pygame-LGPL-2.1.txt. Source: https://github.com/pygame/pygame/tree/2.6.1
+  The pygame.libs folder holds the shared libraries pygame's own build bundles with it
+  (https://github.com/pygame/pygame/tree/2.6.1/buildconfig/manylinux-build), unchanged and
+  each replaceable, under their own licences:
+    SDL2 2.28.4, SDL2_image, SDL2_mixer, SDL2_ttf  zlib licence (SDL2-zlib.txt);
+        source https://github.com/libsdl-org
+    FreeType (FreeType licence), HarfBuzz (MIT), libpng (libpng licence), libjpeg-turbo
+        (IJG/BSD), libtiff (libtiff licence), libwebp and sharpyuv (BSD-3-Clause), libogg,
+        libvorbis, opus, opusfile, FLAC (BSD-3-Clause), brotli (MIT), bzip2 (bzip2 licence),
+        liblzma (public domain), lz4 (BSD-2-Clause), PCRE (BSD), PortMidi (MIT),
+        libcap (BSD-3-Clause or GPL-2.0, used under BSD)
+    GNU LGPL: alsa-lib, libsndfile, libmpg123, FluidSynth, PulseAudio client libraries,
+        libsystemd, libattr, libgcrypt, libgpg-error, elfutils libelf and libdw (LGPL-3.0+
+        or GPL-2.0+, used under LGPL), D-Bus (AFL-2.1 or GPL-2.0+, used under AFL)
+    libgomp (GPL-3.0 with the GCC Runtime Library Exception), libselinux (public domain)
+  Their sources are the versions named in pygame 2.6.1's manylinux build scripts above.
+
+SoundTouch 2.3.2 (lib/compat/libSoundTouch.so.1)
+  GNU LGPL 2.1 (pygame-LGPL-2.1.txt is the same text). Source, built unchanged with its default
+  configuration: https://codeberg.org/soundtouch/soundtouch/archive/2.3.2.tar.gz
+  GrainBrick's own copy of this library needs a newer system than the Brick's (glibc 2.38);
+  run-app.sh puts this build ahead of it, as GrainBrick's SoundTouch notice provides for. You may
+  replace it with your own build of SoundTouch: put it at lib/compat/libSoundTouch.so.1.
+
+slot_fb.py and sitecustomize.py (lib/python3.12/site-packages)
+  Slot's own, under Slot's licence: they show a pygame app's screen on the Brick's framebuffer.

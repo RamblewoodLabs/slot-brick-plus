@@ -20,12 +20,6 @@ cp rg35xxsp/card/README.txt "$OUT/README.txt"
 # when those binaries are absent.
 cp brick/card/Slot/System/brick_wifi.sh "$OUT/Slot/System/"
 cp brick/card/Slot/System/sleep.sh "$OUT/Slot/System/"
-cp brick/card/Slot/System/cart-art-games.txt "$OUT/Slot/System/"
-for f in brick/card/Slot/System/*-labels.txt brick/card/Slot/System/*-cart-labels.txt; do
-    if [ -f "$f" ]; then
-        cp "$f" "$OUT/Slot/System/"
-    fi
-done
 mkdir -p "$OUT/Slot/System/Fonts"
 # Labels kept on this machine only (brick/labels-local is not in git): a Game & Watch's
 # shelf face and opening frames are rendered from its owner's own media (brick/gw-art).
