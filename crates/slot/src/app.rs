@@ -40,18 +40,20 @@ fn aspect_value(mode: VideoMode) -> QuickValue {
     }
 }
 
-pub const INSERT_S: f32 = 0.73;
-const INSERT_HOLD_S: f32 = 0.28;
+/// Slide into the slot, including the still hold once seated. Authored 0.73 s, played at
+/// [`slot_ui::ANIM_SPEED`].
+pub const INSERT_S: f32 = slot_ui::paced_s(0.73);
+const INSERT_HOLD_S: f32 = slot_ui::paced_s(0.28);
 
 pub const SEATED_AT: f32 = INSERT_S - INSERT_HOLD_S;
 
 pub const EJECT_S: f32 = SEATED_AT;
 
-const EJECT_HOLD_S: f32 = 0.35;
+const EJECT_HOLD_S: f32 = slot_ui::paced_s(0.35);
 
-const POWER_ON_S: f32 = 0.22;
+const POWER_ON_S: f32 = slot_ui::paced_s(0.22);
 
-const POWER_OFF_S: f32 = 0.16;
+const POWER_OFF_S: f32 = slot_ui::paced_s(0.16);
 
 const VOLUME_STEP: u8 = 5;
 
@@ -73,18 +75,18 @@ pub const LINK_LOST_MS: Millis = 2000;
 
 const PLAY_HOLD_MS: Millis = 500;
 
-const SHUTDOWN_SHOW_MS: Millis = 250;
+const SHUTDOWN_SHOW_MS: Millis = slot_ui::paced_ms(250);
 
 const POWER_MENU_PITCH: f32 = 44.0;
 const POWER_MENU_BAR_INSET: f32 = 4.0;
 const CORE_PICKER_RECEDE: f32 = 0.26;
 
-const SLOT_NAME_IN_MS: Millis = 200;
-const SLOT_NAME_HOLD_MS: Millis = 1200;
-const SLOT_NAME_OUT_MS: Millis = 800;
+const SLOT_NAME_IN_MS: Millis = slot_ui::paced_ms(200);
+const SLOT_NAME_HOLD_MS: Millis = slot_ui::paced_ms(1200);
+const SLOT_NAME_OUT_MS: Millis = slot_ui::paced_ms(800);
 const SLOT_NAME_ALPHA: f32 = 0.4;
 /// How long the slot takes to turn from a cartridge slot into a disc slot, or back.
-const DISC_SLOT_MS: Millis = 300;
+const DISC_SLOT_MS: Millis = slot_ui::paced_ms(300);
 
 /// How far through its fade a name `t` ms after it came up is: in, held, then out.
 fn fade_level(t: Millis) -> f32 {
@@ -247,9 +249,9 @@ impl LinkLegend {
     }
 }
 
-pub const LINKED_HOLD_MS: Millis = 1000;
+pub const LINKED_HOLD_MS: Millis = slot_ui::paced_ms(1000);
 
-pub const UNPLUG_HOLD_MS: Millis = 420;
+pub const UNPLUG_HOLD_MS: Millis = slot_ui::paced_ms(420);
 
 #[derive(Debug)]
 pub enum Phase {
@@ -538,10 +540,11 @@ pub struct FaceWant {
 }
 
 /// How long a toast stays up, and how long it takes to slide in and out.
+/// Hold times stay authored: an unlock toast was lengthened so the burst can be enjoyed.
 const BANNER_MS: Millis = 4500;
 /// An unlock toast stays a second longer, so the burst can be enjoyed.
 const UNLOCK_BANNER_MS: Millis = 5500;
-const BANNER_SLIDE: Millis = 300;
+const BANNER_SLIDE: Millis = slot_ui::paced_ms(300);
 
 fn banner_hold(celebrate: bool) -> Millis {
     if celebrate {
@@ -1475,7 +1478,8 @@ impl App {
 
     /// The pill shows while a shelf is on anything but its usual A–Z (or, on Favorites, ADDED).
     pub fn filter_pill_text(&self) -> Option<&'static str> {
-        self.filter_text().filter(|t| !matches!(*t, "A–Z" | "ADDED"))
+        self.filter_text()
+            .filter(|t| !matches!(*t, "A–Z" | "ADDED"))
     }
 
     pub fn set_filter_pill_face(&mut self, face: Option<(TexId, u32, u32)>) {
@@ -1803,12 +1807,14 @@ impl App {
             | QuickRow::AboutLabel
             | QuickRow::SystemSounds
             | QuickRow::SoundVolume => None,
-            QuickRow::GrainBrick => match self.root.as_deref().map(|r| {
-                crate::apps::grainbrick(r).is_some() && crate::apps::python(r).is_some()
-            }) {
-                Some(true) => None,
-                _ => Some(QuickValue::Unavailable),
-            },
+            QuickRow::GrainBrick => {
+                match self.root.as_deref().map(|r| {
+                    crate::apps::grainbrick(r).is_some() && crate::apps::python(r).is_some()
+                }) {
+                    Some(true) => None,
+                    _ => Some(QuickValue::Unavailable),
+                }
+            }
             QuickRow::Apps => None,
             QuickRow::Aspect => Some(aspect_value(self.aspect_global())),
             QuickRow::AspectGb => Some(self.aspect_system_value(Platform::Gb)),
@@ -7674,7 +7680,7 @@ struct LabelPick {
 }
 
 /// How long the sticker waits for its curls, or the cart's new face, before going without.
-const PEEL_WAIT_MS: Millis = 2_000;
+const PEEL_WAIT_MS: Millis = slot_ui::paced_ms(2_000);
 
 /// What the card write sends back: how keeping the label went, and the sticker's curls and
 /// shadow when it could be read back.

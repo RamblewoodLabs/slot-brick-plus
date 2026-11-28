@@ -1368,8 +1368,14 @@ fn the_open_cart_rests_over_the_shelf_with_its_lid_turned() {
     let at = |tex| tex_at(&out, tex).expect("a legend hint is missing").1;
     let seen = |w: u32| (w - HINT_EDGE) as f32;
     let (left, right) = (at(cancel.0)[0], at(choose.0)[0] + seen(choose.1));
-    assert!((left + right - 720.0).abs() <= 1.0, "the legend is off centre: {left}..{right}");
-    assert!(left < at(swap.0)[0] && at(swap.0)[0] < at(choose.0)[0], "the hints are out of order");
+    assert!(
+        (left + right - 720.0).abs() <= 1.0,
+        "the legend is off centre: {left}..{right}"
+    );
+    assert!(
+        left < at(swap.0)[0] && at(swap.0)[0] < at(choose.0)[0],
+        "the hints are out of order"
+    );
     assert_eq!(
         (at(cancel.0)[1], at(swap.0)[1], at(choose.0)[1]),
         (386.0, 386.0, 386.0)
@@ -1962,7 +1968,11 @@ fn on_the_brick_a_cart_with_no_line_opens_at_actual_size_in_4_3() {
         slot::video_mode::source_rect(slot_store::Platform::Gb, VideoMode::Actual),
         "a cart with no line did not open at actual size"
     );
-    assert_ne!(s.app().source_rect(), WHOLE_TEXTURE, "actual size is padded to 4:3");
+    assert_ne!(
+        s.app().source_rect(),
+        WHOLE_TEXTURE,
+        "actual size is padded to 4:3"
+    );
 }
 
 #[test]
@@ -2259,14 +2269,22 @@ fn the_shader_shortcut_does_nothing_in_the_save_state_switcher() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "brick"), ignore = "3:2 and full screen are the Brick's picture modes")]
+#[cfg_attr(
+    not(feature = "brick"),
+    ignore = "3:2 and full screen are the Brick's picture modes"
+)]
 fn home_x_toggles_a_gba_cart_between_3_2_and_full_screen_and_remembers_it() {
     let d = common::tmp_root_with_carts(&["Emerald", "Fusion"]);
     let mut s = session_playing(d.path());
     let start = s.app().source_rect();
     let mut t = 100;
     let mut home_x = |s: &mut Session| {
-        for e in [RawEvent::Down(Btn::Select), RawEvent::Down(Btn::X), RawEvent::Up(Btn::X), RawEvent::Up(Btn::Select)] {
+        for e in [
+            RawEvent::Down(Btn::Select),
+            RawEvent::Down(Btn::X),
+            RawEvent::Up(Btn::X),
+            RawEvent::Up(Btn::Select),
+        ] {
             s.feed([e], t);
             t += 20;
         }
@@ -2274,11 +2292,22 @@ fn home_x_toggles_a_gba_cart_between_3_2_and_full_screen_and_remembers_it() {
     home_x(&mut s);
     assert_eq!(video_mode_for(d.path(), "Emerald"), VideoMode::Stretch);
     assert_eq!(s.app().toast(), Some(slot_ui::Toast::PictureFull));
-    assert_eq!(s.app().source_rect(), WHOLE_TEXTURE, "4:3 should fill the whole screen");
-    assert!(matches!(s.app().phase(), Phase::Playing { .. }), "Home+X opened a menu");
+    assert_eq!(
+        s.app().source_rect(),
+        WHOLE_TEXTURE,
+        "4:3 should fill the whole screen"
+    );
+    assert!(
+        matches!(s.app().phase(), Phase::Playing { .. }),
+        "Home+X opened a menu"
+    );
     drop(s);
     let mut s = session_playing(d.path());
-    assert_eq!(s.app().source_rect(), WHOLE_TEXTURE, "the game did not come back full screen");
+    assert_eq!(
+        s.app().source_rect(),
+        WHOLE_TEXTURE,
+        "the game did not come back full screen"
+    );
     home_x(&mut s);
     assert_eq!(video_mode_for(d.path(), "Emerald"), VideoMode::Actual);
     assert_eq!(s.app().toast(), Some(slot_ui::Toast::PictureOriginal));
@@ -2304,13 +2333,27 @@ fn nes_shoulders_do_not_change_the_picture() {
 #[test]
 fn a_snes_game_keeps_l_and_r_and_switches_its_picture_with_home_x() {
     let d = common::tmp_root_with_carts(&[]);
-    std::fs::write(d.path().join("Games/SNES/Super Mario Kart.sfc"), [0u8; 0x200]).unwrap();
+    std::fs::write(
+        d.path().join("Games/SNES/Super Mario Kart.sfc"),
+        [0u8; 0x200],
+    )
+    .unwrap();
     let mut s = session_playing(d.path());
-    assert_eq!(s.app().canvas(), Platform::Snes.canvas(), "the SNES cart is not the one playing");
-    assert!(s.app().taken_buttons().is_empty(), "slot kept L1/R1 from a SNES game");
+    assert_eq!(
+        s.app().canvas(),
+        Platform::Snes.canvas(),
+        "the SNES cart is not the one playing"
+    );
+    assert!(
+        s.app().taken_buttons().is_empty(),
+        "slot kept L1/R1 from a SNES game"
+    );
     let start = s.app().source_rect();
     s.app_mut().apply(slot_input::Action::PictureToggle);
-    assert_eq!(video_mode_for(d.path(), "Super Mario Kart"), VideoMode::Stretch);
+    assert_eq!(
+        video_mode_for(d.path(), "Super Mario Kart"),
+        VideoMode::Stretch
+    );
     assert_eq!(s.app().toast(), Some(slot_ui::Toast::PictureFull));
     assert_ne!(s.app().source_rect(), start);
 }
@@ -2352,10 +2395,17 @@ fn start_opens_the_cart_menu_on_a_game_boy_cart_and_the_picker_on_a_gba_one() {
     press(&mut gb, Btn::Start);
     assert_eq!(gb.core_picker(), None);
     assert_eq!(rows_of(&mut gb), vec![Colour, Finish, Shape, Reset]);
-    assert_eq!(gb.cart_menu().unwrap().1, None, "a cart nobody changed wears its own plastic");
+    assert_eq!(
+        gb.cart_menu().unwrap().1,
+        None,
+        "a cart nobody changed wears its own plastic"
+    );
     let (_d, mut gba) = on_shelf(&["Emerald", "Zzz"]);
     press(&mut gba, Btn::Start);
-    assert!(gba.cart_menu().is_none(), "a GBA cart opened the menu instead of the picker");
+    assert!(
+        gba.cart_menu().is_none(),
+        "a GBA cart opened the menu instead of the picker"
+    );
     assert_eq!(gba.core_picker(), Some(Core::Mgba));
     assert_eq!(gba.picker_shell(), Some(None));
 }
@@ -2371,14 +2421,25 @@ fn a_colour_keeps_the_finish_and_both_are_saved_with_a() {
     press(&mut app, Btn::Up);
     press(&mut app, Btn::Right);
     let red = app.cart_menu().unwrap().1.unwrap();
-    assert_eq!(red.finish, ShellFinish::Clear, "a new colour reset the finish");
+    assert_eq!(
+        red.finish,
+        ShellFinish::Clear,
+        "a new colour reset the finish"
+    );
     assert_ne!(red.colour, clear.colour);
     assert_eq!(saved_shell(&d, "Tetris"), None, "saved before A");
     press(&mut app, Btn::A);
     assert!(app.cart_menu().is_none(), "A did not close the menu");
-    assert_eq!(saved_shell(&d, "Tetris").as_deref(), Some(red.to_value().as_str()));
+    assert_eq!(
+        saved_shell(&d, "Tetris").as_deref(),
+        Some(red.to_value().as_str())
+    );
     let carts = slot_store::scan(d.path()).unwrap();
-    assert_eq!(carts.iter().find(|c| c.stem == "Tetris").unwrap().shell, Some(red), "not read back");
+    assert_eq!(
+        carts.iter().find(|c| c.stem == "Tetris").unwrap().shell,
+        Some(red),
+        "not read back"
+    );
 }
 
 #[test]
@@ -2392,7 +2453,11 @@ fn b_puts_the_cart_back_as_it_was_and_saves_nothing() {
     assert!(app.cart_menu().is_none());
     assert_eq!(saved_shell(&d, "Tetris"), None);
     press(&mut app, Btn::Start);
-    assert_eq!(app.cart_menu().unwrap().1, None, "the cart still wears the cancelled plastic");
+    assert_eq!(
+        app.cart_menu().unwrap().1,
+        None,
+        "the cart still wears the cancelled plastic"
+    );
 }
 
 #[test]
@@ -2414,16 +2479,31 @@ fn reset_brings_back_the_games_own_plastic_over_any_other_layer() {
 #[test]
 fn a_colour_from_cart_studio_shows_as_custom_and_is_kept() {
     let d = common::tmp_root_with_gb_carts(&["Tetris", "Zzz"]);
-    std::fs::write(d.path().join(slot_store::LABELS_SHELL_FILE), "Tetris = auto 123456 glitter\n").unwrap();
+    std::fs::write(
+        d.path().join(slot_store::LABELS_SHELL_FILE),
+        "Tetris = auto 123456 glitter\n",
+    )
+    .unwrap();
     let (d, mut app) = booted_on_shelf(d);
     press(&mut app, Btn::Start);
-    let custom = app.cart_menu().unwrap().1.expect("the Cart Studio choice was lost");
-    assert_eq!((custom.colour, custom.finish), ([0x12, 0x34, 0x56], ShellFinish::Glitter));
+    let custom = app
+        .cart_menu()
+        .unwrap()
+        .1
+        .expect("the Cart Studio choice was lost");
+    assert_eq!(
+        (custom.colour, custom.finish),
+        ([0x12, 0x34, 0x56], ShellFinish::Glitter)
+    );
     press(&mut app, Btn::Right);
     press(&mut app, Btn::Left);
     assert_eq!(app.cart_menu().unwrap().1, Some(custom));
     press(&mut app, Btn::A);
-    assert_eq!(saved_shell(&d, "Tetris").as_deref(), Some("auto 123456 glitter"), "an unchanged choice was rewritten");
+    assert_eq!(
+        saved_shell(&d, "Tetris").as_deref(),
+        Some("auto 123456 glitter"),
+        "an unchanged choice was rewritten"
+    );
 }
 
 #[test]
@@ -2437,13 +2517,20 @@ fn in_the_core_picker_up_and_down_change_the_colour_and_finish_and_a_keeps_them(
     assert_eq!(clear.finish, ShellFinish::Clear);
     press(&mut app, Btn::Up);
     let coloured = app.picker_shell().unwrap().unwrap();
-    assert_eq!(coloured.finish, ShellFinish::Clear, "a new colour reset the finish");
+    assert_eq!(
+        coloured.finish,
+        ShellFinish::Clear,
+        "a new colour reset the finish"
+    );
     assert_ne!(coloured.colour, clear.colour, "Up changed no colour");
     assert_eq!(app.core_picker(), Some(Core::Mgba), "the chip moved");
     press(&mut app, Btn::Right);
     press(&mut app, Btn::A);
     assert_eq!(slot_store::core_for(d.path(), "Emerald"), Core::Gpsp);
-    assert_eq!(saved_shell(&d, "Emerald").as_deref(), Some(coloured.to_value().as_str()));
+    assert_eq!(
+        saved_shell(&d, "Emerald").as_deref(),
+        Some(coloured.to_value().as_str())
+    );
     assert_eq!(app.picker_shell(), None);
 }
 
@@ -2459,7 +2546,11 @@ fn backing_out_of_the_core_picker_puts_the_plastic_back() {
     assert_eq!(saved_shell(&d, "Emerald"), None);
     let_it_close(&mut app);
     press(&mut app, Btn::Start);
-    assert_eq!(app.picker_shell(), Some(None), "the cart still wears the cancelled plastic");
+    assert_eq!(
+        app.picker_shell(),
+        Some(None),
+        "the cart still wears the cancelled plastic"
+    );
 }
 
 #[test]
@@ -2467,12 +2558,20 @@ fn a_snes_cart_can_swap_to_the_pal_shape_and_it_is_saved() {
     use slot_ui::CartRow::*;
     let d = common::tmp_root_with_carts(&[]);
     for stem in ["Mario Kart (USA)", "Zzz (USA)"] {
-        std::fs::write(d.path().join(format!("Games/SNES/{stem}.sfc")), [0u8; 0x200]).unwrap();
+        std::fs::write(
+            d.path().join(format!("Games/SNES/{stem}.sfc")),
+            [0u8; 0x200],
+        )
+        .unwrap();
     }
     let (d, mut app) = booted_on_shelf(d);
     assert_eq!(app.selected_stem(), Some("Mario Kart (USA)"));
     press(&mut app, Btn::Start);
-    assert_eq!(rows_of(&mut app), vec![Shape, Reset], "a SNES cart offered a colour");
+    assert_eq!(
+        rows_of(&mut app),
+        vec![Shape, Reset],
+        "a SNES cart offered a colour"
+    );
     press(&mut app, Btn::Left);
     let pal = app.cart_menu().unwrap().1.expect("a shape is a change");
     assert_eq!(pal.outline, slot_store::Outline::Rounded);
@@ -2494,7 +2593,10 @@ fn a_nes_cart_offers_its_shape_and_plastic_and_can_be_made_a_famicom_cart() {
     // A NES cart's plastic can be chosen: the Zeldas came in gold.
     assert_eq!(rows_of(&mut app), vec![Shape, Colour, Reset]);
     press(&mut app, Btn::Left);
-    assert_eq!(app.cart_menu().unwrap().1.map(|c| c.outline), Some(slot_store::Outline::Rounded));
+    assert_eq!(
+        app.cart_menu().unwrap().1.map(|c| c.outline),
+        Some(slot_store::Outline::Rounded)
+    );
     press(&mut app, Btn::A);
     let saved = saved_shell(&d, "Mario (USA)").expect("A saved nothing");
     assert!(saved.starts_with("rounded "), "{saved}");
@@ -2510,16 +2612,27 @@ fn a_famicom_cart_offers_its_own_colours() {
     let (d, mut app) = booted_on_shelf(d);
     press(&mut app, Btn::Start);
     press(&mut app, Btn::Left);
-    assert_eq!(rows_of(&mut app), vec![Shape, Colour, Reset], "the Famicom cart offered no colour");
+    assert_eq!(
+        rows_of(&mut app),
+        vec![Shape, Colour, Reset],
+        "the Famicom cart offered no colour"
+    );
     let own = app.cart_menu().unwrap().1.unwrap().colour;
-    assert_eq!(own, slot_ui::famicom_shell("Mario (USA)").colour, "the Famicom cart started grey");
+    assert_eq!(
+        own,
+        slot_ui::famicom_shell("Mario (USA)").colour,
+        "the Famicom cart started grey"
+    );
     press(&mut app, Btn::Down);
     press(&mut app, Btn::Right);
     let red = app.cart_menu().unwrap().1.unwrap();
     assert_ne!(red.colour, own);
     press(&mut app, Btn::A);
     let saved = saved_shell(&d, "Mario (USA)").expect("A saved nothing");
-    let red_hex = format!("{:02x}{:02x}{:02x}", red.colour[0], red.colour[1], red.colour[2]);
+    let red_hex = format!(
+        "{:02x}{:02x}{:02x}",
+        red.colour[0], red.colour[1], red.colour[2]
+    );
     assert!(saved.starts_with(&format!("rounded {red_hex}")), "{saved}");
 }
 
@@ -2532,7 +2645,10 @@ fn y_in_the_cart_menu_searches_only_online_and_b_leaves_the_label_as_it_was() {
     assert!(app.cart_menu().is_some(), "Y offline closed the menu");
     press(&mut app, Btn::B);
     assert!(app.cart_menu().is_none());
-    assert!(!d.path().join("Labels/GB/Tetris.png").exists(), "a label was written");
+    assert!(
+        !d.path().join("Labels/GB/Tetris.png").exists(),
+        "a label was written"
+    );
 }
 
 fn app_on(platform: Platform, ext: &str) -> App {
@@ -2571,7 +2687,11 @@ fn every_cart_turns_to_face_the_slot_first_at_the_same_pace() {
         (Platform::Md, "md"),
     ] {
         let turn = slot_ui::turn::seconds(platform);
-        assert!((2.4..3.0).contains(&turn), "{platform:?}: a {turn}s turn");
+        let speed = slot_ui::turn::CART_ANIM_SPEED;
+        assert!(
+            (2.4 / speed..3.0 / speed).contains(&turn),
+            "{platform:?}: a {turn}s turn"
+        );
         let took = insert_seconds(platform, ext);
         // what is left once the turn is taken off is the same slide in for every system
         let rest = took - turn;

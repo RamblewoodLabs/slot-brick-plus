@@ -38,7 +38,7 @@ pub fn rest_y(h: f32) -> f32 {
 pub fn foot_y(h: f32) -> f32 {
     rest_y(h) + h
 }
-const OMEGA: f32 = 16.0;
+const OMEGA: f32 = 16.0 * crate::ANIM_SPEED;
 const PART: f32 = 130.0;
 
 const SLOTS: i32 = 3;
@@ -561,8 +561,8 @@ impl Shelf {
 }
 
 /// How long a star takes to pop on, and to go.
-const STAR_IN_S: f32 = 0.3;
-const STAR_OUT_S: f32 = 0.18;
+const STAR_IN_S: f32 = crate::paced_s(0.3);
+const STAR_OUT_S: f32 = crate::paced_s(0.18);
 
 /// A star popping on, `t` from 0 to 1: from nothing past its size (about a fifth over), then
 /// settling back to it (an ease-out with overshoot).

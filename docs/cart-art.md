@@ -71,6 +71,10 @@ Each system has a profile (`profile.rs`) with the order to try:
 | box first | box-2D, support-texture, support-2D, wheel | VECTREX |
 | arcade | marquee (the real one; screenmarquee is ScreenScraper's generated banner), wheel, box-2D | ARCADE |
 
+Vectrex is box-first because the label window is the console's screen, not a cart label: the
+overlay illustration is cut from the box cover and laid on the screen, so the box's wordmark
+and the smaller picture of that overlay are not shown twice.
+
 The label scan (support-texture) comes before the cart photo for carts: the shelf draws the
 cart itself and needs only the label, and the scan is flat, square-on and sharper. A picture
 that is not the label's shape (a wrap of the whole cart, the end strip) is passed over.

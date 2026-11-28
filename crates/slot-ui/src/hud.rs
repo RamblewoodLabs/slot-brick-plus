@@ -8,8 +8,8 @@ use crate::{Badge, Icon, Toast};
 pub type Millis = u64;
 
 pub const HUD_MS: Millis = 1500;
-const FADE_MS: Millis = 250;
-const PULSE_MS: Millis = 500;
+const FADE_MS: Millis = crate::paced_ms(250);
+const PULSE_MS: Millis = crate::paced_ms(500);
 
 pub const PLATE_H: f32 = 40.0;
 pub(crate) const PLATE: [f32; 4] = [0.0, 0.0, 0.0, 0.72];

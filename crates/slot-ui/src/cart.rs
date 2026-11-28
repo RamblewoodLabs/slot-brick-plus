@@ -205,6 +205,8 @@ pub fn fitted_label(cart: &Cart, w: u32, h: u32) -> Option<Vec<u8>> {
     let path = shown_label(cart)?;
     if nes_famicom_of(cart) {
         art::label_fit(path, w, h)
+    } else if cart.platform == Platform::Vectrex {
+        art::vectrex_cover(path, w, h)
     } else {
         art::cover(path, w, h)
     }
@@ -222,6 +224,8 @@ pub fn fitted_label_rgba(
 ) -> Option<Vec<u8>> {
     if nes_famicom_of(cart) {
         art::label_fit_rgba(src, sw, sh, w, h)
+    } else if cart.platform == Platform::Vectrex {
+        art::vectrex_cover_rgba(src, sw, sh, w, h)
     } else {
         art::cover_rgba(src, sw, sh, w, h)
     }

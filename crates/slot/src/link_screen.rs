@@ -31,13 +31,13 @@ const SEATED_TIP: f32 = 419.0;
 const FAILED_TIP: f32 = 276.0;
 const FAILED_TURN_DEG: f32 = 14.0;
 const FAILED_ALPHA: f32 = 0.45;
-const DROP_MS: Millis = 200;
-const SEAT_MS: Millis = 160;
-const LIFT_MS: Millis = 250;
-const UNPLUG_MS: Millis = 260;
+const DROP_MS: Millis = slot_ui::paced_ms(200);
+const SEAT_MS: Millis = slot_ui::paced_ms(160);
+const LIFT_MS: Millis = slot_ui::paced_ms(250);
+const UNPLUG_MS: Millis = slot_ui::paced_ms(260);
 const PICK_BASE: f32 = 336.0;
-const ARC_MS: f32 = 1200.0;
-const ARC_STAGGER_MS: f32 = 300.0;
+const ARC_MS: f32 = slot_ui::paced_ms(1200) as f32;
+const ARC_STAGGER_MS: f32 = slot_ui::paced_ms(300) as f32;
 const ARROW_ALPHA: f32 = 0.7;
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
