@@ -4,7 +4,9 @@
 # 2.36), pygame 2.6.1 with its own SDL2, Slot's framebuffer shim (slot_fb.py, sitecustomize.py),
 # and SoundTouch 2.3.2 built here against glibc 2.31 (lib/compat/libSoundTouch.so.1): GrainBrick's
 # own copy was built on Ubuntu 24.04 and needs glibc 2.38, and its LGPL notice invites swapping in
-# an ABI-compatible build. run-app.sh puts lib/compat on LD_LIBRARY_PATH, ahead of its $ORIGIN.
+# an ABI-compatible build. lib/compat also holds zlib 1.3.1 (libz.so.1): Slot OS has no libz, and
+# GrainBrick's NumPy (its bundled libgfortran) needs one; stock has it. run-app.sh puts lib/compat on
+# LD_LIBRARY_PATH, ahead of its $ORIGIN.
 # Needs Docker on an arm64 machine (or with arm64 emulation). Output: brick/python-runtime/runtime/python
 set -eu
 cd "$(dirname "$0")/../.."
@@ -39,6 +41,11 @@ docker run --rm --platform linux/arm64 -v "$PWD":/src -w /src debian:bullseye sh
     mkdir -p "$P/lib/compat"
     cp -L source/SoundTouch/.libs/libSoundTouch.so.1 "$P/lib/compat/"
     strip --strip-unneeded "$P/lib/compat/libSoundTouch.so.1"
+    # zlib, unchanged, for glibc 2.31 and up (it needs only GLIBC_2.17).
+    mkdir -p /tmp/zl && tar -xzf "$C/zlib-1.3.1.tar.gz" -C /tmp/zl
+    cd /tmp/zl/zlib-1.3.1 && ./configure >/dev/null && make -s -j"$(nproc)" >/dev/null
+    cp -L libz.so.1 "$P/lib/compat/" && strip --strip-unneeded "$P/lib/compat/libz.so.1"
+    cd /src
     # Not needed to run apps on the Brick: the test suite, IDLE, Tk, ensurepip, pip, pygame examples, docs and tests;
     # and dbm, which links Berkeley DB (Sleepycat licence).
     rm -rf "$P/lib/python3.12/test" "$P/lib/python3.12/idlelib" "$P/lib/python3.12/tkinter" "$P/lib/python3.12/turtledemo" \
@@ -55,7 +62,7 @@ docker run --rm --platform linux/arm64 -v "$PWD":/src -w /src debian:bullseye sh
     "$P/bin/python3" -m compileall -q -j0 "$P/lib/python3.12" >/dev/null 2>&1 || true
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SLOT_FB=/dev/null LD_LIBRARY_PATH="$P/lib/compat" "$P/bin/python3" -c "
 import ctypes, ssl, sqlite3, zlib, json, wave, audioop, pygame
-ctypes.CDLL(\"libSoundTouch.so.1\")
+ctypes.CDLL(\"libSoundTouch.so.1\"); ctypes.CDLL(\"libz.so.1\")
 pygame.display.init(); pygame.joystick.init()
 pygame.display.set_mode((1024, 768), pygame.FULLSCREEN); pygame.display.flip()
 print(\"smoke ok: python\", __import__(\"sys\").version.split()[0], \"pygame\", pygame.version.ver, \"SDL\", pygame.get_sdl_version())"
