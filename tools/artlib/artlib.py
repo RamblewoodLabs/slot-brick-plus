@@ -500,6 +500,14 @@ def write_library_readme(root: Path) -> None:
 
 
 def write_home_pointer(real_root: Path) -> None:
+    # Never retarget ~/ArtLibrary when operating on a temporary or custom root
+    # (unit tests, one-off --root paths).
+    official = Path(os.environ.get("ARTLIB_ROOT", str(DEFAULT_ROOT))).expanduser()
+    try:
+        if real_root.resolve() != official.resolve():
+            return
+    except OSError:
+        return
     POINTER_ROOT.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(POINTER_ROOT, 0o700)
