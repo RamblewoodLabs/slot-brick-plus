@@ -119,4 +119,14 @@ Weaker:
 - Done: `sh brick/sim.sh unit` 444 passed. Live test (`live_login_lookup_and_search`, ignored):
   dev account is refused as a user login (expected); dev-id lookups for GB/SNES/MD/NES fetched and
   fitted 2× labels; search works. Screens and live labels in `/workspace/cartart-test/`.
-- Next: commit and push, card builds (tg5040, rg35xxsp), Android sign-out, CI.
+- Commits 55d4d533 and f2d78393 pushed. CI on f2d78393: changelog, unit, scenarios pass.
+  Local: `sh brick/sim.sh test` 18 scenarios pass.
+- Built with the dev id baked in (never printed): tg5040 card `dist-brick-cartart` (the arm64
+  `slot-brick-build` image cannot run the x86 toolchain on the Mac, so built in `slot-sp-build`,
+  the same Dockerfile on amd64), RG35XX SP/H700 card `dist-rg35xxsp-cartart`, Android
+  `Slotted-debug.apk`. No old lists on either card; neither binary has the old hosts.
+- Android: Settings already had username/password/Test login (ssuserInfos); added Sign out.
+- RG280V (`cursor/rg280v-plan`): its own copy of crates/slot from an older base and no Wi-Fi;
+  picks this up when rebased. Not changed.
+- Open: Jeff to add repo secrets SLOT_SS_DEVID / SLOT_SS_DEVPASSWORD for release builds; a
+  real user account to test the save-on-login path live (dev account is refused as a user).
