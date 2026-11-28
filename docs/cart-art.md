@@ -5,26 +5,58 @@ cart (`Labels/<DIR>/<stem>.png`). It is plain Rust with one dependency (`png`), 
 the Brick, the RG35XX SP, Android and the RG280V alike. It runs once per game, when the art is
 fetched, and the result is kept on the card; nothing runs per frame.
 
-## Turning it on
+## The only art source, on by default
 
-`Config/screenscraper.txt` on the card:
+HOME → Cart Art fetches from ScreenScraper only; the older sources (the slot-cfw.fyi art set,
+LaunchBox cart pictures, and their lists in `Slot/System/`) are gone, as is the code that read
+them. The per-game label search (Y on a cart, FIND A LABEL) searches ScreenScraper too
+(`jeuRecherche.php`) and fits each picture the same way. Labels are written at 2× the window.
 
-    cartart=on
+Cart Art is on by default. It needs two things:
+
+- **A developer id, built in.** `SLOT_SS_DEVID` / `SLOT_SS_DEVPASSWORD` at build time.
+  `brick/docker-build.sh` and `rg35xxsp/docker-build.sh` source `brick/ss-dev-env.sh`, which
+  takes them from the environment or from `devid=` / `devpassword=` in a gitignored
+  `screenscraper.properties` (repo root or `android/`) and never prints them. The release
+  workflow passes the repo secrets `SLOT_SS_DEVID` and `SLOT_SS_DEVPASSWORD` (they must be added
+  under Settings → Secrets). `devid=` / `devpassword=` in `Config/screenscraper.txt` also work,
+  for testing. A Slot built without one says so on the Cart Art screen.
+- **The player's own ScreenScraper login.** Every Slot shares one developer id, whose quota is
+  small, so nothing is looked up without the player's account (free at screenscraper.fr).
+
+`cartart=off` in `Config/screenscraper.txt` switches it off.
+
+## Logging in on the device
+
+HOME → Cart Art (needs Wi-Fi). The first row is **SCREENSCRAPER**, showing the account or NOT
+LOGGED IN; A opens its screen:
+
+- Not logged in: **USERNAME** and **PASSWORD** (on-screen keyboard; the password is shown as
+  stars), then **TEST LOGIN AND SAVE**. That calls `ssuserInfos.php`; on success it saves
+  `user=` and `password=` to `Config/screenscraper.txt` (other lines kept) and shows the account,
+  its level, threads and the day's lookups ("Logged in as jeff, level 1, 1 thread. 12 of 20000
+  lookups used today"). A refused login is reported and nothing is saved.
+- Logged in: **LOGGED IN AS**, **TEST LOGIN** (checks the saved login and shows the quota again)
+  and **SIGN OUT** (removes `user=` and `password=`).
+
+**GET CART ART** without a login opens the login screen ("Enter your ScreenScraper username and
+password") instead of running. A refused login during a run stops it and says to check the
+login under HOME → Cart Art. The password is never logged; the report (`Logs/cart-art.txt`)
+names only the user.
+
+The file can still be written by hand:
+
     user=<ScreenScraper user name>
     password=<ScreenScraper password>
 
-The developer id and password are built in from `SLOT_SS_DEVID` / `SLOT_SS_DEVPASSWORD` at
-build time (or `devid=` / `devpassword=` in the same file for testing). Without `cartart=on`
-and a developer id, HOME → Cart Art works exactly as before. When it is on,
-`cart_art::screenscraper_label` is tried first for every cart and anything it can't fit falls
-through to the existing sources.
+## Fetching
 
 `crates/slot/src/cart_art_ss.rs` does the fetching: one `jeuInfos` lookup per game (ROM name,
 CRC for ROMs up to 64 MB, size), then only the pictures it needs, in tier order, each asked for
 at no more than 1000 px. Calls are 1.2 s apart (the developer quota is one thread), only
 `*.screenscraper.fr` is contacted, every credential is stripped from anything logged
 (`redact`), and a quota or auth error (401/403/423/426/429/430/431) stops ScreenScraper for the
-rest of the run.
+rest of the run. A game ScreenScraper has nothing usable for keeps its file-name label.
 
 ## Tiers
 

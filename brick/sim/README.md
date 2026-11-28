@@ -155,9 +155,8 @@ A screen whose content comes off the network cannot have one at all.
 - **In a scenario, a label search never leaves the machine**: it finds one made-up label, so the
   label screens can be walked through. Under `serve` it is the real search.
 - **Cart art and label searches really go to the internet.** They need DNS that can answer for
-  `art.slot-cfw.fyi` and `images.launchbox-app.com`. Where the machine's resolver cannot — a
-  resolver that does not handle the `.fyi` TLD is the usual cause — `serve` looks the hosts up
-  itself (`resolve.py`) and passes their addresses to the container.
+  `api.screenscraper.fr`. Where the machine's resolver cannot, `serve` looks the host up itself
+  (`resolve.py`) and passes its address to the container.
 - **The desktop build** (`default` features) wants libudev and ALSA headers. That is nothing to
   do with the sim.
 

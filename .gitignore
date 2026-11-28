@@ -30,4 +30,6 @@ preview/
 # Local navigation-perf cargo target and timing logs.
 target-perf/
 logs/
-brick/python-runtime/runtime/
+
+# ScreenScraper developer id for local card builds (brick/ss-dev-env.sh). Never commit.
+/screenscraper.properties

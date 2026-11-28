@@ -70,11 +70,11 @@ fresh() {
     python3 -I brick/sim/make-update.py "$1/releases"
 }
 
-# Where the cart art and label servers live. Docker looks names up with this machine's DNS;
+# Where the cart art server lives. Docker looks names up with this machine's DNS;
 # where that cannot answer for one of them, resolve.py does and the address is passed in, so
 # the label search and Get Cart Art can be tried in the sim.
 art_hosts() {
-    for host in art.slot-cfw.fyi images.launchbox-app.com; do
+    for host in api.screenscraper.fr; do
         addr=$(python3 -I brick/sim/resolve.py "$host" 2>/dev/null) || continue
         # An address and nothing else: what this prints is split into docker's arguments.
         case "$addr" in

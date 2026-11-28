@@ -1,8 +1,8 @@
 # Cart art engine — progress
 
 Branch `cursor/cartart` from `cursor/android-phase3` (53a29549). Worktree `~/sbp-cartart`.
-Draft PR only; merge on Jeff's yes. ScreenScraper art stays off by default (`cartart=on` in
-`Config/screenscraper.txt`) until Jeff has seen the previews and says to turn it on.
+Draft PR only; merge on Jeff's yes. Jeff said (PR #39): on by default, 2× labels, remove the
+old get-art path, log in to ScreenScraper on the device. Phase 3 below.
 Design and settings: `docs/cart-art.md`.
 
 ## Done
@@ -105,3 +105,18 @@ Weaker:
   whether labels should be 2× or 1× (cache size).
 - Run on a real Brick / SP / RG280V to replace the estimates.
 - Android: no cart UI yet (text labels), so not wired there; slot-cartart builds for it as is.
+
+## Phase 3: on by default, ScreenScraper only, on-device login (2026-11-27)
+
+- Done: `cart_art.rs` is ScreenScraper only (old art set, LaunchBox lists and
+  `make-cart-*.py` removed); FIND A LABEL searches ScreenScraper (`jeuRecherche`). On by default
+  (`cartart=off` turns it off); needs the built-in dev id plus the player's login.
+- Done: HOME → Cart Art → SCREENSCRAPER row: username/password keyboard, TEST LOGIN AND SAVE
+  (`ssuserInfos`), TEST LOGIN, SIGN OUT; GET CART ART without a login opens it.
+- Done: `brick/ss-dev-env.sh` feeds `SLOT_SS_DEVID/DEVPASSWORD` to the Brick and SP docker builds
+  from env or a gitignored `screenscraper.properties`; release.yml reads repo secrets of the
+  same names (Jeff must add them).
+- Done: `sh brick/sim.sh unit` 444 passed. Live test (`live_login_lookup_and_search`, ignored):
+  dev account is refused as a user login (expected); dev-id lookups for GB/SNES/MD/NES fetched and
+  fitted 2× labels; search works. Screens and live labels in `/workspace/cartart-test/`.
+- Next: commit and push, card builds (tg5040, rg35xxsp), Android sign-out, CI.
