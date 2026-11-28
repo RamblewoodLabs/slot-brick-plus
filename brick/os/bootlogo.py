@@ -1,71 +1,96 @@
-"""Slot OS's boot logo, which u-boot shows until Slot's first frame: "slot." in pixel letters
-drawn on a grid (so every edge is sharp), a banded sunset from top to bottom, extruded depth
-and scanlines, on black. 1024x768, 32-bit BMP with a V5 header, rows bottom-up (the format
-TrimUI's u-boot shows). Usage: python3 bootlogo.py <out.bmp>"""
-import struct, sys
-from PIL import Image, ImageDraw
+"""Slot OS's boot logo, which u-boot shows until Slot's first frame.
+
+The picture is bootlogo-slotted.png: the original pixel "slot" letters with a
+red graffiti "ted" tagged on. Written as 1024x768, 32-bit BMP with a V5
+header, rows bottom-up (the format TrimUI's u-boot shows). A 1024x768 picture
+is 3,145,866 bytes.
+
+Usage:
+  python3 bootlogo.py <out.bmp>
+  python3 bootlogo.py --check
+"""
+import struct
+import sys
+import tempfile
+from pathlib import Path
+
+from PIL import Image
 
 W, H = 1024, 768
-CELL, GAP, DEPTH = 12, 4, 2  # pixels per grid cell; cells between letters; depth in cells
-# 14 rows: 0-3 ascenders, 4-13 x-height. Horizontal strokes 2 cells, vertical 3.
-X = [""] * 4
-GLYPHS = {
-    's': X + [" #########", "##########", "###", "###", "#########",
-              " #########", "       ###", "       ###", "##########", "#########"],
-    'l': ["###"] * 12 + ["####", " ###"],
-    'o': X + [" ########", "##########"] + ["###    ###"] * 6 + ["##########", " ########"],
-    't': [""] + [" ###"] * 3 + ["########"] * 2 + [" ###"] * 6 + [" #######", "  ######"],
-    '.': [""] * 11 + ["###"] * 3,
-}
-# One colour per grid row, yellow at the top to blue at the foot; the depth in two purples.
-BANDS = ["#fff7a1", "#ffe66d", "#ffcf4a", "#ffb43c", "#ff9636", "#ff7a3d", "#ff5e4f", "#ff4767",
-         "#f43b85", "#dc36a3", "#bd35bf", "#9638d6", "#6e3fe4", "#4c4cec"]
-DEPTHS = ["#3a1466", "#24104a"]
+HEADER = 14 + 124
+PIXELS = W * H * 4
+SIZE = HEADER + PIXELS  # 3,145,866
+SRC = Path(__file__).with_name("bootlogo-slotted.png")
 
 
-def cells(text):
-    x0 = 0
-    for c in text:
-        glyph = GLYPHS[c]
-        width = max(map(len, glyph))
-        for y, row in enumerate(glyph):
-            for x, ch in enumerate(row):
-                if ch == '#':
-                    yield x0 + x, y
-        x0 += width + GAP
+def encode_v5(screen: Image.Image) -> bytes:
+    if screen.size != (W, H):
+        raise SystemExit(f"boot logo must be {W}x{H}, got {screen.size}")
+    screen = screen.convert("RGB")
+    pixels = b"".join(
+        b"".join(
+            bytes((b, g, r, 255))
+            for r, g, b in (screen.getpixel((x, y)) for x in range(W))
+        )
+        for y in range(H - 1, -1, -1)
+    )
+    if len(pixels) != PIXELS:
+        raise SystemExit(f"pixel data is {len(pixels)} bytes, expected {PIXELS}")
+    v5 = struct.pack("<IiiHHIIiiII", 124, W, H, 1, 32, 3, len(pixels), 2835, 2835, 0, 0)
+    v5 += struct.pack("<IIII", 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+    v5 += b"BGRs" + bytes(36) + struct.pack("<III", 0, 0, 0) + struct.pack("<IIII", 4, 0, 0, 0)
+    head = b"BM" + struct.pack("<IHHI", HEADER + len(pixels), 0, 0, HEADER)
+    out = head + v5 + pixels
+    if len(out) != SIZE:
+        raise SystemExit(f"BMP is {len(out)} bytes, expected {SIZE}")
+    return out
 
 
-on = set(cells("slot."))
-cols, rows = max(x for x, _ in on) + 1 + DEPTH, len(BANDS) + DEPTH
-left, top = (W - cols * CELL) // 2, (H - rows * CELL) // 2
-screen = Image.new('RGB', (W, H), (0, 0, 0))
-draw = ImageDraw.Draw(screen)
+def render() -> bytes:
+    if not SRC.is_file():
+        raise SystemExit(f"missing {SRC}")
+    return encode_v5(Image.open(SRC))
 
 
-def square(x, y, colour, height=CELL, foot=0):
-    px, py = left + x * CELL, top + y * CELL + foot
-    draw.rectangle([px, py, px + CELL - 1, py + height - 1], fill=colour)
+def check(data: bytes) -> None:
+    if data[:2] != b"BM":
+        raise SystemExit("not a BMP")
+    size, offset = struct.unpack_from("<IHHI", data, 2)[0], struct.unpack_from("<IHHI", data, 2)[3]
+    dib, width, height, planes, bpp, compression = struct.unpack_from("<IiiHHI", data, 14)
+    if (size, offset, dib, width, height, planes, bpp, compression, len(data)) != (
+        SIZE,
+        HEADER,
+        124,
+        W,
+        H,
+        1,
+        32,
+        3,
+        SIZE,
+    ):
+        raise SystemExit(
+            f"bad header: size={size} off={offset} dib={dib} {width}x{height} "
+            f"planes={planes} bpp={bpp} comp={compression} bytes={len(data)}"
+        )
+    red, green, blue, alpha = struct.unpack_from("<IIII", data, 54)
+    if (red, green, blue, alpha) != (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000):
+        raise SystemExit(f"bad masks: {red:#x} {green:#x} {blue:#x} {alpha:#x}")
 
 
-# The depth, farthest first; then the letters, each cell in its row's band with a darker
-# line at its foot.
-for k in range(DEPTH, 0, -1):
-    for x, y in on:
-        square(x + k, y + k, DEPTHS[k - 1])
-line = max(1, CELL // 7)
-for x, y in on:
-    band = BANDS[y]
-    square(x, y, band)
-    r, g, b = (int(band[i:i + 2], 16) * 78 // 100 for i in (1, 3, 5))
-    square(x, y, (r, g, b), height=line, foot=CELL - line)
+def main(argv: list[str]) -> None:
+    if len(argv) != 2 or argv[1] in ("-h", "--help"):
+        raise SystemExit("usage: python3 bootlogo.py <out.bmp> | python3 bootlogo.py --check")
+    data = render()
+    check(data)
+    if argv[1] == "--check":
+        with tempfile.NamedTemporaryFile(suffix=".bmp") as tmp:
+            tmp.write(data)
+            tmp.flush()
+            check(Path(tmp.name).read_bytes())
+        print(f"ok: {SIZE} byte 32-bit V5 {W}x{H} BMP")
+        return
+    Path(argv[1]).write_bytes(data)
 
-pixels = b''.join(
-    b''.join(bytes((b, g, r, 255)) for r, g, b in
-             (screen.getpixel((x, y)) for x in range(W)))
-    for y in range(H - 1, -1, -1))
-v5 = struct.pack('<IiiHHIIiiII', 124, W, H, 1, 32, 3, len(pixels), 2835, 2835, 0, 0)
-v5 += struct.pack('<IIII', 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
-v5 += b'BGRs' + bytes(36) + struct.pack('<III', 0, 0, 0) + struct.pack('<IIII', 4, 0, 0, 0)
-head = b'BM' + struct.pack('<IHHI', 14 + 124 + len(pixels), 0, 0, 14 + 124)
-with open(sys.argv[1], 'wb') as out:
-    out.write(head + v5 + pixels)
+
+if __name__ == "__main__":
+    main(sys.argv)
