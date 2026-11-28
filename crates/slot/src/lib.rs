@@ -8,6 +8,7 @@ pub mod bootlogo;
 pub mod build_info;
 pub mod cable;
 pub mod cart_art;
+pub mod cart_art_ss;
 pub mod cart_faces;
 pub mod cart_turns;
 pub mod core;

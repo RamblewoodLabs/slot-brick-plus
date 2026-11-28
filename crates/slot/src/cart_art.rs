@@ -206,6 +206,8 @@ struct Sources<'a> {
     games: Games,
     /// Each picture list (by its file), read when its first cart needs it.
     photos: HashMap<&'static str, PhotoIndex>,
+    /// ScreenScraper, tried first for every cart when switched on (`cart_art_ss`).
+    ss: Option<crate::cart_art_ss::Client>,
 }
 
 fn run(
@@ -229,7 +231,11 @@ fn run(
         crcs: Crcs::load(root),
         games: Games::load(root),
         photos: HashMap::new(),
+        ss: crate::cart_art_ss::Creds::load(root).map(crate::cart_art_ss::Client::new),
     };
+    if src.ss.is_some() {
+        report.push_str("ScreenScraper art is on (Config/screenscraper.txt)\n");
+    }
     let result = (|| {
         for (at, cart) in carts.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
@@ -240,18 +246,24 @@ fn run(
                 total: carts.len(),
                 name: cart.stem.clone(),
             });
+            // ScreenScraper first when it is on; whatever it can't do falls through to the rest.
+            let from_ss = screenscraper_label(cart, &mut src, &mut report);
             // No label scan (homebrew, most hacks): the shelf's file-name label stays.
-            let outcome = match photo_specs(cart) {
-                [] => fetch_label(cart, &mut src)?,
-                specs => {
-                    let mut outcome = Outcome::NoMatch;
-                    for spec in specs {
-                        outcome = fetch_photo_label(cart, spec, &mut src)?;
-                        if matches!(outcome, Outcome::Saved(..)) {
-                            break;
+            let outcome = if let Some(outcome) = from_ss {
+                outcome
+            } else {
+                match photo_specs(cart) {
+                    [] => fetch_label(cart, &mut src)?,
+                    specs => {
+                        let mut outcome = Outcome::NoMatch;
+                        for spec in specs {
+                            outcome = fetch_photo_label(cart, spec, &mut src)?;
+                            if matches!(outcome, Outcome::Saved(..)) {
+                                break;
+                            }
                         }
+                        outcome
                     }
-                    outcome
                 }
             };
             let place = format!("{}/{}", cart.platform.dir_name(), cart.stem);
@@ -292,6 +304,33 @@ fn run(
         eprintln!("slot: cart art: {REPORT}: {e}");
     }
     Ok(summary)
+}
+
+/// The label from ScreenScraper, or None to let the other sources try. A refusal that every
+/// other game would get too (quota, login) turns ScreenScraper off for the rest of the run.
+fn screenscraper_label(cart: &Cart, src: &mut Sources, report: &mut String) -> Option<Outcome> {
+    src.ss.as_ref()?;
+    let small = std::fs::metadata(&cart.rom).is_ok_and(|m| m.len() <= 64 << 20);
+    let crc = if small { src.crcs.of(src.root, &cart.rom).ok() } else { None };
+    let client = src.ss.as_mut()?;
+    match crate::cart_art_ss::label_for(client, cart, crc) {
+        Ok(crate::cart_art_ss::Got::Label(png, how)) => {
+            let sub = if slot_ui::nes_famicom_of(cart) { slot_store::FAMICOM_LABELS } else { "" };
+            Some(save_label(src.root, cart, sub, &png, how))
+        }
+        Ok(crate::cart_art_ss::Got::NoMatch) => None,
+        Ok(crate::cart_art_ss::Got::NoArt(why)) => {
+            report.push_str(&format!("screenscraper: {}/{}: {why}\n", cart.platform.dir_name(), cart.stem));
+            None
+        }
+        Err(e) => {
+            let e = crate::cart_art_ss::redact(&e);
+            eprintln!("slot: cart art: ScreenScraper off for this run: {e}");
+            report.push_str(&format!("ScreenScraper off for the rest of this run: {e}\n"));
+            src.ss = None;
+            None
+        }
+    }
 }
 
 enum Outcome {
