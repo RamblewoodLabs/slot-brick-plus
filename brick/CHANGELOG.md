@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- Vectrex games no longer play as two squashed copies of the picture in pink and blue. The Vectrex core draws in the old 15-bit colour format (0RGB1555), which Slot refused and then read as 32-bit colour, so each row came out as two rows side by side with the white vectors tinted. Slot now reads that format, and the picture is one, in white.
 - Every animation is about 40% faster on every platform that shares this code (Brick, SP, Android, RG280V): shelf scrolling, cart turns, the slide into and out of the slot, the label peel, menu and lid opens, link-cable motion, toasts sliding in, the slot-name fade, power on and off, and the rest. The turn is about 1.9 seconds instead of 2.6, the slide into the slot is 0.52 seconds instead of 0.73. Toast, HUD, and slot-name hold times, and how long an unlock toast stays up, are unchanged so they can still be read and enjoyed.
 - The Vectrex shelf now shows the game's overlay art on the console's screen, not the whole box cover. The cover already pictured that overlay under the VECTREX wordmark, so the screen was showing two images.
 - The Companion (Pip) is removed from Slot completely: its HOME → Companion screen, its missions, streaks and XP, its toasts and sounds, and its pictures. It was never in a release. A `Slot/Config/companion.txt` left on a card is no longer read, and can be deleted.

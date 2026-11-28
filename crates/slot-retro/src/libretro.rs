@@ -24,6 +24,7 @@ static HW_FBO: AtomicUsize = AtomicUsize::new(0);
 enum PixelFormat {
     Xrgb8888,
     Rgb565,
+    Rgb1555,
 }
 
 struct Host {
@@ -187,6 +188,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let want = match *(data as *const c_uint) {
                 PIXEL_FORMAT_XRGB8888 => PixelFormat::Xrgb8888,
                 PIXEL_FORMAT_RGB565 => PixelFormat::Rgb565,
+                PIXEL_FORMAT_0RGB1555 => PixelFormat::Rgb1555,
                 _ => return false,
             };
             with_host(|h| h.format = want).is_some()
@@ -695,6 +697,11 @@ unsafe fn pixel(format: PixelFormat, row: *const u8, i: usize) -> [u8; 3] {
             let p = ptr::read_unaligned((row as *const u16).add(i));
             let (r, g, b) = (((p >> 11) & 0x1f) as u8, ((p >> 5) & 0x3f) as u8, (p & 0x1f) as u8);
             [(b << 3) | (b >> 2), (g << 2) | (g >> 4), (r << 3) | (r >> 2)]
+        }
+        PixelFormat::Rgb1555 => {
+            let p = ptr::read_unaligned((row as *const u16).add(i));
+            let (r, g, b) = (((p >> 10) & 0x1f) as u8, ((p >> 5) & 0x1f) as u8, (p & 0x1f) as u8);
+            [(b << 3) | (b >> 2), (g << 3) | (g >> 2), (r << 3) | (r >> 2)]
         }
     }
 }
@@ -2155,6 +2162,36 @@ mod tests {
         assert_eq!(px(0, 8), vec![127, 127, 127], "224 lines start 8 down");
         assert_eq!(px(128, 4), vec![0, 0, 0], "the band above the picture is not cleared");
         assert_eq!(px(128, 233), vec![0, 0, 0], "the band below the picture is not cleared");
+    }
+
+    #[test]
+    fn a_0rgb1555_frame_is_decoded_not_read_as_xrgb8888() {
+        // vecx's software renderer: 330x410, 0RGB1555, white vectors (0x7fff) on black, two
+        // bytes a pixel. Read as XRGB8888 it came out as two squashed magenta copies.
+        let mut host = host_with(HashMap::new(), false);
+        host.canvas = (330, 410);
+        host.video = vec![1; 330 * 410 * 4];
+        let _active = Active::bind(&mut host);
+        let mut fmt = PIXEL_FORMAT_0RGB1555;
+        assert!(
+            unsafe { environment(SET_PIXEL_FORMAT, &mut fmt as *mut c_uint as *mut c_void) },
+            "the frontend refuses the libretro default format"
+        );
+        let (w, h) = (330usize, 410usize);
+        let mut frame = vec![0u16; w * h];
+        for y in 100..110 {
+            for x in 50..250 {
+                frame[y * w + x] = 0x7fff;
+            }
+        }
+        frame[200 * w + 10] = 0x7c00; // pure red
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as c_uint, h as c_uint, w * 2) };
+        let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
+        let px = |x: usize, y: usize| video[(y * 330 + x) * 4..(y * 330 + x) * 4 + 3].to_vec();
+        assert_eq!(px(100, 105), vec![255, 255, 255], "a white vector is not white");
+        assert_eq!(px(300, 105), vec![0, 0, 0], "the picture was drawn a second time beside itself");
+        assert_eq!(px(100, 300), vec![0, 0, 0], "the background is not black");
+        assert_eq!(px(10, 200), vec![0, 0, 255], "red is not red (this is blue, green, red)");
     }
 
     #[test]
