@@ -180,7 +180,7 @@ it. While logged in, games earn achievements in softcore mode (save states, rewi
 fast-forward stay allowed): a small toast slides into the top-right corner with how many a
 game has when it starts, and with each unlock and its badge as it happens, with a short burst around the badge. HOME → Online → Encore Mode (on by default) lets already-earned achievements pop again when you replay them; the server still will not count a second softcore award. A game's badges
 are fetched when it starts and kept in `Slot/System/Cache/Badges`. **Cache achievement sets**
-does that for favorited games and the 20 most recently played, and keeps each set in `Slot/Config/Achievements`. Starring a game or starting one queues its set. Unstarring stops prioritizing it but leaves a saved set on the card. Unlocks
+opens a list of systems on the card so you can choose which games to cache (Select all / None, or press Right on a system to pick individual games), then **Cache selected**. The last choice is remembered, in `Slot/Config/Achievements/cache-pick.txt`. Caching keeps going if you leave the screen: coming back shows live progress, and a short toast appears when it finishes. Sets are kept in `Slot/Config/Achievements`. Starring a game or starting one still queues its set, and those sets plus favorites and the 20 most recently played are also cached in the background when Wi-Fi is up. Unstarring stops prioritizing it but leaves a saved set on the card. Unlocks
 made offline are kept there too, with the time they happened, and sent when Wi-Fi returns
 even if the Brick was powered off in between. If that file is torn, the spare copy is used.
 The server is asked in softcore only. A hardcore unlock is not stored to send later, because

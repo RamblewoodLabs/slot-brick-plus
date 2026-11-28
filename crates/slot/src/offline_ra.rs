@@ -27,6 +27,7 @@ const SESSIONS: &str = "Config/Achievements/sessions";
 const LOGIN: &str = "Config/Achievements/login.json";
 const CACHE_QUEUE: &str = "Config/Achievements/cache-queue.txt";
 const CACHE_MISSES: &str = "Config/Achievements/cache-misses.txt";
+const CACHE_PICK: &str = "Config/Achievements/cache-pick.txt";
 
 /// Recently played games included in the set cache, on top of every favorite.
 pub const RECENT_SET_CACHE: usize = 20;
@@ -1244,6 +1245,280 @@ fn set_cached_hash(root: &Path, hash: &str) -> bool {
     set_json(root, &key).is_file()
 }
 
+/// One game on a system that can be cached.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheGame {
+    pub key: CacheKey,
+    pub title: String,
+    pub cached: bool,
+    pub size: Option<u64>,
+}
+
+/// A system present on the card, with the games that can have a RetroAchievements set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheSystem {
+    pub platform: Platform,
+    pub games: Vec<CacheGame>,
+}
+
+/// Systems on the card that RetroAchievements supports, and the average size of
+/// sets already cached, when that is known.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct CacheCatalog {
+    pub systems: Vec<CacheSystem>,
+    pub avg_size: Option<u64>,
+}
+
+/// A remembered picker line: every game on a system, or one game.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PickLine {
+    All(Platform),
+    Game(CacheKey),
+}
+
+/// Systems on the card that can be cached, built from a prepared cart list.
+pub fn cache_catalog_from(carts: &[Cart], root: &Path) -> CacheCatalog {
+    let cached = cached_places(root);
+    let sizes = cached_set_sizes(root);
+    let mut by_platform: Vec<(Platform, Vec<CacheGame>)> = Vec::new();
+    for cart in carts {
+        if console_of(cart.platform).is_none() {
+            continue;
+        }
+        let key = cache_key(cart.platform, &cart.stem);
+        let game = CacheGame {
+            cached: cached.contains(&key),
+            size: sizes.get(&key).copied(),
+            title: cart.shown_name().into_owned(),
+            key,
+        };
+        match by_platform.iter_mut().find(|(p, _)| *p == cart.platform) {
+            Some((_, games)) => games.push(game),
+            None => by_platform.push((cart.platform, vec![game])),
+        }
+    }
+    by_platform.sort_by_key(|(p, _)| Platform::ALL.iter().position(|x| *x == *p).unwrap_or(99));
+    for (_, games) in &mut by_platform {
+        games.sort_by(|a, b| a.title.to_ascii_lowercase().cmp(&b.title.to_ascii_lowercase()).then(a.key.stem.cmp(&b.key.stem)));
+    }
+    let systems = by_platform
+        .into_iter()
+        .map(|(platform, games)| CacheSystem { platform, games })
+        .collect::<Vec<_>>();
+    let known: Vec<u64> = systems
+        .iter()
+        .flat_map(|s| s.games.iter())
+        .filter_map(|g| g.size)
+        .collect();
+    let avg_size = if known.is_empty() {
+        None
+    } else {
+        Some(known.iter().sum::<u64>() / known.len() as u64)
+    };
+    CacheCatalog { systems, avg_size }
+}
+
+/// Systems on the card that can be cached.
+pub fn cache_catalog(root: &Path) -> CacheCatalog {
+    cache_catalog_from(&slot_store::scan(root).unwrap_or_default(), root)
+}
+
+fn cached_set_sizes(root: &Path) -> std::collections::HashMap<CacheKey, u64> {
+    let mut out = std::collections::HashMap::new();
+    let dir = root.join(SETS);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.extension().is_some_and(|e| e == "list") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let list_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let json_len = path
+            .with_extension("json")
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let size = list_len + json_len;
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("where=") else {
+                continue;
+            };
+            let Some((dir_name, stem)) = rest.split_once('\t') else {
+                continue;
+            };
+            let Some(platform) = platform_from_dir(dir_name) else {
+                continue;
+            };
+            out.insert(cache_key(platform, stem), size);
+        }
+    }
+    out
+}
+
+/// A short size for the picker, such as `80 KB` or `1.2 MB`.
+pub fn format_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{} KB", (bytes + 512) / 1024)
+    } else {
+        let mb = bytes as f64 / (1024.0 * 1024.0);
+        if mb >= 10.0 {
+            format!("{mb:.0} MB")
+        } else {
+            format!("{mb:.1} MB")
+        }
+    }
+}
+
+/// Total bytes for `count` unknown items given an optional average, plus known sizes.
+/// The bool is true when some of the total was estimated.
+pub fn approx_bytes(known: &[u64], unknown: usize, avg: Option<u64>) -> Option<(u64, bool)> {
+    let sum: u64 = known.iter().sum();
+    if unknown == 0 {
+        return Some((sum, false));
+    }
+    let avg = avg.or_else(|| {
+        if known.is_empty() {
+            None
+        } else {
+            Some(sum / known.len() as u64)
+        }
+    })?;
+    Some((sum + avg * unknown as u64, true))
+}
+
+/// Size of the selected games in a catalog, when it can be estimated.
+pub fn selection_size(
+    systems: &[CacheSystem],
+    selected: &HashSet<CacheKey>,
+    avg: Option<u64>,
+) -> Option<(u64, bool)> {
+    let mut known = Vec::new();
+    let mut unknown = 0usize;
+    for sys in systems {
+        for game in &sys.games {
+            if !selected.contains(&game.key) {
+                continue;
+            }
+            match game.size {
+                Some(n) => known.push(n),
+                None => unknown += 1,
+            }
+        }
+    }
+    if known.is_empty() && unknown == 0 {
+        return Some((0, false));
+    }
+    approx_bytes(&known, unknown, avg)
+}
+
+fn load_pick_lines(root: &Path) -> Vec<PickLine> {
+    let text = std::fs::read_to_string(root.join(CACHE_PICK)).unwrap_or_default();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((dir, stem)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(platform) = platform_from_dir(dir.trim()) else {
+            continue;
+        };
+        let stem = stem.trim();
+        if stem == "*" {
+            out.push(PickLine::All(platform));
+        } else if !stem.is_empty() {
+            out.push(PickLine::Game(cache_key(platform, stem)));
+        }
+    }
+    out
+}
+
+/// The last picker selection, applied to the systems now on the card.
+pub fn load_pick(root: &Path, systems: &[CacheSystem]) -> HashSet<CacheKey> {
+    selected_from_pick(systems, &load_pick_lines(root))
+}
+
+/// Expand a saved picker file against the systems now on the card.
+pub fn selected_from_pick(systems: &[CacheSystem], lines: &[PickLine]) -> HashSet<CacheKey> {
+    let mut out = HashSet::new();
+    for line in lines {
+        match line {
+            PickLine::All(platform) => {
+                if let Some(sys) = systems.iter().find(|s| s.platform == *platform) {
+                    out.extend(sys.games.iter().map(|g| g.key.clone()));
+                }
+            }
+            PickLine::Game(key) => {
+                if systems
+                    .iter()
+                    .any(|s| s.games.iter().any(|g| g.key == *key))
+                {
+                    out.insert(key.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Remember the picker selection. A fully selected system is stored as `DIR\t*`.
+pub fn save_pick(root: &Path, systems: &[CacheSystem], selected: &HashSet<CacheKey>) {
+    let mut text = String::from("# Last Cache achievement sets selection. A star in the second column means every game on that system.\n");
+    for sys in systems {
+        let n = sys.games.len();
+        let count = sys.games.iter().filter(|g| selected.contains(&g.key)).count();
+        if count == 0 {
+            continue;
+        }
+        if n > 0 && count == n {
+            text.push_str(&format!("{}\t*\n", sys.platform.dir_name()));
+        } else {
+            for game in &sys.games {
+                if selected.contains(&game.key) {
+                    text.push_str(&format!(
+                        "{}\t{}\n",
+                        game.key.platform.dir_name(),
+                        game.key.stem
+                    ));
+                }
+            }
+        }
+    }
+    let path = root.join(CACHE_PICK);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = slot_store::atomic_write(&path, text.as_bytes());
+}
+
+/// Carts matching `keys`, in that order, that are still in `carts`.
+pub fn carts_for_keys(carts: &[Cart], keys: &[CacheKey]) -> Vec<Cart> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for key in keys {
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if let Some(cart) = carts
+            .iter()
+            .find(|c| c.platform == key.platform && c.stem == key.stem)
+        {
+            out.push(cart.clone());
+        }
+    }
+    out
+}
+
+
 fn cache_gate() -> &'static Mutex<Gate> {
     static GATE: OnceLock<Mutex<Gate>> = OnceLock::new();
     GATE.get_or_init(|| {
@@ -1259,8 +1534,34 @@ fn cache_line() -> &'static Mutex<Option<String>> {
     LINE.get_or_init(|| Mutex::new(None))
 }
 
-/// Latest "Caching 3/12: Sonic" line, if a cache pass is running.
+fn cache_result() -> &'static Mutex<Option<(usize, usize, usize)>> {
+    static RESULT: OnceLock<Mutex<Option<(usize, usize, usize)>>> = OnceLock::new();
+    RESULT.get_or_init(|| Mutex::new(None))
+}
+
+/// Counts from the cache pass that just finished, if any, then clears them.
+pub fn take_cache_result() -> Option<(usize, usize, usize)> {
+    cache_result().lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+/// Test-only: pretend a cache pass is running (or has just finished).
+#[cfg(test)]
+pub fn test_set_cache_state(
+    line: Option<&str>,
+    running: bool,
+    result: Option<(usize, usize, usize)>,
+) {
+    cache_gate().lock().unwrap_or_else(|e| e.into_inner()).running = running;
+    *cache_line().lock().unwrap_or_else(|e| e.into_inner()) = line.map(str::to_string);
+    *cache_result().lock().unwrap_or_else(|e| e.into_inner()) = result;
+}
+
+
+/// Latest "Caching 3/12: Sonic" line, only while a cache pass is actually running.
+/// A cancelled or finished pass does not leave a stale line on the screen.
 pub fn cache_status() -> Option<String> {
+    if !cache_busy() {
+        return None;
+    }
     cache_line()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1316,6 +1617,7 @@ pub fn poke_cache(root: &Path, user: &str, token: &str) {
         user.to_string(),
         token.to_string(),
         false,
+        None,
     );
 }
 
@@ -1376,14 +1678,26 @@ pub struct CacheRun {
 }
 
 impl CacheRun {
-    /// HOME → Online → RetroAchievements → CACHE ACHIEVEMENT SETS: favorites,
-    /// the last `RECENT_SET_CACHE` played games, and anything still queued.
-    /// Already cached sets are skipped, so a cancelled pass can be resumed.
+    /// Background / default pass: favorites, the last `RECENT_SET_CACHE` played
+    /// games, and anything still queued. Already cached sets are skipped, so a
+    /// cancelled pass can be resumed.
     pub fn start(root: PathBuf, user: String, token: String) -> Self {
-        Self::begin(root, user, token, true)
+        Self::begin(root, user, token, true, None)
     }
 
-    fn begin(root: PathBuf, user: String, token: String, retry_misses: bool) -> Self {
+    /// Cache only these games (the picker's Cache selected button).
+    /// Already cached sets are skipped. Earlier misses are tried again.
+    pub fn start_keys(root: PathBuf, user: String, token: String, keys: Vec<CacheKey>) -> Self {
+        Self::begin(root, user, token, true, Some(keys))
+    }
+
+    fn begin(
+        root: PathBuf,
+        user: String,
+        token: String,
+        retry_misses: bool,
+        explicit: Option<Vec<CacheKey>>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         if !try_begin_cache() {
@@ -1398,10 +1712,21 @@ impl CacheRun {
         let spawned = std::thread::Builder::new()
             .name("slot-ra-cache".into())
             .spawn(move || {
+                struct CacheGuard;
+                impl Drop for CacheGuard {
+                    fn drop(&mut self) {
+                        end_cache();
+                    }
+                }
+                let _guard = CacheGuard;
                 let carts = slot_store::scan(&root).unwrap_or_default();
                 let library = Library::read(&root);
                 let queued = cache_queue(&root);
-                let mut targets = cache_targets(&carts, &library, &queued);
+                let mut targets = if let Some(keys) = explicit {
+                    carts_for_keys(&carts, &keys)
+                } else {
+                    cache_targets(&carts, &library, &queued)
+                };
                 let cached_already = cached_places(&root);
                 let misses = if retry_misses {
                     HashSet::new()
@@ -1467,6 +1792,8 @@ impl CacheRun {
                     missed,
                     failed,
                 });
+                *cache_result().lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some((cached, missed, failed));
                 if cached > 0 {
                     let note = if cached == 1 {
                         "Cached 1 achievement set".into()
@@ -1475,7 +1802,6 @@ impl CacheRun {
                     };
                     *notes().lock().unwrap_or_else(|e| e.into_inner()) = Some(note);
                 }
-                end_cache();
             });
         if spawned.is_err() {
             end_cache();
@@ -1910,4 +2236,115 @@ mod tests {
         assert_eq!(recent[0], "N29");
         assert_eq!(recent[19], "N10");
     }
+
+    #[test]
+    fn cache_catalog_groups_systems_and_skips_those_without_retroachievements() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let carts = vec![
+            test_cart(Platform::Snes, "Yoshi"),
+            test_cart(Platform::Snes, "Mario"),
+            test_cart(Platform::Gb, "Tetris"),
+            test_cart(Platform::Gw, "Ball"),
+            test_cart(Platform::A800, "Star Raiders"),
+        ];
+        let sets = root.join("Config/Achievements/sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        std::fs::write(sets.join("abc.json"), b"{\"id\":1}").unwrap();
+        std::fs::write(
+            sets.join("abc.list"),
+            "game=Mario\nid=1\nwhere=SNES\tMario\n",
+        )
+        .unwrap();
+        let cat = cache_catalog_from(&carts, root);
+        let dirs: Vec<_> = cat.systems.iter().map(|s| s.platform.dir_name()).collect();
+        assert_eq!(dirs, ["GB", "SNES"]);
+        let snes = cat.systems.iter().find(|s| s.platform == Platform::Snes).unwrap();
+        assert_eq!(
+            snes.games.iter().map(|g| g.key.stem.as_str()).collect::<Vec<_>>(),
+            ["Mario", "Yoshi"]
+        );
+        assert!(snes.games[0].cached);
+        assert!(snes.games[0].size.is_some());
+        assert!(!snes.games[1].cached);
+        assert!(cat.avg_size.is_some());
+    }
+
+    #[test]
+    fn a_saved_picker_selection_round_trips_and_a_star_covers_new_games() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let carts = vec![
+            test_cart(Platform::Snes, "Mario"),
+            test_cart(Platform::Snes, "Yoshi"),
+            test_cart(Platform::Gb, "Tetris"),
+            test_cart(Platform::Gb, "Kirby"),
+            test_cart(Platform::Nes, "Zelda"),
+        ];
+        let cat = cache_catalog_from(&carts, root);
+        let mut selected = HashSet::new();
+        for game in &cat.systems.iter().find(|s| s.platform == Platform::Snes).unwrap().games {
+            selected.insert(game.key.clone());
+        }
+        selected.insert(cache_key(Platform::Gb, "Tetris"));
+        save_pick(root, &cat.systems, &selected);
+        let text = std::fs::read_to_string(root.join("Config/Achievements/cache-pick.txt")).unwrap();
+        assert!(text.contains("SNES\t*"), "{text}");
+        assert!(text.contains("GB\tTetris"), "{text}");
+        assert!(!text.lines().any(|l| l.starts_with("NES\t")), "{text}");
+
+        let carts2 = vec![
+            test_cart(Platform::Snes, "Mario"),
+            test_cart(Platform::Snes, "Yoshi"),
+            test_cart(Platform::Snes, "Star Fox"),
+            test_cart(Platform::Gb, "Tetris"),
+        ];
+        let cat2 = cache_catalog_from(&carts2, root);
+        let loaded = load_pick(root, &cat2.systems);
+        assert!(loaded.contains(&cache_key(Platform::Snes, "Star Fox")));
+        assert!(loaded.contains(&cache_key(Platform::Snes, "Mario")));
+        assert!(loaded.contains(&cache_key(Platform::Gb, "Tetris")));
+        assert_eq!(loaded.len(), 4);
+    }
+
+    #[test]
+    fn format_and_approx_bytes_show_known_and_estimated_sizes() {
+        assert_eq!(format_bytes(800), "800 B");
+        assert_eq!(format_bytes(2048), "2 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(approx_bytes(&[100, 300], 0, None), Some((400, false)));
+        assert_eq!(approx_bytes(&[100, 300], 2, None), Some((400 + 200 * 2, true)));
+        assert_eq!(approx_bytes(&[], 3, Some(50)), Some((150, true)));
+        assert_eq!(approx_bytes(&[], 3, None), None);
+        let carts = vec![test_cart(Platform::Gb, "A"), test_cart(Platform::Gb, "B")];
+        let dir = tempfile::tempdir().unwrap();
+        let cat = cache_catalog_from(&carts, dir.path());
+        let mut selected = HashSet::new();
+        selected.insert(cache_key(Platform::Gb, "A"));
+        assert_eq!(selection_size(&cat.systems, &selected, None), None);
+        assert_eq!(
+            selection_size(&cat.systems, &selected, Some(80)),
+            Some((80, true))
+        );
+    }
+
+    #[test]
+    fn carts_for_keys_keeps_order_and_drops_missing_games() {
+        let carts = vec![
+            test_cart(Platform::Snes, "Mario"),
+            test_cart(Platform::Gb, "Tetris"),
+        ];
+        let keys = vec![
+            cache_key(Platform::Gb, "Tetris"),
+            cache_key(Platform::Nes, "Gone"),
+            cache_key(Platform::Snes, "Mario"),
+            cache_key(Platform::Gb, "Tetris"),
+        ];
+        let got = carts_for_keys(&carts, &keys);
+        assert_eq!(
+            got.iter().map(|c| c.stem.as_str()).collect::<Vec<_>>(),
+            ["Tetris", "Mario"]
+        );
+    }
+
 }

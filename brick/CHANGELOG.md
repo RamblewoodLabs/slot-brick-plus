@@ -1,6 +1,7 @@
 # Changelog — Slot. for TrimUI Brick
 
 ## Unreleased
+- HOME → Online → RetroAchievements → Cache achievement sets now opens a list of systems on the card so you can choose which games to cache (Select all / None, or press Right on a system to pick individual games), then Cache selected. The last choice is remembered. Caching keeps going if you leave the screen: coming back shows live progress, and a short toast appears when it finishes. Starring or starting a game still queues its set in the background, as do favorites and the last 20 games you played.
 - The Slot OS boot logo now reads "slotted": the original pixel "slot" letters with a red graffiti "ted" tagged onto them.
 - HOME → Apps → GrainBrick no longer closes straight away on Slot OS: GrainBrick's NumPy needs zlib (`libz.so.1`), which Slot OS does not have, so the Python runtime now carries one in `Slot/Apps/python/lib/compat`.
 - The Anbernic RG280V port (a separate OpenDingux build called Slotted; the Brick and SP cards are unchanged) now cross-compiles the shelf, letterboxed at 320×240, hides the N64, DS and PSP shelves, and can start the 21 shipped systems through standalone emulators already on an Adam card.
