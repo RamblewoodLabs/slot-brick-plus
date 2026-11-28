@@ -9,7 +9,11 @@ use slot::input::BrickInput;
 use slot::input::DeviceInput;
 #[cfg(feature = "sim")]
 use slot::input::SimInput as BrickInput;
-use slot_gfx::{Compositor, FbdevSurface, Surface};
+use slot_gfx::{Compositor, Surface};
+#[cfg(not(feature = "rg280v"))]
+use slot_gfx::FbdevSurface;
+#[cfg(feature = "rg280v")]
+use slot_gfx::SdlSurface;
 use slot_power::trace_first_frame;
 #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
 use slot_power::BrickPlatform;
@@ -174,9 +178,19 @@ fn sim_sleep(
 
 pub fn run() {
     boot_time("started");
-    let root = std::env::var_os("SLOT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(CARD));
+    let root = if cfg!(feature = "rg280v") {
+        slot::rg280v::find_root()
+    } else {
+        std::env::var_os("SLOT_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(CARD))
+    };
+    #[cfg(feature = "rg280v")]
+    {
+        eprintln!("slotted: library {}", root.display());
+        slot::rg280v::apply_orientation(&root);
+        slot::root::ensure(&root);
+    }
     // An update that a power cut stopped halfway is finished before anything else, and one
     // stopped before its swap began is cleared away.
     #[cfg(feature = "brick")]
@@ -206,7 +220,9 @@ pub fn run() {
     wait_for_gpu();
     #[cfg(feature = "sim")]
     let surface = FbdevSurface::offscreen(slot::sim::panel());
-    #[cfg(not(feature = "sim"))]
+    #[cfg(all(not(feature = "sim"), feature = "rg280v"))]
+    let surface = SdlSurface::new();
+    #[cfg(all(not(feature = "sim"), not(feature = "rg280v")))]
     let surface = FbdevSurface::new();
     let mut surface = match surface {
         Ok(s) => s,
@@ -291,6 +307,38 @@ pub fn run() {
         }
         let began = Instant::now();
         frontend.advance(&mut input);
+        #[cfg(feature = "rg280v")]
+        if let Some(mut cmd) = frontend.take_external_launch() {
+            drop(compositor);
+            drop(surface);
+            cmd.env("SLOT_ROOT", &root);
+            eprintln!("slotted: starting {cmd:?}");
+            match cmd.status() {
+                Ok(st) => eprintln!("slotted: emulator exited {st}"),
+                Err(e) => eprintln!("slotted: emulator: {e}"),
+            }
+            let surface_again = match SdlSurface::new() {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("slot: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let mut compositor_again = match Compositor::new(&surface_again) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("slot: {e}");
+                    std::process::exit(1);
+                }
+            };
+            frontend.upload_shelf_faces(&mut compositor_again);
+            frontend.upload_bezel(&mut compositor_again, surface_again.window_size());
+            frontend.upload_menu_faces(&mut compositor_again);
+            frontend.finish_external_launch();
+            compositor = compositor_again;
+            surface = surface_again;
+            continue;
+        }
         #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
         if input.exit_requested() {
             cpu.restore();

@@ -101,7 +101,7 @@ fn depth(platform: Platform) -> f32 {
 /// to the slot, so nothing turns while it goes down.
 pub fn spin_faces(platform: Platform, face: &CartFace) -> TurnFaces {
     let n = SPIN_FRAMES;
-    let frames = (0..n)
+    let mut frames: Vec<TurnFace> = (0..n)
         .map(|i| {
             let s = ease(i as f32 / (n - 1) as f32);
             let lift = (face.h as f32 * 0.05 * (std::f32::consts::PI * s).sin()).round() as i32;
@@ -114,6 +114,7 @@ pub fn spin_faces(platform: Platform, face: &CartFace) -> TurnFaces {
             f
         })
         .collect();
+    shrink_frames(&mut frames);
     TurnFaces {
         frames,
         seated: None,
@@ -196,6 +197,7 @@ fn cart_turn(face: &CartFace, s: f32, depth: f32) -> TurnFace {
             },
             x: 0,
             y: 0,
+            dest_scale: 1,
         };
     }
     let cx = (l + r) / 2.0;
@@ -281,6 +283,7 @@ fn cart_turn(face: &CartFace, s: f32, depth: f32) -> TurnFace {
         },
         x: -pad,
         y: 0,
+        dest_scale: 1,
     }
 }
 
@@ -306,6 +309,7 @@ fn disc_turn(face: &CartFace, s: f32) -> TurnFace {
         },
         x: 0,
         y: 0,
+        dest_scale: 1,
     }
 }
 
@@ -331,7 +335,7 @@ pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
         return None;
     }
     let n = sw / w;
-    let frames: Vec<TurnFace> = (0..n)
+    let mut frames: Vec<TurnFace> = (0..n)
         .map(|i| {
             let mut px = Vec::with_capacity((w * h * 4) as usize);
             for y in 0..h {
@@ -342,6 +346,7 @@ pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
                 face: CartFace { rgba: px, w, h },
                 x: 0,
                 y: 0,
+                dest_scale: 1,
             }
         })
         .collect();
@@ -350,6 +355,7 @@ pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
         w,
         h,
     });
+    shrink_frames(&mut frames);
     Some(TurnFaces { frames, seated })
 }
 
@@ -373,6 +379,8 @@ pub struct TurnFace {
     pub face: CartFace,
     pub x: i32,
     pub y: i32,
+    /// Dest size is `face` size times this (2 when rgba was stored at half res).
+    pub dest_scale: u32,
 }
 
 /// Every frame of `cart`'s turn, with `art` (the fitted label, as the shelf face uses) on it.
@@ -407,8 +415,10 @@ pub fn faces(cart: &Cart, art: Option<Vec<u8>>) -> Option<TurnFaces> {
             face,
             x: f.x,
             y: f.y,
+            dest_scale: 1,
         });
     }
+    shrink_frames(&mut frames);
     let seated = if turn.flip {
         frames.last().map(|last| crop(last, shell.w, shell.h))
     } else {
@@ -522,6 +532,43 @@ fn crop(last: &TurnFace, w: u32, h: u32) -> CartFace {
         }
     }
     CartFace { rgba, w, h }
+}
+
+
+/// On the RG280V the 640×480 layout is shown at 1/2, and only one cart's frames
+/// are resident. Storing those frames at half resolution (drawn at 2×) cuts the
+/// decoded cache to about a quarter, which is the budget we want on 512 MB.
+fn shrink_frames(frames: &mut [TurnFace]) {
+    if !cfg!(feature = "rg280v") {
+        return;
+    }
+    for f in frames {
+        if f.dest_scale != 1 || f.face.w < 2 || f.face.h < 2 {
+            continue;
+        }
+        let (nw, nh) = (f.face.w / 2, f.face.h / 2);
+        if nw == 0 || nh == 0 {
+            continue;
+        }
+        f.face.rgba = half_nearest(&f.face.rgba, f.face.w, f.face.h, nw, nh);
+        f.face.w = nw;
+        f.face.h = nh;
+        f.dest_scale = 2;
+    }
+}
+
+fn half_nearest(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    for y in 0..dh {
+        let sy = (y * sh / dh).min(sh - 1);
+        for x in 0..dw {
+            let sx = (x * sw / dw).min(sw - 1);
+            let si = ((sy * sw + sx) * 4) as usize;
+            let di = ((y * dw + x) * 4) as usize;
+            out[di..di + 4].copy_from_slice(&src[si..si + 4]);
+        }
+    }
+    out
 }
 
 pub(crate) fn decode8(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {

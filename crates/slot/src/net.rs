@@ -114,6 +114,13 @@ pub fn send(req: &Request) -> Result<Response, String> {
     }
     let cap = req.limit as u64 + 64 * 1024;
     let raw = if req.tls {
+        #[cfg(not(feature = "network"))]
+        {
+            let _ = (tcp, text, cap);
+            return Err("no network on this device".into());
+        }
+        #[cfg(feature = "network")]
+        {
         let name = rustls::pki_types::ServerName::try_from(host.to_string())
             .map_err(|_| format!("bad host name {host}"))?;
         let conn = rustls::ClientConnection::new(tls_config(), name).map_err(|e| e.to_string())?;
@@ -123,6 +130,7 @@ pub fn send(req: &Request) -> Result<Response, String> {
             .write_all(text.as_bytes())
             .map_err(|e| tls_error(&e))?;
         read_all(stream, cap).map_err(|e| tls_error(&e))?
+        }
     } else {
         let mut tcp = tcp;
         tcp.write_all(text.as_bytes())
@@ -528,6 +536,13 @@ fn open_get(
         agent.unwrap_or(&user_agent())
     );
     let mut stream: Box<dyn Read + Send> = if tls {
+        #[cfg(not(feature = "network"))]
+        {
+            let _ = (tcp, text);
+            return Err("no network on this device".into());
+        }
+        #[cfg(feature = "network")]
+        {
         let name = rustls::pki_types::ServerName::try_from(host.to_string())
             .map_err(|_| format!("bad host name {host}"))?;
         let conn = rustls::ClientConnection::new(tls_config(), name).map_err(|e| e.to_string())?;
@@ -535,7 +550,8 @@ fn open_get(
         stream
             .write_all(text.as_bytes())
             .map_err(|e| tls_error(&e))?;
-        Box::new(stream)
+        Box::new(stream) as Box<dyn Read + Send>
+        }
     } else {
         let mut tcp = tcp;
         tcp.write_all(text.as_bytes())
@@ -656,6 +672,7 @@ fn tls_error(e: &std::io::Error) -> String {
     format!("secure connection failed: {text}")
 }
 
+#[cfg(feature = "network")]
 fn tls_config() -> Arc<rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     CONFIG

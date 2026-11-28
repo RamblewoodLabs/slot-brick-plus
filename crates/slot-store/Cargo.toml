@@ -15,3 +15,8 @@ sevenz-rust2.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 sevenz-rust2 = { workspace = true, features = ["compress"] }
+
+[features]
+# Hide N64/DS/PSP shelves and skip their assets in dependents.
+rg280v = []
+

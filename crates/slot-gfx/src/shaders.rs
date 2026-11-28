@@ -5,8 +5,16 @@ const VERT_PREAMBLE: &str = "#version 330 core\n#define attribute in\n#define va
 const FRAG_PREAMBLE: &str = "#version 330 core\n#define varying in\n\
                              #define texture2D texture\nout vec4 FRAG_COLOR;\n";
 
-const VERT_PREAMBLE_ES: &str = "";
-const FRAG_PREAMBLE_ES: &str = "#define FRAG_COLOR gl_FragColor\n";
+const VERT_PREAMBLE_ES: &str = if cfg!(feature = "rg280v") {
+    "#version 100\n"
+} else {
+    ""
+};
+const FRAG_PREAMBLE_ES: &str = if cfg!(feature = "rg280v") {
+    "#version 100\nprecision mediump float;\n#define FRAG_COLOR gl_FragColor\n"
+} else {
+    "#define FRAG_COLOR gl_FragColor\n"
+};
 
 pub fn program(vert: &str, frag: &str) -> Result<gl::types::GLuint, GfxError> {
     let (vp, fp) = match crate::gl::es() {
@@ -135,6 +143,26 @@ uniform vec4 u_uv;
 varying vec2 v_uv;
 void main() {
     v_uv = u_uv.xy + a_pos * u_uv.zw;
+    gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0);
+}
+"#;
+
+/// a_pos stays the viewport quad; u_rot is 0, 1, 2 or 3 quarter-turns clockwise.
+pub const BLIT_VERT_ROT: &str = r#"
+attribute vec2 a_pos;
+uniform vec4 u_uv;
+uniform float u_rot;
+varying vec2 v_uv;
+void main() {
+    vec2 p = a_pos;
+    if (u_rot > 2.5) {
+        p = vec2(1.0 - p.y, p.x);
+    } else if (u_rot > 1.5) {
+        p = vec2(1.0 - p.x, 1.0 - p.y);
+    } else if (u_rot > 0.5) {
+        p = vec2(p.y, 1.0 - p.x);
+    }
+    v_uv = u_uv.xy + p * u_uv.zw;
     gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0);
 }
 "#;

@@ -1,0 +1,5 @@
+# Nightly is required for -Z build-std on the Tier 3 gcw0 target.
+# The repository root rust-toolchain.toml stays on 1.96 for Brick and SP.
+[toolchain]
+channel = "nightly-2026-11-25"
+components = ["rust-src"]
