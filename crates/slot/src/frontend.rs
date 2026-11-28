@@ -77,7 +77,6 @@ pub struct Frontend {
     #[cfg(feature = "brick")]
     wifi_tex: Option<TexId>,
     banner_tex: Option<TexId>,
-    pip_tex: Option<TexId>,
     #[cfg(feature = "brick")]
     auto_sleep: bool,
     #[cfg(feature = "brick")]
@@ -404,7 +403,6 @@ impl Frontend {
             #[cfg(feature = "brick")]
             wifi_tex: None,
             banner_tex: None,
-            pip_tex: None,
             #[cfg(feature = "brick")]
             auto_sleep: !platform_root_has(&session_root, "DISABLE_AUTO_SLEEP"),
             #[cfg(feature = "brick")]
@@ -764,7 +762,6 @@ impl Frontend {
     #[cfg(feature = "brick")]
     pub fn needs_render(&self)->bool {
         if self.app().wifi.as_ref().map(|w|w.dirty).unwrap_or(false) {return true}
-        if self.app().sheet_dirty() {return true}
         if self.app().banner_active() {return true}
         if self.render_effects()!=self.rendered_effects {return true}
         if self.rebuild.is_some() || !matches!(self.app().phase(),Phase::Shelf|Phase::QuickMenu{..}) || self.last_input.elapsed()<Duration::from_secs(2) || self.last_render.elapsed()>=Duration::from_secs(1) {return true}
@@ -817,14 +814,6 @@ impl Frontend {
                 let tex=match self.wifi_tex {Some(id)=>{compositor.update_texture(id,f.w,f.h,&f.rgba);id},None=>compositor.create_texture(f.w,f.h,&f.rgba)};
                 self.wifi_tex=Some(tex);wifi.face=Some(tex);wifi.dirty=false;
             }
-        }
-        if let Some(face) = self.session.app_mut().pip_render() {
-            let tex = match self.pip_tex {
-                Some(id) => { compositor.update_texture(id, face.w, face.h, &face.rgba); id }
-                None => compositor.create_texture(face.w, face.h, &face.rgba),
-            };
-            self.pip_tex = Some(tex);
-            self.session.app_mut().set_pip_face(tex);
         }
         if let Some((id, title, detail, badge, burst)) = self.session.app().banner_to_render() {
             let px = slot_ui::BADGE_PX;

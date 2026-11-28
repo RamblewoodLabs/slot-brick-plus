@@ -2,7 +2,6 @@ pub mod archive;
 mod arcade_names;
 mod atomic;
 pub mod cart_shell;
-mod companion;
 mod config;
 mod core;
 pub mod gb;
@@ -33,7 +32,6 @@ pub use core::{
 pub use gb_palette::GbPalette;
 pub use gba::{header_clean, header_code, header_title, header_title_code};
 pub use overlay::{overlay_name_ok, overlays, overlays_dir, step_overlay, OVERLAYS_DIR};
-pub use companion::{Companion, GameSeen, Mission, MissionKind, Mood, FILE as COMPANION_FILE};
 pub use library::{arrange, arrange_favorites, arrange_view, played_text, view_shows, FavoritesSort, GameRecord, Library, LibrarySort, ShelfView, LIBRARY_FILE, RANKED_MAX};
 pub use rankings::{rank, rank_key, Rank};
 pub use shelf_kind::ShelfKind;

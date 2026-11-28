@@ -507,8 +507,6 @@ pub struct App {
     library: slot_store::Library,
     library_dirty: bool,
     library_saved_at: Millis,
-    companion: slot_store::Companion,
-    pip: Option<crate::pip::PipMenu>,
     /// Play time being counted: the last tick seen while playing, and what is not a second yet.
     play_tick: Option<Millis>,
     play_ms: Millis,
@@ -720,8 +718,6 @@ impl App {
             library: slot_store::Library::default(),
             library_dirty: false,
             library_saved_at: 0,
-            companion: slot_store::Companion::default(),
-            pip: None,
             play_tick: None,
             play_ms: 0,
             played: slot_ui::Printed::default(),
@@ -843,7 +839,6 @@ impl App {
         crate::boot_times::mark("  model and LEDs");
         app.state = read_slot_state(root);
         app.library = slot_store::Library::read(root);
-        app.companion = slot_store::Companion::read(root);
         crate::boot_times::mark("  state and library read");
         app.arrange();
         // At startup, each shelf starts at the top of its order.
@@ -1195,10 +1190,7 @@ impl App {
     fn count_play_time(&mut self) {
         let now = self.now();
         let Phase::Playing { cart } = &self.phase else {
-            if self.play_tick.take().is_some() {
-                self.companion.settle();
-                self.save_companion();
-            }
+            self.play_tick = None;
             return;
         };
         if let Some(tick) = self.play_tick {
@@ -1215,87 +1207,12 @@ impl App {
             let secs = self.play_ms / 1_000;
             self.play_ms %= 1_000;
             let cart = cart.clone();
-            let games = self.games_seen();
             self.library.get_mut(platform, &cart).played_secs += secs;
             self.library_dirty = true;
-            if slot_ui::PIP && self.companion.enabled {
-                let awards =
-                    self.companion
-                        .note_play(platform, &cart, secs, self.local_day(), &games);
-                if self.companion.toasts {
-                    for award in &awards {
-                        self.announce(&award.title, &award.detail);
-                    }
-                }
-                if !awards.is_empty() || self.library.get(platform, &cart).played_secs % 10 == 0 {
-                    self.save_companion();
-                }
-            }
         }
         if self.library_dirty && now.saturating_sub(self.library_saved_at) >= 60_000 {
             self.save_library();
         }
-    }
-
-    fn local_day(&self) -> i64 {
-        self.wall_secs().div_euclid(86_400)
-    }
-
-    fn games_seen(&self) -> Vec<slot_store::GameSeen> {
-        let mut games: Vec<slot_store::GameSeen> = self
-            .all_carts
-            .iter()
-            .map(|cart| {
-                let record = self.library.get(cart.platform, &cart.stem);
-                slot_store::GameSeen {
-                    platform: cart.platform,
-                    stem: cart.stem.clone(),
-                    played_secs: record.played_secs,
-                    last_played: record.last_played,
-                }
-            })
-            .collect();
-        for (platform, stem, record) in self.library.records() {
-            if games
-                .iter()
-                .any(|g| g.platform == platform && g.stem == stem)
-            {
-                continue;
-            }
-            games.push(slot_store::GameSeen {
-                platform,
-                stem: stem.to_string(),
-                played_secs: record.played_secs,
-                last_played: record.last_played,
-            });
-        }
-        games
-    }
-
-    fn save_companion(&mut self) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let games = self.games_seen();
-        let favs: Vec<(slot_store::Platform, String)> = self
-            .library
-            .records()
-            .filter(|(_, _, record)| record.favorite)
-            .map(|(platform, stem, _)| (platform, stem.to_string()))
-            .collect();
-        let fav_refs: Vec<(slot_store::Platform, &str)> = favs
-            .iter()
-            .map(|(platform, stem)| (*platform, stem.as_str()))
-            .collect();
-        self.companion.stamp(self.local_day(), &games, &fav_refs);
-        let pip = self.companion.clone();
-        let _ = std::thread::Builder::new()
-            .name("slot-pip".into())
-            .spawn(move || {
-                if let Err(e) = pip.write(&root) {
-                    eprintln!("slot: companion: {e}");
-                }
-            });
     }
 
     /// The selected game's play time, as the footer prints it beside the battery.
@@ -1765,8 +1682,7 @@ impl App {
                 .shelf_of()
                 .map(|p| QuickValue::flag(self.state.shows(p))),
             QuickRow::ResetSettings => self.reset_asked,
-            QuickRow::Companion
-            | QuickRow::GbOverlay
+            QuickRow::GbOverlay
             | QuickRow::GbcOverlay
             | QuickRow::GbaOverlay
             | QuickRow::NesOverlay
@@ -2821,9 +2737,6 @@ impl App {
             }
             return;
         }
-        if self.pip.is_some() {
-            return self.sheet_input(action);
-        }
         if let Phase::SetClock {
             picker, from_menu, ..
         } = &mut self.phase
@@ -2904,11 +2817,6 @@ impl App {
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 Action::GbaDown(Btn::Y) => self.toggle_favorite(),
-                Action::GbaDown(Btn::X) => {
-                    if self.open_pip() && self.companion.sounds {
-                        self.menu_sound(MenuSound::Open);
-                    }
-                }
                 Action::GbaDown(Btn::Select) => self.cycle_sort(),
                 _ => {}
             },
@@ -2984,9 +2892,9 @@ impl App {
     /// Where the HOME menu is: the screen, the row, and whether an overlay (Wi-Fi) is open.
     fn menu_place(&self) -> (std::mem::Discriminant<Phase>, Option<QuickRow>, bool) {
         #[cfg(feature = "brick")]
-        let overlay = self.wifi.is_some() || self.pip.is_some();
+        let overlay = self.wifi.is_some();
         #[cfg(not(feature = "brick"))]
-        let overlay = self.pip.is_some();
+        let overlay = false;
         (
             std::mem::discriminant(&self.phase),
             self.quick_menu(),
@@ -3041,108 +2949,8 @@ impl App {
         self.phase = Phase::QuickMenu { row };
     }
 
-    fn sheet_input(&mut self, action: Action) {
-        if self.pip.is_some() {
-            let mut menu = self.pip.take().expect("pip");
-            let games = self.games_seen();
-            let day = self.local_day();
-            let done_before = self.companion.history.len();
-            let close = menu.input(action, &mut self.companion, &games, day);
-            if self.companion.sounds && self.companion.history.len() > done_before {
-                self.menu_sound(MenuSound::Change);
-            }
-            let launch = menu.take_launch();
-            if !close && launch.is_none() {
-                self.pip = Some(menu);
-            } else {
-                self.save_companion();
-                if close && launch.is_none() && matches!(self.phase, Phase::QuickMenu { .. }) {
-                    self.menu_sound(MenuSound::Back);
-                }
-            }
-            if let Some(launch) = launch {
-                self.launch_pip(launch.platform, launch.stem);
-            }
-            return;
-        }
-    }
-
-    fn open_pip(&mut self) -> bool {
-        if !slot_ui::PIP {
-            return false;
-        }
-        let games = self.games_seen();
-        self.companion.ensure_missions(&games, self.local_day());
-        self.companion.refresh_suggestion(&games, self.local_day());
-        self.pip = Some(crate::pip::PipMenu::open());
-        true
-    }
-
-    fn launch_pip(&mut self, platform: Platform, stem: String) {
-        self.phase = Phase::Shelf;
-        if !self.focus_game(platform, &stem) {
-            self.announce("Pip", "That game is not on a shelf");
-            return;
-        }
-        self.play(false);
-    }
-
-    fn focus_game(&mut self, platform: Platform, stem: &str) -> bool {
-        let Some((at, index)) = self.seat_of(stem, Some(platform)) else {
-            return false;
-        };
-        self.shelf_at = at;
-        self.shelves[at].1.select(index);
-        true
-    }
-
-    pub fn pip_open(&self) -> bool {
-        self.pip.is_some()
-    }
-    pub fn pip_game(&self) -> Option<String> {
-        self.pip
-            .as_ref()
-            .and_then(|menu| menu.game(&self.companion))
-    }
-    pub fn companion_xp(&self) -> u32 {
-        self.companion.xp
-    }
-
-    pub fn sheet_dirty(&self) -> bool {
-        self.pip.as_ref().is_some_and(|menu| menu.dirty)
-    }
-
-    pub fn pip_render(&mut self) -> Option<slot_ui::UndoFace> {
-        let frame = self.now() / 160;
-        let animate = self.companion.animate;
-        if self
-            .pip
-            .as_ref()
-            .is_none_or(|menu| !menu.needs_frame(frame, animate))
-        {
-            return None;
-        }
-        let snapshot = self.companion.clone();
-        let games = self.games_seen();
-        let day = self.local_day();
-        let hour = (self.wall_secs().rem_euclid(86_400) / 3_600) as u32;
-        let menu = self.pip.as_mut()?;
-        let face = menu.render(&snapshot, day, hour, &games, frame);
-        menu.mark_drawn(frame);
-        Some(face)
-    }
-
-    pub fn set_pip_face(&mut self, tex: TexId) {
-        if let Some(menu) = &mut self.pip {
-            menu.face = Some(tex);
-        }
-    }
-
     fn open_quick_row(&mut self, row: QuickRow) {
         match row {
-            QuickRow::Companion => {
-                self.open_pip();
-            }
             QuickRow::Wifi => {
                 #[cfg(feature = "brick")]
                 {
@@ -3571,8 +3379,7 @@ impl App {
                     self.clock_sync_at = 0;
                 }
             }
-            QuickRow::Companion
-            | QuickRow::GbOverlay
+            QuickRow::GbOverlay
             | QuickRow::GbcOverlay
             | QuickRow::GbaOverlay
             | QuickRow::NesOverlay
@@ -4577,7 +4384,6 @@ impl App {
                 points,
                 ..
             } => {
-                self.companion.note_cheer();
                 self.push_banner(
                     &title,
                     &format!("{points} pts - {description}"),
@@ -4586,7 +4392,6 @@ impl App {
                 )
             }
             Notice::GameCompleted { title, .. } => {
-                self.companion.note_cheer();
                 self.push_banner("Every achievement earned", &title, badge, true)
             }
             Notice::LeaderboardStarted { title, .. } => {
@@ -4653,20 +4458,6 @@ impl App {
         });
     }
 
-    fn draw_sheet(&self, out: &mut Vec<Draw>) {
-        let Some(tex) = self.pip.as_ref().and_then(|menu| menu.face) else {
-            return;
-        };
-        out.push(Draw::Tex {
-            x: 0.0,
-            y: 0.0,
-            w: OUT_W as f32,
-            h: OUT_H as f32,
-            tex,
-            alpha: 1.0,
-        });
-    }
-
     fn draw_scene(&self, out: &mut Vec<Draw>) {
         if let Some(index) = self.power_menu {
             draw_menu_screen(&self.power_menu_faces, index, out);
@@ -4710,10 +4501,6 @@ impl App {
                 });
                 return;
             }
-        }
-        if self.pip.is_some() {
-            self.draw_sheet(out);
-            return;
         }
         match &self.phase {
             Phase::SetClock {
@@ -5549,9 +5336,6 @@ impl App {
         {
             self.wifi = None;
         }
-        self.pip = None;
-        self.companion.settle();
-        self.save_companion();
         if self.link_active() {
             self.end_link();
         }

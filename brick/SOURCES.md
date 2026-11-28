@@ -20,7 +20,7 @@
 - Zipped games: sevenz-rust2 0.24.1 (https://github.com/hasenbanck/sevenz-rust, Apache-2.0, a fork of https://github.com/dyz1990/sevenz-rust) reads .7z ROMs, with lzma-rust2 0.23.0 (https://github.com/hasenbanck/lzma-rust2, Apache-2.0) for LZMA and LZMA2. Both are pure Rust, built with default features off (no encryption, encoders or C codecs), and pinned by Cargo.lock. Their licence ships as `Slot/System/licenses/sevenz-rust2-Apache-2.0.txt`. Zips are read by Slot's own code (`crates/slot-store/src/archive/zip.rs`, shared with HOME → Update) with flate2 on miniz_oxide, both already in the build.
 - NES cart shape: drawn from a front photo of a replacement NES shell (Retrotainment Games product image), consulted 2026-10-14; the SVGs in `crates/slot-ui/assets/nes_cart*.svg` are original drawings.
 
-- Pip, the companion, is original art and logic in `Slot/Config/companion.txt`. It is not PakUI's BitPal and does not use that project's names or pictures. TLS uses the `webpki-roots` bundle compiled into Slot.
+- TLS uses the `webpki-roots` bundle compiled into Slot.
 
 Port additions are GPL-3.0-or-later as part of slot. Rust dependencies are pinned by Cargo.lock. Core and asset notices are in the original source and the runtime `Slot/System/licenses` directory.
 
