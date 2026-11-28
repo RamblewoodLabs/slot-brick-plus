@@ -25,6 +25,9 @@ class MainActivity : AppCompatActivity() {
     private var hatY = 0f
     private var stickHold = 0L
 
+    private lateinit var mediaRepo: MediaRepository
+    private lateinit var preview: PreviewController
+
     private val systemsOnShelf: List<SystemDef>
         get() {
             val present = scan.bySystem.keys
@@ -44,12 +47,20 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) persistTree(uri)
     }
 
+    private val playGame = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == PlayActivity.RESULT_FALLBACK) {
+            launchRetroArchFallback()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // ViewBinding is not enabled; inflate the layout directly.
         setContentView(R.layout.activity_main)
+        mediaRepo = MediaRepository(this)
         bindViews()
-        val saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_TREE, null)
+        val saved = getSharedPreferences(SlotPrefs.PREFS, MODE_PRIVATE).getString(SlotPrefs.KEY_TREE, null)
         if (saved != null) {
             try {
                 treeUri = Uri.parse(saved)
@@ -76,9 +87,10 @@ class MainActivity : AppCompatActivity() {
         refreshUi()
     }
     private val gameAdapter = LabelAdapter { pos ->
+        val already = pos == gameIndex
         gameIndex = pos
         refreshUi()
-        onActivate()
+        if (already) onActivate()
     }
 
     private fun bindViews() {
@@ -89,10 +101,15 @@ class MainActivity : AppCompatActivity() {
         statusView = findViewById(R.id.status)
         hintView = findViewById(R.id.hint)
         folderBtn.setOnClickListener { pickTree.launch(null) }
+        findViewById<TextView>(R.id.settingsButton).setOnClickListener { openSettings() }
+        findViewById<TextView>(R.id.aboutButton).setOnClickListener { openAbout() }
         systemRow.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         gameList.layoutManager = LinearLayoutManager(this)
         systemRow.adapter = systemAdapter
         gameList.adapter = gameAdapter
+        val panel = findViewById<View>(R.id.previewPanel)
+        preview = PreviewController(this, panel)
+        preview.attach(mediaRepo)
     }
 
     private fun persistTree(uri: Uri) {
@@ -104,7 +121,9 @@ class MainActivity : AppCompatActivity() {
         } catch (e: SecurityException) {
             android.util.Log.w("slot", "persistable URI permission: $e")
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_TREE, uri.toString()).apply()
+        getSharedPreferences(SlotPrefs.PREFS, MODE_PRIVATE).edit()
+            .putString(SlotPrefs.KEY_TREE, uri.toString())
+            .apply()
         treeUri = uri
         rescan()
         refreshUi()
@@ -142,7 +161,8 @@ class MainActivity : AppCompatActivity() {
             systemRow.scrollToPosition(systemIndex)
         }
         statusView.text = statusText()
-        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Start: folder"
+        hintView.text = "D-pad: move   L/R or up/down: system   A: play   Y/Select: settings   Start: folder   (embedded cores: Start+Select pauses)"
+        preview.onHover(currentSystem, currentGames.getOrNull(gameIndex))
     }
 
     private fun statusText(): String {
@@ -152,9 +172,13 @@ class MainActivity : AppCompatActivity() {
         val count = if (games.isEmpty()) "no games in this folder yet" else "${games.size} game(s)"
         if (emu == null) return "${sys.name}: $count"
         val resolved = EmulatorLauncher.resolve(this, emu)
-        val coreNote = if (sys.core != null) {
-            "  Interim: RetroArch + ${sys.core} core."
-        } else ""
+        val coreNote = when {
+            sys.core != null && SlotNative.isCoreEmbedded(sys.core) ->
+                "  Plays in Slotted (${sys.core}). Start+Select pauses."
+            sys.core != null ->
+                "  Interim: RetroArch + ${sys.core} core."
+            else -> ""
+        }
         return if (resolved != null) {
             "${sys.name}: $count   ${emu.name} is installed.$coreNote"
         } else {
@@ -175,20 +199,58 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "No game selected. Put games in a ${sys.folders.first()} folder inside the ROM root.", Toast.LENGTH_LONG).show()
             return
         }
+        // Free the second screen before an external emulator takes over.
+        preview.releaseForLaunch()
+        val core = sys.core
+        if (core != null && SlotNative.isCoreEmbedded(core)) {
+            if (launchEmbedded(sys, game)) return
+            Toast.makeText(this, "Embedded core could not start. Trying RetroArch.", Toast.LENGTH_LONG).show()
+        }
         if (emu.id == "eden") {
-            Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slot never bundles them.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Eden needs your own prod.keys and firmware, dumped from a Switch you own. Slotted never bundles them.", Toast.LENGTH_LONG).show()
         }
         if (emu.id == "retroarch") {
             val so = SlotNative.coreFileName(sys.core ?: "")
-            Toast.makeText(this, "Opening RetroArch. If it fails, install the $so core in RetroArch’s updater (interim until Slot embeds cores).", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Opening RetroArch. If it fails, install the $so core in RetroArch’s updater (interim until Slotted embeds cores).", Toast.LENGTH_LONG).show()
         }
+        EmulatorLauncher.launch(this, sys, game)
+    }
+
+
+    private fun launchEmbedded(sys: SystemDef, game: RomGame): Boolean {
+        val core = sys.core ?: return false
+        return try {
+            val local = RomAccess.materialize(this, game.uri, game.name)
+            val intent = android.content.Intent(this, PlayActivity::class.java).apply {
+                putExtra(PlayActivity.EXTRA_CORE, core)
+                putExtra(PlayActivity.EXTRA_ROM, local.path)
+                putExtra(PlayActivity.EXTRA_SYSTEM, sys.id)
+            }
+            playGame.launch(intent)
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("slot", "embedded launch: $e")
+            false
+        }
+    }
+
+    private fun launchRetroArchFallback() {
+        val sys = currentSystem ?: return
+        val game = currentGames.getOrNull(gameIndex) ?: return
+        val emu = Registry.emulatorsById[sys.emulatorId] ?: return
+        if (EmulatorLauncher.resolve(this, emu) == null) {
+            promptInstall(emu)
+            return
+        }
+        val so = SlotNative.coreFileName(sys.core ?: "")
+        Toast.makeText(this, "Opening RetroArch ($so).", Toast.LENGTH_LONG).show()
         EmulatorLauncher.launch(this, sys, game)
     }
 
     private fun promptInstall(emu: Emulator) {
         val msg = buildString {
             append("${emu.name} is not installed.\n\n")
-            append("Slot will open the official download page. We never bundle BIOS, firmware, or console keys.\n")
+            append("Slotted will open the official download page. We never bundle BIOS, firmware, or console keys.\n")
             if (emu.notes.isNotBlank()) {
                 append("\n")
                 append(emu.notes)
@@ -228,6 +290,14 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Choose") { _, _ -> pickTree.launch(null) }
             .setNegativeButton("Later", null)
             .show()
+    }
+
+    private fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    private fun openAbout() {
+        startActivity(Intent(this, AboutActivity::class.java))
     }
 
     private fun moveSystem(delta: Int) {
@@ -290,13 +360,27 @@ class MainActivity : AppCompatActivity() {
             SlotAction.LAUNCH -> onActivate()
             SlotAction.BACK -> { /* stay on the shelf */ }
             SlotAction.PICK_FOLDER -> pickTree.launch(null)
+            SlotAction.SETTINGS -> openSettings()
             SlotAction.NONE -> {}
         }
     }
 
-    companion object {
-        private const val PREFS = "slot"
-        private const val KEY_TREE = "rom_tree"
+    override fun onResume() {
+        super.onResume()
+        if (::preview.isInitialized) {
+            preview.onSettingsChanged()
+            preview.onHover(currentSystem, currentGames.getOrNull(gameIndex))
+        }
+    }
+
+    override fun onStop() {
+        if (::preview.isInitialized) preview.releaseForLaunch()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (::preview.isInitialized) preview.shutdown()
+        super.onDestroy()
     }
 }
 

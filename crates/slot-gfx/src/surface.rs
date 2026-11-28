@@ -60,6 +60,11 @@ pub fn blit_rect(window: (u32, u32), shake: f32) -> (i32, i32, i32, i32) {
         let dx = shake * w as f32 / OUT_W as f32;
         return (x + dx.round() as i32, window.1 as i32 - y - h, w, h);
     }
+    if cfg!(feature = "rg280v") {
+        let (x, y, w, h, _) = crate::letterbox::letterbox_rect(window, crate::letterbox::orientation());
+        let dx = (shake * 0.5).round() as i32;
+        return (x + dx, y, w, h);
+    }
     if cfg!(feature = "brick") || window.0 < OUT_W || window.1 < OUT_H {
         return blit_rect_fit(window, shake);
     }
@@ -98,5 +103,17 @@ mod panel_fit {
     #[test]
     fn the_brick_scales_that_layout_to_the_whole_panel() {
         assert_eq!(layout_on_panel((640, 480), (1024, 768)), (0, 0, 1024, 768));
+    }
+
+    #[test]
+    fn a_320x480_panel_fits_an_integer_half_of_the_640x480_layout() {
+        // A "contain" fit on a 320×480 panel is already 320×240. A 480×320
+        // panel would scale by 2/3 if we only fitted; the RG280V path instead
+        // forces the integer half (see letterbox.rs).
+        assert_eq!(layout_on_panel((640, 480), (320, 480)), (0, 120, 320, 240));
+        assert_eq!(
+            crate::letterbox::letterbox_rect((480, 320), crate::letterbox::Orientation::Landscape),
+            (80, 40, 320, 240, 0)
+        );
     }
 }

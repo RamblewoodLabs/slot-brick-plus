@@ -40,19 +40,40 @@ pub fn size(bmp: &[u8]) -> Option<(usize, usize)> {
     ((1..=4096).contains(&w) && (1..=4096).contains(&h)).then_some((w, h))
 }
 
+/// Bytes per pixel if this is a 24-bit or 32-bit BMP we can read.
+/// 32-bit BI_BITFIELDS is accepted only with BGRA masks (TrimUI's u-boot format).
+fn pixel_bytes(bmp: &[u8]) -> Option<usize> {
+    let bpp = u16_at(bmp, 28)?;
+    let compression = u32_at(bmp, 30)?;
+    match (bpp, compression) {
+        (24, 0) => Some(3),
+        (32, 0) => Some(4),
+        (32, 3) => {
+            if u32_at(bmp, 14)? >= 56 {
+                let red = u32_at(bmp, 54)?;
+                let green = u32_at(bmp, 58)?;
+                let blue = u32_at(bmp, 62)?;
+                if red != 0x00FF_0000 || green != 0x0000_FF00 || blue != 0x0000_00FF {
+                    return None;
+                }
+            }
+            Some(4)
+        }
+        _ => None,
+    }
+}
+
 pub fn decode(bmp: &[u8]) -> Option<Bmp> {
     let (width, height) = size(bmp)?;
-    if u16_at(bmp, 28)? != 24 || u32_at(bmp, 30)? != 0 {
-        return None;
-    }
+    let bpp = pixel_bytes(bmp)?;
     let top_down = (u32_at(bmp, 22)? as i32) < 0;
     let offset = u32_at(bmp, 10)? as usize;
-    let stride = (width * 3 + 3) & !3;
+    let stride = (width * bpp + 3) & !3;
     let data = bmp.get(offset..offset + stride * height)?;
     let mut rgb = Vec::with_capacity(width * height);
     for y in 0..height {
         let row = if top_down { y } else { height - 1 - y };
-        for px in data[row * stride..].chunks_exact(3).take(width) {
+        for px in data[row * stride..].chunks_exact(bpp).take(width) {
             rgb.push([px[2], px[1], px[0]]);
         }
     }
@@ -85,6 +106,51 @@ pub fn encode(img: &Bmp) -> Vec<u8> {
         out.resize(out.len() + stride - img.width * 3, 0);
     }
     out
+}
+
+/// 32-bit BITMAPV5 BI_BITFIELDS, rows bottom-up: the format TrimUI's u-boot shows
+/// (`brick/os/bootlogo.py`). A 1024×768 picture is 3,145,866 bytes.
+pub fn encode_v5(img: &Bmp) -> Vec<u8> {
+    let data = img.width * img.height * 4;
+    let mut out = Vec::with_capacity(14 + 124 + data);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&((14 + 124 + data) as u32).to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&138u32.to_le_bytes());
+    out.extend_from_slice(&124u32.to_le_bytes());
+    out.extend_from_slice(&(img.width as i32).to_le_bytes());
+    out.extend_from_slice(&(img.height as i32).to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(&3u32.to_le_bytes());
+    out.extend_from_slice(&(data as u32).to_le_bytes());
+    out.extend_from_slice(&2835u32.to_le_bytes());
+    out.extend_from_slice(&2835u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&0x00FF_0000u32.to_le_bytes());
+    out.extend_from_slice(&0x0000_FF00u32.to_le_bytes());
+    out.extend_from_slice(&0x0000_00FFu32.to_le_bytes());
+    out.extend_from_slice(&0xFF00_0000u32.to_le_bytes());
+    out.extend_from_slice(b"BGRs");
+    out.extend_from_slice(&[0u8; 36]);
+    out.extend_from_slice(&[0u8; 12]);
+    out.extend_from_slice(&4u32.to_le_bytes());
+    out.extend_from_slice(&[0u8; 12]);
+    for y in (0..img.height).rev() {
+        for c in &img.rgb[y * img.width..(y + 1) * img.width] {
+            out.extend_from_slice(&[c[2], c[1], c[0], 255]);
+        }
+    }
+    out
+}
+
+fn encode_like(img: &Bmp, reference: &[u8]) -> Vec<u8> {
+    if pixel_bytes(reference) == Some(4) {
+        encode_v5(img)
+    } else {
+        encode(img)
+    }
 }
 
 fn turned(img: &Bmp) -> Bmp {
@@ -128,10 +194,13 @@ pub fn install(wordmark: &[u8], dir: &Path) -> io::Result<Outcome> {
     };
     let current = fs::read(dir.join(LOGO)).ok();
     let original = fs::read(dir.join(ORIGINAL)).ok();
-    let Some(panel) = original.as_deref().or(current.as_deref()).and_then(size) else {
+    let Some(panel_bytes) = original.as_deref().or(current.as_deref()) else {
         return Ok(Outcome::Invalid);
     };
-    let Some(logo) = compose(&mark, panel).map(|b| encode(&b)) else {
+    let Some(panel) = size(panel_bytes) else {
+        return Ok(Outcome::Invalid);
+    };
+    let Some(logo) = compose(&mark, panel).map(|b| encode_like(&b, panel_bytes)) else {
         return Ok(Outcome::Invalid);
     };
     if current.as_deref() == Some(&logo[..]) {

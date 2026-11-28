@@ -17,8 +17,9 @@ import android.view.MotionEvent
  *  A / SOUTH — launch (or open the install prompt)
  *  B / BACK — go to the system row / folder picker is long-press BACK
  *  START — ROM folder picker
+ *  Y / Select — Settings
  */
-enum class SlotAction { LEFT, RIGHT, UP, DOWN, LAUNCH, BACK, PICK_FOLDER, NONE }
+enum class SlotAction { LEFT, RIGHT, UP, DOWN, LAUNCH, BACK, PICK_FOLDER, SETTINGS, NONE }
 
 object GamepadMap {
     fun isOdinFamily(device: InputDevice?): Boolean {
@@ -45,6 +46,7 @@ object GamepadMap {
             KeyEvent.KEYCODE_DPAD_CENTER -> SlotAction.LAUNCH
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_2 -> SlotAction.BACK
             KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_MENU -> SlotAction.PICK_FOLDER
+            KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_4 -> SlotAction.SETTINGS
             else -> SlotAction.NONE
         }
     }

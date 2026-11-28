@@ -39,5 +39,10 @@ SoundTouch 2.3.2 (lib/compat/libSoundTouch.so.1)
   run-app.sh puts this build ahead of it, as GrainBrick's SoundTouch notice provides for. You may
   replace it with your own build of SoundTouch: put it at lib/compat/libSoundTouch.so.1.
 
+zlib 1.3.1 (lib/compat/libz.so.1)
+  The zlib licence: zlib-LICENSE.txt. Source, built unchanged: https://zlib.net/fossils/zlib-1.3.1.tar.gz
+  Slot OS has no zlib and GrainBrick's NumPy (its bundled libgfortran) needs one, so the runtime
+  carries its own; run-app.sh puts it on LD_LIBRARY_PATH.
+
 slot_fb.py and sitecustomize.py (lib/python3.12/site-packages)
   Slot's own, under Slot's licence: they show a pygame app's screen on the Brick's framebuffer.

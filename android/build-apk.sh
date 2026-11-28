@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Slot Android debug APK on the Mac mini.
+# Build the Slotted Android debug APK on the Mac mini.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_DIR="$ROOT/android"
@@ -27,11 +27,33 @@ rustc --version
 # Tell Gradle where the SDK lives.
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$ANDROID_DIR/local.properties"
 
+echo "==== libretro cores (arm64-v8a) ===="
+"$ANDROID_DIR/build-cores.sh"
+# License texts for the embedded cores, copied from the repo's licenses/ folder.
+mkdir -p "$ANDROID_DIR/app/src/main/assets/licenses"
+cp "$ROOT/licenses/mgba-MPL-2.0.txt" \
+   "$ROOT/licenses/fceumm-GPL-2.0.txt" \
+   "$ROOT/licenses/snes9x-LICENSE.txt" \
+   "$ROOT/licenses/genesis-plus-gx-LICENSE.txt" \
+   "$ROOT/licenses/pcsx_rearmed-GPL-2.0.txt" \
+   "$ROOT/licenses/GPL-3.0.txt" \
+   "$ROOT/licenses/fbneo-LICENSE.txt" \
+   "$ROOT/licenses/handy-zlib.txt" \
+   "$ROOT/licenses/gw-libretro-zlib.txt" \
+   "$ROOT/licenses/picodrive-COPYING.txt" \
+   "$ANDROID_DIR/app/src/main/assets/licenses/"
+# PPSSPP's own assets (not BIOS). Rebuilt from vendor/ each APK; gitignored.
+if [ -d "$ROOT/vendor/ppsspp-assets" ]; then
+  rm -rf "$ANDROID_DIR/app/src/main/assets/ppsspp"
+  mkdir -p "$ANDROID_DIR/app/src/main/assets/ppsspp"
+  cp -R "$ROOT/vendor/ppsspp-assets/." "$ANDROID_DIR/app/src/main/assets/ppsspp/"
+fi
+
 echo "==== native lib (arm64-v8a) ===="
 cd "$ANDROID_DIR/slot-android"
 # cargo-ndk writes jniLibs layout under -o
 mkdir -p "$ANDROID_DIR/app/src/main/jniLibs"
-cargo ndk -t arm64-v8a -o "$ANDROID_DIR/app/src/main/jniLibs" build
+cargo ndk -t arm64-v8a -o "$ANDROID_DIR/app/src/main/jniLibs" build --release
 
 echo "==== gradle assembleDebug ===="
 cd "$ANDROID_DIR"

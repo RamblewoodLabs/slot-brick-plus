@@ -993,6 +993,19 @@ impl Platform {
         }
     }
 
+    /// Platforms the current device build ships a shelf for.
+    /// N64, DS and PSP stay in ALL (indices and save files stay stable) but are
+    /// hidden on the RG280V: they are not realistic on the JZ4770.
+    pub fn shipped(self) -> bool {
+        !matches!(self, Platform::N64 | Platform::Nds | Platform::Psp)
+            || !cfg!(feature = "rg280v")
+    }
+
+    /// True when this handheld should show the shelf (shipped, and not a later hide).
+    pub fn hidden_on_rg280v(self) -> bool {
+        matches!(self, Platform::N64 | Platform::Nds | Platform::Psp)
+    }
+
     pub const ALL: [Platform; 24] = [
         Platform::Gba,
         Platform::Gb,
@@ -1157,5 +1170,20 @@ mod tests {
             .any(|b| b.name == "lynxboot.img"));
         assert!(!Platform::Arcade.takes_archives());
         assert!(Platform::Arcade.def().archive_is_rom);
+    }
+
+    #[test]
+    fn hidden_on_rg280v_are_the_three_heavy_shelves() {
+        let hidden: Vec<_> = Platform::ALL
+            .iter()
+            .copied()
+            .filter(|p| p.hidden_on_rg280v())
+            .collect();
+        assert_eq!(
+            hidden,
+            [Platform::N64, Platform::Nds, Platform::Psp]
+        );
+        assert_eq!(Platform::ALL.iter().filter(|p| p.shipped()).count(),
+            if cfg!(feature = "rg280v") { 21 } else { 24 });
     }
 }

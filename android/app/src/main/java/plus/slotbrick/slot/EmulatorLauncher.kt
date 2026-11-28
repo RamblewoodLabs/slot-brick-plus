@@ -100,7 +100,7 @@ object EmulatorLauncher {
         if (titleId == null) {
             Toast.makeText(
                 context,
-                "Vita3K launches by Title ID after the VPK is installed in Vita3K. Open Vita3K, install this VPK, then rename the file to include the ID (for example PCSE00000) to start it from Slot.",
+                "Vita3K launches by Title ID after the VPK is installed in Vita3K. Open Vita3K, install this VPK, then rename the file to include the ID (for example PCSE00000) to start it from Slotted.",
                 Toast.LENGTH_LONG,
             ).show()
             val open = resolved.spec.packageName.let { context.packageManager.getLaunchIntentForPackage(it) }

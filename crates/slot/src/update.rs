@@ -11,6 +11,43 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// The only repository Update talks to.
+
+struct Sha256 {
+    #[cfg(feature = "network")]
+    inner: ring::digest::Context,
+}
+
+impl Sha256 {
+    fn new() -> Self {
+        Sha256 {
+            #[cfg(feature = "network")]
+            inner: ring::digest::Context::new(&ring::digest::SHA256),
+        }
+    }
+    fn update(&mut self, bytes: &[u8]) {
+        #[cfg(feature = "network")]
+        self.inner.update(bytes);
+        #[cfg(not(feature = "network"))]
+        let _ = bytes;
+    }
+    fn finish(self) -> [u8; 32] {
+        #[cfg(feature = "network")]
+        {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(self.inner.finish().as_ref());
+            out
+        }
+        #[cfg(not(feature = "network"))]
+        [0u8; 32]
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(bytes);
+    h.finish().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 pub const REPO: &str = "jfink22-design/slot-brick-plus";
 /// The Releases API, newest first. Drafts are not in this list; a draft flag is skipped anyway.
 pub const RELEASES_API: &str =
@@ -388,7 +425,7 @@ fn download_binary(m: &Manifest, path: &Path, progress: &Progress) -> Result<(),
     let mut file =
         fs::File::create(path).map_err(|e| format!("Cannot write to the SD card: {e}"))?;
     let mut reader = body.reader.take(m.size + 1);
-    let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut hash = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     let mut got = 0u64;
     loop {
@@ -1023,11 +1060,7 @@ mod tests {
 
     /// A folder standing in for this fork's GitHub releases: releases.json, slot, slot.sha256.
     fn publish(dir: &Path, binary: &[u8]) -> (String, PathBuf) {
-        let sha: String = ring::digest::digest(&ring::digest::SHA256, binary)
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let sha = sha256_hex(binary);
         let at = dir.join("releases");
         fs::create_dir_all(&at).unwrap();
         let binary_url = format!("file://{}/slot", at.display());

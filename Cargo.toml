@@ -37,3 +37,8 @@ usvg = { version = "0.48", default-features = false }
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+
+# OpenDingux / RG280V: panic=abort is required for -Z build-std=panic_abort.
+[profile.rg280v]
+inherits = "device"
+panic = "abort"

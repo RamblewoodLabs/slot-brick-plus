@@ -8,6 +8,8 @@ license.workspace = true
 [features]
 brick = ["device"]
 rg35xxsp = ["brick"]
+# Anbernic RG280V: SDL2 + GLES2 (or a failed-context error), 320x240 letterbox.
+rg280v = ["device"]
 default = ["host"]
 host = ["dep:glutin", "dep:glutin-winit", "dep:winit", "dep:raw-window-handle"]
 device = []

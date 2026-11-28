@@ -3,6 +3,7 @@
 
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <queries>
         <package android:name="org.dolphinemu.dolphinemu" />
@@ -30,11 +31,12 @@
         android:icon="@android:drawable/ic_menu_sort_by_size"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/Theme.Slot">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|screenLayout"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -42,5 +44,19 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="@string/settings_title"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="@string/about_title" />
+        <activity
+            android:name=".PlayActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|screenLayout"
+            android:theme="@style/Theme.Slot" />
     </application>
 </manifest>

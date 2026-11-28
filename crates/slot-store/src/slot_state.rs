@@ -101,7 +101,7 @@ pub struct SlotState {
 
 impl SlotState {
     pub fn shows(&self, platform: Platform) -> bool {
-        !self.hidden_systems[platform.index()]
+        platform.shipped() && !self.hidden_systems[platform.index()]
     }
 
     /// What HOME → System → Reset Settings leaves: the game in, the clock (and whether it

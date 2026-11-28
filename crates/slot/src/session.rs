@@ -33,6 +33,13 @@ pub struct Session {
     prefetch: Prefetch,
     /// The game we already refused for a missing BIOS, so the note is not repeated every frame.
     bios_blocked: Option<String>,
+    /// OpenDingux standalone / RetroArch command, filled during the insert on the RG280V.
+    #[cfg(feature = "rg280v")]
+    pending_launch: Option<std::process::Command>,
+    #[cfg(feature = "rg280v")]
+    launch_table: crate::od_launch::LaunchTable,
+    #[cfg(feature = "rg280v")]
+    launch_offered: Option<String>,
 }
 
 /// Gameplay → Swap A/B: A and B trade places in both the menus and the game, but a shortcut
@@ -51,6 +58,8 @@ impl Session {
     pub fn boot(root: PathBuf) -> Self {
         let sink = crate::audio::take_opened();
         crate::boot_times::mark("  audio open");
+        #[cfg(feature = "rg280v")]
+        let launch_table = crate::od_launch::load(&root, None);
         Session {
             app: App::take_booted(&root),
             root,
@@ -70,6 +79,12 @@ impl Session {
             reloading: false,
             driven: false,
             bios_blocked: None,
+            #[cfg(feature = "rg280v")]
+            pending_launch: None,
+            #[cfg(feature = "rg280v")]
+            launch_table,
+            #[cfg(feature = "rg280v")]
+            launch_offered: None,
         }
     }
 
@@ -457,11 +472,78 @@ impl Session {
         }
     }
 
+
+    #[cfg(feature = "rg280v")]
+    fn sync_external_launch(&mut self) {
+        use crate::app::Phase;
+        match self.app.phase() {
+            Phase::Inserting { cart, .. } => {
+                let stem = cart.clone();
+                if self.launch_offered.as_deref() == Some(stem.as_str()) {
+                    return;
+                }
+                let Some((rom, platform)) = self
+                    .app
+                    .seated_cart()
+                    .filter(|c| c.stem == stem)
+                    .map(|c| (c.rom.clone(), c.platform))
+                else {
+                    return;
+                };
+                match self.launch_table.command(platform, &rom) {
+                    Ok(cmd) => {
+                        eprintln!(
+                            "slotted: will launch {} ({})",
+                            platform.name(),
+                            rom.display()
+                        );
+                        self.pending_launch = Some(cmd);
+                        self.launch_offered = Some(stem);
+                        self.app.on_core_ready();
+                    }
+                    Err(e) => {
+                        eprintln!("slotted: {e}");
+                        self.launch_offered = Some(stem);
+                        self.app.announce("Emulator", &e);
+                        self.app.on_core_failed();
+                    }
+                }
+            }
+            Phase::Playing { .. } => {}
+            _ => {
+                self.pending_launch = None;
+                self.launch_offered = None;
+            }
+        }
+    }
+
+    /// Ready to exec an OpenDingux emulator; only after the cart has finished going in.
+    #[cfg(feature = "rg280v")]
+    pub fn take_external_launch(&mut self) -> Option<std::process::Command> {
+        if !matches!(self.app.phase(), crate::app::Phase::Playing { .. }) {
+            return None;
+        }
+        self.pending_launch.take()
+    }
+
+    #[cfg(feature = "rg280v")]
+    pub fn finish_external_launch(&mut self) {
+        self.pending_launch = None;
+        self.launch_offered = None;
+        self.app.eject_after_external();
+    }
+
     fn no_core() -> bool {
         std::env::var_os("SLOT_NO_CORE").is_some_and(|v| v != "0")
     }
 
     fn sync_core(&mut self) {
+        #[cfg(feature = "rg280v")]
+        {
+            self.sync_external_launch();
+        }
+        #[cfg(not(feature = "rg280v"))]
+        {
         if Self::no_core() {
             return;
         }
@@ -510,6 +592,7 @@ impl Session {
                 self.emu = None;
                 self.app.on_core_failed();
             }
+        }
         }
     }
 
