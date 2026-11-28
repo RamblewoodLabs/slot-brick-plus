@@ -1,4 +1,4 @@
-use slot::bootlogo::{compose, decode, encode, install, size, Bmp, Outcome};
+use slot::bootlogo::{compose, decode, encode, encode_v5, install, size, Bmp, Outcome};
 
 const BG: [u8; 3] = [11, 14, 17];
 const INK: [u8; 3] = [240, 240, 240];
@@ -110,6 +110,64 @@ fn a_bad_wordmark_or_no_logo_to_measure_never_touches_the_partition() {
         Outcome::Invalid
     );
     assert!(!empty.path().join("bootlogo.bmp").exists());
+}
+
+#[test]
+fn a_32bit_v5_bmp_survives_encode_and_decode() {
+    let m = mark();
+    let bytes = encode_v5(&m);
+    assert_eq!(size(&bytes), Some((5, 3)));
+    assert_eq!(u32::from_le_bytes(bytes[14..18].try_into().unwrap()), 124);
+    assert_eq!(u16::from_le_bytes(bytes[28..30].try_into().unwrap()), 32);
+    assert_eq!(u32::from_le_bytes(bytes[30..34].try_into().unwrap()), 3);
+    let back = decode(&bytes).unwrap();
+    assert_eq!((back.width, back.height), (5, 3));
+    assert_eq!(back.rgb, m.rgb);
+}
+
+#[test]
+fn a_brick_panel_v5_logo_is_the_size_u_boot_shows() {
+    let img = Bmp {
+        width: 1024,
+        height: 768,
+        rgb: vec![[0; 3]; 1024 * 768],
+    };
+    let bytes = encode_v5(&img);
+    assert_eq!(bytes.len(), 3_145_866);
+    assert_eq!(size(&bytes), Some((1024, 768)));
+    assert_eq!(decode(&bytes).unwrap().width, 1024);
+}
+
+#[test]
+fn a_32bit_v5_logo_is_installed_at_the_original_size_and_format() {
+    let d = tempfile::tempdir().unwrap();
+    let panel = encode_v5(&Bmp {
+        width: 64,
+        height: 48,
+        rgb: vec![[1; 3]; 64 * 48],
+    });
+    std::fs::write(d.path().join("bootlogo.bmp"), &panel).unwrap();
+    assert_eq!(
+        install(&encode_v5(&mark()), d.path()).unwrap(),
+        Outcome::Installed
+    );
+    let logo = std::fs::read(d.path().join("bootlogo.bmp")).unwrap();
+    assert_eq!(size(&logo), Some((64, 48)));
+    assert_eq!(logo.len(), panel.len());
+    assert_eq!(u32::from_le_bytes(logo[14..18].try_into().unwrap()), 124);
+    assert_eq!(u16::from_le_bytes(logo[28..30].try_into().unwrap()), 32);
+    assert_eq!(
+        install(&encode(&mark()), d.path()).unwrap(),
+        Outcome::Same,
+        "a 24-bit wordmark on a 32-bit panel should install the same picture"
+    );
+}
+
+#[test]
+fn a_32bit_bmp_with_the_wrong_masks_is_refused() {
+    let mut bytes = encode_v5(&mark());
+    bytes[54..58].copy_from_slice(&0x0000_00FFu32.to_le_bytes());
+    assert!(decode(&bytes).is_none());
 }
 
 #[test]
