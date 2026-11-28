@@ -8,19 +8,19 @@ press l1
 wait 2500
 snap shelf
 press right
-wait 600
+wait 2500
 snap next1
 press right
-wait 600
+wait 2500
 snap next2
 press right
-wait 600
+wait 2500
 snap next3
 press right
-wait 600
+wait 2500
 snap next4
 press right
-wait 600
+wait 2500
 snap next5
 # Back to the first favorite, then show last-played and most-played order.
 press left
