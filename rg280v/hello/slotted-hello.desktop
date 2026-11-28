@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Slotted Hello
+Comment=Slotted graphics and button test for the RG280V
+Exec=slotted-hello
+Icon=slotted-hello
+Terminal=false
+Categories=applications;
+X-OD-Platform=gcw0

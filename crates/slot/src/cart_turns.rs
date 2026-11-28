@@ -116,7 +116,12 @@ impl CartTurns {
             .map(|f| {
                 (
                     up(&f.face),
-                    [f.x as f32, f.y as f32, f.face.w as f32, f.face.h as f32],
+                    [
+                        f.x as f32,
+                        f.y as f32,
+                        (f.face.w * f.dest_scale) as f32,
+                        (f.face.h * f.dest_scale) as f32,
+                    ],
                 )
             })
             .collect();

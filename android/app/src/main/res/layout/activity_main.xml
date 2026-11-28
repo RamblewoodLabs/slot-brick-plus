@@ -12,22 +12,53 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:letterSpacing="0.2"
-        android:text="SLOT"
+        android:text="SLOTTED"
         android:textColor="@color/slot_accent"
         android:textSize="28sp"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/folderButton"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:background="@color/slot_plank"
-        android:gravity="center"
-        android:padding="12dp"
-        android:text="Choose ROM folder"
-        android:textColor="@color/slot_text"
-        android:textSize="16sp" />
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/folderButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="Choose ROM folder"
+            android:textColor="@color/slot_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/settingsButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="@string/settings_title"
+            android:textColor="@color/slot_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/aboutButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="@string/about_button"
+            android:textColor="@color/slot_text"
+            android:textSize="16sp" />
+    </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/systemRow"
@@ -44,14 +75,30 @@
         android:layout_height="8dp"
         android:background="@color/slot_plank" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/gameList"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp" />
+        android:orientation="horizontal">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/gameList"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:paddingEnd="8dp" />
+
+        <include
+            android:id="@+id/previewPanel"
+            layout="@layout/preview_panel"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/status"

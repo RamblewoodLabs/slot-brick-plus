@@ -413,6 +413,7 @@ impl QuickRow {
         QuickRow::LibraryPlayTime,
     ];
     /// Library → Systems: each system's shelf shown or hidden, in the shelves' order.
+    #[cfg(not(feature = "rg280v"))]
     pub const SYSTEMS: [QuickRow; 25] = [
         QuickRow::ShowFavorites,
         QuickRow::ShowGba,
@@ -439,6 +440,32 @@ impl QuickRow {
         QuickRow::ShowN64,
         QuickRow::ShowNds,
         QuickRow::ShowPsp,
+    ];
+    /// N64, DS and PSP stay out of the Systems list on the RG280V.
+    #[cfg(feature = "rg280v")]
+    pub const SYSTEMS: [QuickRow; 22] = [
+        QuickRow::ShowFavorites,
+        QuickRow::ShowGba,
+        QuickRow::ShowGb,
+        QuickRow::ShowGbc,
+        QuickRow::ShowNes,
+        QuickRow::ShowSnes,
+        QuickRow::ShowPs1,
+        QuickRow::ShowMd,
+        QuickRow::ShowSms,
+        QuickRow::ShowGg,
+        QuickRow::ShowArcade,
+        QuickRow::ShowPce,
+        QuickRow::ShowA2600,
+        QuickRow::ShowIntv,
+        QuickRow::ShowLynx,
+        QuickRow::ShowA7800,
+        QuickRow::ShowGw,
+        QuickRow::ShowColeco,
+        QuickRow::ShowA5200,
+        QuickRow::ShowA800,
+        QuickRow::ShowVectrex,
+        QuickRow::Show32x,
     ];
     /// Gameplay → Saving: when a game is saved without being asked.
     pub const SAVING: [QuickRow; 2] = [QuickRow::AutoSave, QuickRow::EjectSave];
