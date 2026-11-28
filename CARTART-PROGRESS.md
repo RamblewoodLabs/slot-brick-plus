@@ -96,7 +96,7 @@ Weaker:
 
 - Committed 71d47db6 on `cursor/cartart`, pushed. Draft PR #39 against `cursor/android-phase3`:
   https://github.com/RamblewoodLabs/slot-brick-plus/pull/39 (do not merge).
-- CI: changelog pass, unit pass, scenarios running.
+- CI on 6fdd0e30: changelog, unit and scenarios all pass (11:01 PST).
 - All 25 PNG sheets copied to the box at `/workspace/cartart-test/`.
 
 ## Next
