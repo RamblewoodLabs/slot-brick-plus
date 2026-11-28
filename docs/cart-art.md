@@ -17,7 +17,7 @@ Cart Art is on by default. It needs two things:
 - **A developer id, built in.** `SLOT_SS_DEVID` / `SLOT_SS_DEVPASSWORD` at build time.
   `brick/docker-build.sh` and `rg35xxsp/docker-build.sh` source `brick/ss-dev-env.sh`, which
   takes them from the environment or from `devid=` / `devpassword=` in a gitignored
-  `screenscraper.properties` (repo root or `android/`) and never prints them. The release
+  `screenscraper.properties` (repo root, `android/`, or the path in `SLOT_SS_PROPERTIES`) and never prints them. The release
   workflow passes the repo secrets `SLOT_SS_DEVID` and `SLOT_SS_DEVPASSWORD` (they must be added
   under Settings → Secrets). `devid=` / `devpassword=` in `Config/screenscraper.txt` also work,
   for testing. A Slot built without one says so on the Cart Art screen.

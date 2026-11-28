@@ -1,9 +1,9 @@
 # Sourced by the docker builds: the ScreenScraper developer id that Cart Art is built with.
 # Taken from SLOT_SS_DEVID / SLOT_SS_DEVPASSWORD when set (the release workflow's secrets),
 # else from devid= / devpassword= in a gitignored screenscraper.properties at the repo root or
-# in android/. The values are exported for `docker run -e NAME` and never printed. Without
+# in android/ (or the file named by SLOT_SS_PROPERTIES). The values are exported for `docker run -e NAME` and never printed. Without
 # them the card still builds, and HOME -> Cart Art says it was built without a developer id.
-for ss_file in screenscraper.properties android/screenscraper.properties; do
+for ss_file in ${SLOT_SS_PROPERTIES:-} screenscraper.properties android/screenscraper.properties; do
     [ -z "${SLOT_SS_DEVID:-}" ] || break
     [ -f "$ss_file" ] || continue
     SLOT_SS_DEVID=$(sed -n 's/^devid=//p' "$ss_file" | tr -d '\r' | head -n 1)
