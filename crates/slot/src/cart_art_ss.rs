@@ -647,7 +647,9 @@ impl Client {
         let url = format!("{}/api2/ssuserInfos.php?{}&output=json", self.api, self.creds.query());
         let (status, body) = self.get(&url, JSON_MAX)?;
         if matches!(status, 401 | 403) {
-            return Err("ScreenScraper refused that username or password".into());
+            return Err(format!(
+                "ScreenScraper refused that username or password (HTTP {status})"
+            ));
         }
         Self::check(status)?;
         if status != 200 {
@@ -655,7 +657,20 @@ impl Client {
         }
         let text = String::from_utf8_lossy(&body);
         let Some(at) = text.find("\"ssuser\"") else {
-            return Err("ScreenScraper refused that username or password".into());
+            let lower = text.to_ascii_lowercase();
+            let kind = if text.trim_start().starts_with('<') {
+                "html"
+            } else if lower.contains("erreur de login") || lower.contains("identifiant") {
+                "login-error"
+            } else if text.contains("\"header\"") {
+                "json-without-account"
+            } else {
+                "unrecognized"
+            };
+            return Err(format!(
+                "ScreenScraper reply had no account block (HTTP {status}, {kind}, {} bytes)",
+                body.len()
+            ));
         };
         let obj = &text[at..];
         Ok(UserInfo {

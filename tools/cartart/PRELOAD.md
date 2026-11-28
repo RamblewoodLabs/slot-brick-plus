@@ -31,6 +31,15 @@ sends a NES label to `Labels/NES/Famicom/`. Lines starting with `#` are comments
   A full library run needs Jeff's own ScreenScraper account. `--allow-dev-only` is for a
   small test only.
 
+## Check the user login
+
+Never prints the username or password:
+
+    cargo run --release -p slot --bin rg280v-preload -- \
+      --test-login \
+      --dev-properties /Users/jeff/sbp-cartart/android/screenscraper.properties \
+      --user-login /Users/jeff/sbp-rg280v-preload/screenscraper-user.properties
+
 ## Run
 
     cargo run --release -p slot --bin rg280v-preload -- \

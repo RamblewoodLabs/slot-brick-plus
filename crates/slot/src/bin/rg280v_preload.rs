@@ -46,6 +46,7 @@ struct Args {
     dry_run: bool,
     include_hidden: bool,
     threads: Option<u32>,
+    test_login: bool,
 }
 
 fn usage() -> String {
@@ -67,6 +68,8 @@ Options:
   --dry-run              Parse the manifest and report; do not call ScreenScraper
   --include-hidden       Also process N64, DS and PSP (off by default)
   --threads N            Cap worker threads (still never above the account's maxthreads)
+  --test-login           Check the user login; print level, threads and quota only
+                         (never the username or password). No fetch.
 ".into()
 }
 
@@ -83,6 +86,7 @@ fn parse_args() -> Result<Args, String> {
     let mut dry_run = false;
     let mut include_hidden = false;
     let mut threads = None;
+    let mut test_login = false;
     while let Some(arg) = raw.next() {
         match arg.as_str() {
             "-h" | "--help" => return Err(usage()),
@@ -108,6 +112,7 @@ fn parse_args() -> Result<Args, String> {
                 )
             }
             "--allow-dev-only" => allow_dev_only = true,
+            "--test-login" => test_login = true,
             "--dry-run" => dry_run = true,
             "--include-hidden" => include_hidden = true,
             "--threads" => {
@@ -122,7 +127,11 @@ fn parse_args() -> Result<Args, String> {
             other => return Err(format!("unknown argument: {other}\n\n{}", usage())),
         }
     }
-    let manifest = manifest.ok_or_else(|| format!("--manifest is required\n\n{}", usage()))?;
+    let manifest = if test_login && manifest.is_none() {
+        PathBuf::from("/dev/null")
+    } else {
+        manifest.ok_or_else(|| format!("--manifest is required\n\n{}", usage()))?
+    };
     Ok(Args {
         manifest,
         out,
@@ -135,6 +144,7 @@ fn parse_args() -> Result<Args, String> {
         dry_run,
         include_hidden,
         threads,
+        test_login,
     })
 }
 
@@ -405,8 +415,31 @@ struct Counters {
     skipped: AtomicU64,
 }
 
+fn check_ss_login(args: &Args) -> Result<(), String> {
+    let dev = find_dev_properties(args.dev_properties.as_deref());
+    let user = find_user_login(args.user_login.as_deref());
+    let creds = Creds::from_files(dev.as_deref(), user.as_deref())?;
+    if !creds.logged_in() {
+        return Err("no ScreenScraper user login in the user login file".into());
+    }
+    let info = Client::new(creds).user_info().map_err(|e| redact(&e))?;
+    // Never print the username, password, or UserInfo::line() (which names the user).
+    println!(
+        "ScreenScraper login ok: level {}, maxthreads {}, {} of {} lookups used today ({} left)",
+        if info.level.is_empty() { "?" } else { info.level.as_str() },
+        if info.threads == 0 { 1 } else { info.threads },
+        info.today,
+        info.per_day,
+        info.per_day.saturating_sub(info.today)
+    );
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args = parse_args()?;
+    if args.test_login {
+        return check_ss_login(&args);
+    }
     let rows = parse_manifest(&args.manifest)?;
     let mut work = Vec::new();
     let mut skipped_hidden = 0u64;
