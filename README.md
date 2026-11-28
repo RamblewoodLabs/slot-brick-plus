@@ -55,7 +55,6 @@ The same Slot also builds for the **Anbernic RG35XX SP** (640×480, BaseOS on TF
 | **Adaptive performance** | Adaptive CPU clocks for smooth audio. |
 | **Updates** | Update Slot from the menu over Wi-Fi: signed and checked, with your games, saves and settings left alone. |
 | **Library** | The selected game's name on a title card under its cart for a moment, play time beside the battery (minutes, or hours and minutes), favorites with a star, and shelves sorted A–Z, by last played or by most played, or showing only your favorites. Systems you don't play can be hidden (Library → Systems). |
-| **Companion** | Switched off. Not on the HOME menu, and it does not suggest a game or show a mission. |
 | **Fonts** | HOME → System → Font: Slot's own font, GohuFont, or any `.ttf` / `.otf` you put in `Slot/Fonts`. |
 | **Auto clock** | The clock sets itself from an internet time server whenever Wi-Fi is on. |
 | **Wireless connectivity** | Wi-Fi, with its status shown beside the clock, and an experimental two-player link over Wi-Fi. |
@@ -343,14 +342,6 @@ Slot/Logs/multiplayer.log
 Slot/Logs/slot.log
 ```
 
-
-</details>
-
-<a name="companion"></a>
-<details>
-<summary><h2>Companion</h2></summary>
-
-**Companion** is switched off. It is not on the HOME menu, X on the shelf does not open it, and it does not suggest a game or show a mission. `Slot/Config/companion.txt` is left on the card.
 
 </details>
 

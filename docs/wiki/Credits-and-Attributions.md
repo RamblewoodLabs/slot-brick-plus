@@ -94,7 +94,6 @@ AUTHORS file, and check the PR #31 licences against each tarball's licence file.
 | Curated N64/DS/PSP lists (PR #31) | Community H700 reports: Knulli, muOS, the Retro Handhelds N64 sheet, Jkid873's H700 PPSSPP sheet (r/SBCGaming) | **Needs confirmation:** links not recorded | `docs/curated/` |
 | NES and SNES cart drawings (SVG) | Original drawings, based on product photos: a replacement NES shell (Retrotainment Games) and a US Super Mario Kart cart (PJ's Games) | Original | Yes |
 | 3D carts and shell renders | Original parametric Blender models (scripts in `~/Projects/slot-cart-renders`, not in git), built from measured sizes. The reference images in its `refs/` folder appear to be physical-media and marquee pictures (ES-DE, FBNeo and MAME); their exact provenance is **needs confirmation**. | Original; reference images not shipped | Renders yes |
-| Pip, the companion | Original art and logic; not PakUI's BitPal | GPL-3.0+ | Yes (switched off) |
 
 ## Fonts
 

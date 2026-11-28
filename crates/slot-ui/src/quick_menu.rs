@@ -93,7 +93,6 @@ pub enum QuickRow {
     SoundLabel,
     SoundVolume,
     UpdateCheck,
-    Companion,
     Aspect,
     AspectGb,
     AspectGba,
@@ -125,10 +124,7 @@ pub enum QuickRow {
 }
 
 impl QuickRow {
-    /// HOME → Companion, and Pip's toasts. Off until this is set back to true.
-    pub const PIP: bool = false;
-
-    pub const ALL: [QuickRow; 107] = [
+    pub const ALL: [QuickRow; 106] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -207,7 +203,6 @@ impl QuickRow {
         QuickRow::SoundLabel,
         QuickRow::SoundVolume,
         QuickRow::UpdateCheck,
-        QuickRow::Companion,
         QuickRow::Aspect,
         QuickRow::AspectGb,
         QuickRow::AspectGba,
@@ -246,14 +241,6 @@ impl QuickRow {
         QuickRow::System,
     ];
     #[cfg(not(feature = "brick"))]
-    const MAIN_PIP: [QuickRow; 5] = [
-        QuickRow::Screen,
-        QuickRow::Game,
-        QuickRow::Library,
-        QuickRow::Companion,
-        QuickRow::System,
-    ];
-    #[cfg(not(feature = "brick"))]
     pub const SYSTEM: [QuickRow; 7] = [
         QuickRow::DateTime,
         QuickRow::Font,
@@ -274,16 +261,6 @@ impl QuickRow {
         QuickRow::Apps,
         QuickRow::System,
     ];
-    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
-    const MAIN_PIP: [QuickRow; 7] = [
-        QuickRow::Screen,
-        QuickRow::Game,
-        QuickRow::Library,
-        QuickRow::Companion,
-        QuickRow::Online,
-        QuickRow::Apps,
-        QuickRow::System,
-    ];
     #[cfg(feature = "rg35xxsp")]
     pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
@@ -292,34 +269,17 @@ impl QuickRow {
         QuickRow::Online,
         QuickRow::System,
     ];
-    #[cfg(feature = "rg35xxsp")]
-    const MAIN_PIP: [QuickRow; 6] = [
-        QuickRow::Screen,
-        QuickRow::Game,
-        QuickRow::Library,
-        QuickRow::Companion,
-        QuickRow::Online,
-        QuickRow::System,
-    ];
     /// HOME → Apps: apps the player installs on the card, which Slot opens in its place.
     /// Each says Unavailable until it and what it needs are on the card.
     pub const APPS: [QuickRow; 1] = [QuickRow::GrainBrick];
 
-    /// The HOME menu. Companion is on it only while [`PIP`](Self::PIP) is on.
+    /// The HOME menu.
     pub fn home() -> &'static [QuickRow] {
-        if Self::PIP {
-            &Self::MAIN_PIP
-        } else {
-            &Self::MAIN
-        }
+        &Self::MAIN
     }
 
     pub const fn home_len() -> usize {
-        if Self::PIP {
-            Self::MAIN_PIP.len()
-        } else {
-            Self::MAIN.len()
-        }
+        Self::MAIN.len()
     }
     /// System: the Brick's lights, its clock, the font, rumble, Slot's sounds, the battery,
     /// asking GitHub for a newer Slot, every setting back to how it came, and what Slot is.
@@ -781,7 +741,6 @@ impl QuickRow {
             QuickRow::UpdateCheck => "Check for Updates",
             QuickRow::GrainBrick => "GrainBrick",
             QuickRow::Apps => "Apps",
-            QuickRow::Companion => "Companion",
             QuickRow::Aspect
             | QuickRow::AspectGb
             | QuickRow::AspectGba
@@ -893,7 +852,6 @@ impl QuickRow {
                 | QuickRow::Apps
                 | QuickRow::GrainBrick
                 | QuickRow::Library
-                | QuickRow::Companion
                 | QuickRow::LibrarySystems
                 | QuickRow::ResetSettings
                 | QuickRow::AboutLabel
@@ -1108,8 +1066,6 @@ impl QuickValue {
         }
     }
 }
-
-pub const PIP: bool = QuickRow::PIP;
 
 pub const QUICK_PITCH: f32 = 52.0;
 pub const QUICK_TOP: f32 =

@@ -55,4 +55,3 @@ One page per system (Game Boy / GBC, Game Boy Advance, NES, SNES, PlayStation):
 | `Slot/DISABLE_AUTO_SLEEP` | Turn off auto-sleep |
 | `Slot/DEBUG_INPUT` | Log raw input to `Slot/input-trace.log` (SP bring-up) |
 
-**Companion** (Pip) is switched off on main. Its missions are in PR #11.

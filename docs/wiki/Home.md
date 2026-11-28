@@ -44,6 +44,5 @@ and projects whose work Slot uses.
 | [#30](https://github.com/jfink22-design/slot-brick-plus/pull/30) | Intellivision labels show the whole end label | Cart Art |
 | [#31](https://github.com/jfink22-design/slot-brick-plus/pull/31) | ColecoVision, 5200, Atari 800, Vectrex, 32X, DS, N64 and PSP shelves | Systems and Cores |
 | [#32](https://github.com/jfink22-design/slot-brick-plus/pull/32) | Every cart turns at the PSP UMD's pace (~2.6 s); real 3D models for the classic carts; Vectrex powers on. Includes #31's shelves. | Shelf UI |
-| [#11](https://github.com/jfink22-design/slot-brick-plus/pull/11) | Companion missions and streaks. Companion is switched off on main. | (not covered) |
 
 These pages cover what each PR does at its current head. Once a PR is merged, change its label to **On main**.
