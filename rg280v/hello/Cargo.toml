@@ -1,0 +1,16 @@
+[package]
+name = "slotted-hello"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = "s"
+strip = false
+
+# Standalone: do not join the repo workspace (Brick/SP stay untouched).
+[workspace]

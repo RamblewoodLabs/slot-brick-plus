@@ -22,3 +22,5 @@ tempfile.workspace = true
 [features]
 brick = []
 rg35xxsp = ["brick"]
+# Anbernic RG280V / Slotted: hide N64/DS/PSP rows, downscale insert frames.
+rg280v = ["slot-store/rg280v"]

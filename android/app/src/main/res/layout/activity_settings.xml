@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/slot_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_title"
+            android:textColor="@color/slot_accent"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/settings_ss_heading"
+            android:textColor="@color/slot_accent"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/ssHelp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="6dp"
+            android:text="@string/settings_ss_help"
+            android:textColor="@color/slot_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:text="@string/settings_ss_user"
+            android:textColor="@color/slot_muted" />
+
+        <EditText
+            android:id="@+id/ssUser"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/settings_ss_user"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:textColor="@color/slot_text"
+            android:textColorHint="@color/slot_muted" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/settings_ss_password"
+            android:textColor="@color/slot_muted" />
+
+        <EditText
+            android:id="@+id/ssPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/settings_ss_password"
+            android:importantForAutofill="no"
+            android:inputType="textPassword"
+            android:textColor="@color/slot_text"
+            android:textColorHint="@color/slot_muted" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/settings_ss_devid"
+            android:textColor="@color/slot_muted" />
+
+        <EditText
+            android:id="@+id/ssDevid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/settings_ss_devid_hint"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:textColor="@color/slot_text"
+            android:textColorHint="@color/slot_muted" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/settings_ss_devpassword"
+            android:textColor="@color/slot_muted" />
+
+        <EditText
+            android:id="@+id/ssDevpassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/settings_ss_devpassword_hint"
+            android:importantForAutofill="no"
+            android:inputType="textPassword"
+            android:textColor="@color/slot_text"
+            android:textColorHint="@color/slot_muted" />
+
+        <TextView
+            android:id="@+id/ssStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:textColor="@color/slot_text"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="8dp">
+
+            <TextView
+                android:id="@+id/saveSs"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:background="@color/slot_plank"
+                android:gravity="center"
+                android:padding="12dp"
+                android:text="@string/settings_save"
+                android:textColor="@color/slot_text" />
+
+            <TextView
+                android:id="@+id/testSs"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@color/slot_plank"
+                android:gravity="center"
+                android:padding="12dp"
+                android:text="@string/settings_test"
+                android:textColor="@color/slot_text" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="24dp"
+            android:text="@string/settings_preview_heading"
+            android:textColor="@color/slot_accent"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="6dp"
+            android:text="@string/settings_preview_help"
+            android:textColor="@color/slot_text"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_second_screen"
+                android:textColor="@color/slot_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/secondScreen"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_low_volume"
+                android:textColor="@color/slot_text" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/lowVolume"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/cacheStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:textColor="@color/slot_muted"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/clearCache"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="@string/settings_clear_cache"
+            android:textColor="@color/slot_text" />
+
+        <TextView
+            android:id="@+id/done"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@color/slot_plank"
+            android:gravity="center"
+            android:padding="12dp"
+            android:text="@string/settings_done"
+            android:textColor="@color/slot_accent" />
+    </LinearLayout>
+</ScrollView>

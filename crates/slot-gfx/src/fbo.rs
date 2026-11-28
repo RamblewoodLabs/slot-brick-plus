@@ -31,7 +31,12 @@ pub struct Compositor {
 impl Compositor {
     pub fn new(surface: &dyn Surface) -> Result<Self, GfxError> {
         crate::gl::load(surface);
-        let blit = crate::shaders::program(BLIT_VERT, BLIT_FRAG)?;
+        let blit_vert = if cfg!(feature = "rg280v") {
+            crate::shaders::BLIT_VERT_ROT
+        } else {
+            BLIT_VERT
+        };
+        let blit = crate::shaders::program(blit_vert, BLIT_FRAG)?;
         let bezel_prog = crate::shaders::program(BLIT_VERT, BEZEL_FRAG)?;
         let tex = crate::gl::texture(OUT_W, OUT_H, gl::NEAREST, gl::CLAMP_TO_EDGE, gl::RGBA, None);
         unsafe {
@@ -59,6 +64,12 @@ impl Compositor {
             let u_gain = crate::gl::uniform_location(blit, "u_gain");
             let u_blit_uv = crate::gl::uniform_location(blit, "u_uv");
             gl::Uniform4f(u_blit_uv, 0.0, 0.0, 1.0, 1.0);
+            if cfg!(feature = "rg280v") {
+                let u_rot = crate::gl::uniform_location(blit, "u_rot");
+                if u_rot >= 0 {
+                    gl::Uniform1f(u_rot, 0.0);
+                }
+            }
             gl::UseProgram(bezel_prog);
             gl::Uniform1i(crate::gl::uniform_location(bezel_prog, "u_tex"), 0);
             let u_bezel_gain = crate::gl::uniform_location(bezel_prog, "u_gain");
@@ -279,6 +290,13 @@ impl Compositor {
             gl::UseProgram(self.blit);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::Uniform3f(self.u_gain, self.gain[0], self.gain[1], self.gain[2]);
+            if cfg!(feature = "rg280v") {
+                let deg = crate::letterbox::letterbox_rect(window, crate::letterbox::orientation()).4;
+                let u_rot = crate::gl::uniform_location(self.blit, "u_rot");
+                if u_rot >= 0 {
+                    gl::Uniform1f(u_rot, (deg / 90) as f32);
+                }
+            }
         }
         unsafe { gl::BindTexture(gl::TEXTURE_2D, self.tex) };
         let cut = self

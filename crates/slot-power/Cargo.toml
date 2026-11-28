@@ -13,3 +13,4 @@ tempfile = { workspace = true }
 [features]
 brick = []
 sim = []
+rg280v = []
