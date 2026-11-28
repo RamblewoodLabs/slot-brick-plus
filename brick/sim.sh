@@ -48,7 +48,7 @@ fresh() {
     rm -rf "$1"
     mkdir -p "$1/hw"
     docker_run "$IMAGE" "$BIN" --init-root "$1/card/Slot" > /dev/null
-    cp brick/card/Slot/System/*.txt "$SIM"/cores/*_libretro.so "$1/card/Slot/System/"
+    cp "$SIM"/cores/*_libretro.so "$1/card/Slot/System/"
     cp -r brick/card/Slot/System/Fonts "$1/card/Slot/System/"
     for cart in "GBA/Sim Quest.gba" "GBA/Pixel Racer.gba" "GB/Pocket Test.gb" \
                 "GBC/Colour Check.gbc" "NES/Famicom Probe.nes" "SNES/Super Sample.sfc"; do
@@ -70,11 +70,11 @@ fresh() {
     python3 -I brick/sim/make-update.py "$1/releases"
 }
 
-# Where the cart art and label servers live. Docker looks names up with this machine's DNS;
+# Where the cart art server lives. Docker looks names up with this machine's DNS;
 # where that cannot answer for one of them, resolve.py does and the address is passed in, so
 # the label search and Get Cart Art can be tried in the sim.
 art_hosts() {
-    for host in art.slot-cfw.fyi images.launchbox-app.com; do
+    for host in api.screenscraper.fr; do
         addr=$(python3 -I brick/sim/resolve.py "$host" 2>/dev/null) || continue
         # An address and nothing else: what this prints is split into docker's arguments.
         case "$addr" in

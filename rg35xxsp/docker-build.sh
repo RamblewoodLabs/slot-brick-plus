@@ -48,8 +48,10 @@ rm -rf "$OUT"
 # Host user, so the card is not owned by root. Cargo's download cache stays
 # in .docker-cache between runs. HOME is inside the container: the Mac's
 # home directory is not mounted. --platform keeps the run on amd64 too.
+. brick/ss-dev-env.sh
 docker run --platform linux/amd64 --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src \
     -e HOME=/tmp -e CARGO_HOME=/src/.docker-cache/cargo -e CORES="$CORES" -e OUT="$OUT" \
+    -e SLOT_SS_DEVID -e SLOT_SS_DEVPASSWORD \
     "$IMAGE" sh -euc '
         [ "$CORES" = 0 ] || sh brick/build-cores.sh
         sh rg35xxsp/build-frontend.sh

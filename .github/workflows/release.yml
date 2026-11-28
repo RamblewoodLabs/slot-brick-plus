@@ -113,7 +113,12 @@ jobs:
             release-brick-
             brick-
 
+      # Cart Art's ScreenScraper developer id, from the repo's secrets (never printed). Without
+      # them the card still builds and Cart Art says so.
       - name: Build the card
+        env:
+          SLOT_SS_DEVID: ${{ secrets.SLOT_SS_DEVID }}
+          SLOT_SS_DEVPASSWORD: ${{ secrets.SLOT_SS_DEVPASSWORD }}
         run: sh brick/docker-build.sh
 
       # TrimUI's firmware (118 MB) and the boot chain Slot OS is built from, pinned by sha256.
