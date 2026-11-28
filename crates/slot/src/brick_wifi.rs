@@ -1,5 +1,5 @@
 //! Brick Wi-Fi settings. Uses the firmware supplicant; no shell interpolation of credentials.
-use std::{fs,os::unix::{net::UnixDatagram,fs::PermissionsExt},path::{Path,PathBuf},process::{Command,Stdio},sync::{mpsc,Arc,atomic::{AtomicBool,AtomicU64,Ordering}},thread,time::{Duration,Instant}};
+use std::{collections::HashSet,fs,os::unix::{net::UnixDatagram,fs::PermissionsExt},path::{Path,PathBuf},process::{Command,Stdio},sync::{mpsc,Arc,atomic::{AtomicBool,AtomicU64,Ordering}},thread,time::{Duration,Instant}};
 use slot_input::{Action,Btn};
 use slot_store::Platform;
 use slot_ui::{TexId,UndoFace};
@@ -365,7 +365,82 @@ fn art_status(list:&ArtList)->String{
 }
 /// The RetroAchievements screen: log in, test the connection, show a test unlock, log out.
 /// `test`: a pretend unlock waiting for the app to toast it.
-struct RaScreen{account:Option<ra::Account>,user:String,password:String,job:Option<mpsc::Receiver<RaDone>>,test:Option<TestUnlock>,page:u8,games:Vec<crate::offline_ra::GameCard>,focus:usize,cache:Option<crate::offline_ra::CacheRun>}
+const PICK_FIXED:usize=3;
+const PICK_GAME_FIXED:usize=2;
+/// The Cache achievement sets picker: systems on the card, and which games are ticked.
+struct CachePicker{systems:Vec<crate::offline_ra::CacheSystem>,selected:HashSet<crate::offline_ra::CacheKey>,system:usize,avg:Option<u64>}
+impl CachePicker{
+    fn load(root:&Path)->Self{
+        let cat=crate::offline_ra::cache_catalog(root);
+        let selected=crate::offline_ra::load_pick(root,&cat.systems);
+        Self{systems:cat.systems,selected,system:0,avg:cat.avg_size}
+    }
+    fn refresh_cached(&mut self,root:&Path){
+        let cat=crate::offline_ra::cache_catalog(root);
+        self.avg=cat.avg_size;
+        self.systems=cat.systems;
+    }
+    fn selected_count(&self)->usize{self.selected.len()}
+    fn game_count(&self)->usize{self.systems.iter().map(|s|s.games.len()).sum()}
+    fn select_all(&mut self){
+        self.selected=self.systems.iter().flat_map(|s|s.games.iter().map(|g|g.key.clone())).collect();
+    }
+    fn select_none(&mut self){self.selected.clear();}
+    fn system_selected(&self,i:usize)->usize{
+        self.systems.get(i).map(|s|s.games.iter().filter(|g|self.selected.contains(&g.key)).count()).unwrap_or(0)
+    }
+    fn toggle_system(&mut self,i:usize){
+        let Some(s)=self.systems.get(i) else{return};
+        let keys:Vec<_>=s.games.iter().map(|g|g.key.clone()).collect();
+        if keys.is_empty(){return}
+        if keys.iter().all(|k|self.selected.contains(k)){
+            for k in keys{self.selected.remove(&k);}
+        }else{
+            self.selected.extend(keys);
+        }
+    }
+    fn toggle_game(&mut self,sys:usize,game:usize){
+        let Some(k)=self.systems.get(sys).and_then(|s|s.games.get(game)).map(|g|g.key.clone()) else{return};
+        if !self.selected.remove(&k){self.selected.insert(k);}
+    }
+    fn select_system_all(&mut self,i:usize){
+        let Some(s)=self.systems.get(i) else{return};
+        self.selected.extend(s.games.iter().map(|g|g.key.clone()));
+    }
+    fn select_system_none(&mut self,i:usize){
+        let Some(s)=self.systems.get(i) else{return};
+        for g in &s.games{self.selected.remove(&g.key);}
+    }
+    fn uncached_keys(&self)->Vec<crate::offline_ra::CacheKey>{
+        let mut out=Vec::new();
+        for s in &self.systems{
+            for g in &s.games{
+                if self.selected.contains(&g.key) && !g.cached{out.push(g.key.clone());}
+            }
+        }
+        out
+    }
+    fn size_label(&self)->String{
+        match crate::offline_ra::selection_size(&self.systems,&self.selected,self.avg){
+            Some((n,approx)) if n>0=>{
+                let s=crate::offline_ra::format_bytes(n);
+                if approx{format!("~{s}")}else{s}
+            }
+            _=>String::new(),
+        }
+    }
+    fn status_line(&self)->String{
+        let n=self.selected_count();
+        let total=self.game_count();
+        let cached=self.systems.iter().flat_map(|s|&s.games).filter(|g|self.selected.contains(&g.key)&&g.cached).count();
+        let size=self.size_label();
+        let mut s=format!("{n} of {total} game{} selected",if total==1{""}else{"s"});
+        if cached>0{s.push_str(&format!(", {cached} already on the card"));}
+        if !size.is_empty(){s.push_str(&format!(", {size}"));}
+        s
+    }
+}
+struct RaScreen{account:Option<ra::Account>,user:String,password:String,job:Option<mpsc::Receiver<RaDone>>,test:Option<TestUnlock>,page:u8,games:Vec<crate::offline_ra::GameCard>,focus:usize,cache:Option<crate::offline_ra::CacheRun>,pick:Option<CachePicker>}
 /// A pretend unlock: title, description, points, and a badge already cached on the card.
 pub struct TestUnlock{pub title:String,pub description:String,pub points:u32,pub badge:Option<PathBuf>}
 /// Any badge cached on the card, so the test toast looks like the real thing.
@@ -408,9 +483,10 @@ impl WifiMenu{
         let games=crate::offline_ra::games(&card_root());
         let waiting=crate::offline_ra::waiting(&card_root());
         let status=if waiting==0{status}else{format!("{status}. {waiting} unlock{} waiting to send",if waiting==1{""}else{"s"})};
-        Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account,user:String::new(),password:String::new(),job:None,test:None,page:0,games,focus:0,cache:None}),query:None,update:None}
+        let status=crate::offline_ra::cache_status().unwrap_or(status);
+        Self{worker:None,face:None,dirty:true,on:true,status,networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account,user:String::new(),password:String::new(),job:None,test:None,page:0,games,focus:0,cache:None,pick:None}),query:None,update:None}
     }
-    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.list.as_ref().and_then(|l|l.login.as_ref()).is_some_and(|l|l.job.is_some()) || self.ra.as_ref().is_some_and(|r|r.job.is_some() || r.cache.is_some())}
+    pub fn busy(&self)->bool{self.update.as_ref().is_some_and(|u|u.busy()) || self.worker.is_some() || self.art.is_some() || self.list.as_ref().and_then(|l|l.login.as_ref()).is_some_and(|l|l.job.is_some()) || self.ra.as_ref().is_some_and(|r|r.job.is_some())}
     pub fn cancel(&mut self){
         if let Some(w)=&self.worker{w.cancel.store(true,Ordering::Relaxed);}
         if let Some(a)=&self.art{a.cancel();}
@@ -420,7 +496,8 @@ impl WifiMenu{
         // A reply that comes back after this is dropped unread, so nothing gets saved.
         if let Some(r)=&mut self.ra{
             if r.job.take().is_some(){self.status="Cancelled".into();self.dirty=true;return}
-            if let Some(c)=r.cache.take(){c.cancel();self.status="Cancelled".into();self.dirty=true;return}
+            // Achievement set caching continues in the background if this screen closes.
+            r.cache=None;
         }
         if self.busy(){self.status="Cancelling...".into();self.dirty=true;}
     }
@@ -636,33 +713,28 @@ impl WifiMenu{
         };
     }
     fn poll_cache(&mut self){
-        if self.ra.as_ref().is_some_and(|r|r.cache.is_none()){
+        // The cache thread keeps running if this screen closes. Progress is read from the
+        // shared status line, so coming back mid-pass shows a live count, never a stale one.
+        if crate::offline_ra::cache_busy(){
             if let Some(line)=crate::offline_ra::cache_status(){
                 if self.status!=line{self.status=line;self.dirty=true;}
             }
+            return;
         }
-        loop{
-            let event=match self.ra.as_ref().and_then(|r|r.cache.as_ref()).map(|c|c.try_recv()){
-                None=>return,
-                Some(Err(mpsc::TryRecvError::Empty))=>return,
-                Some(Err(mpsc::TryRecvError::Disconnected))=>{
-                    if let Some(r)=&mut self.ra{r.cache=None;}
-                    self.status="Caching stopped".into();self.dirty=true;return;
-                }
-                Some(Ok(e))=>e,
-            };
-            self.dirty=true;
-            match event{
-                crate::offline_ra::CacheEvent::Step{done,total,name}=>{self.status=format!("Caching {}/{total}: {name}",done+1);}
-                crate::offline_ra::CacheEvent::Done{cached,missed,failed}=>{
-                    if let Some(r)=&mut self.ra{r.cache=None;r.games=crate::offline_ra::games(&card_root());}
-                    self.status=format!("Cached {cached} sets, {missed} had none, {failed} failed");
-                    return;
-                }
+        if let Some(r)=self.ra.as_mut(){r.cache=None;}
+        if let Some((cached,missed,failed))=crate::offline_ra::take_cache_result(){
+            if let Some(r)=&mut self.ra{
+                r.games=crate::offline_ra::games(&card_root());
+                if let Some(p)=r.pick.as_mut(){p.refresh_cached(&card_root());}
             }
+            self.status=format!("Cached {cached} sets, {missed} had none, {failed} failed");
+            self.dirty=true;
         }
     }
     fn ra_rows(ra:&RaScreen)->Vec<String>{
+        if ra.page==3||ra.page==4{
+            return ra.pick.as_ref().map(|p|Self::picker_rows(p,ra.page)).unwrap_or_default()
+        }
         match ra.page{
             1 if ra.games.is_empty()=>vec!["NO SETS CACHED YET".into()],
             1=>ra.games.iter().map(|g|{
@@ -703,11 +775,50 @@ impl WifiMenu{
         let rows=Self::ra_rows(ra).len().max(1);
         match a{
             Action::GbaDown(Btn::B)=>{
+                if ra.page==4{
+                    let sys=ra.pick.as_ref().map(|p|p.system).unwrap_or(0);
+                    ra.page=3;self.row=PICK_FIXED+sys;
+                    if let Some(p)=ra.pick.as_ref(){self.status=p.status_line();}
+                    return false
+                }
+                if ra.page==3{
+                    if let Some(p)=ra.pick.as_ref(){crate::offline_ra::save_pick(&card_root(),&p.systems,&p.selected);}
+                    ra.page=0;self.row=2;
+                    self.status=ra.pick.as_ref().map(|p|p.status_line()).unwrap_or_else(||"Selection saved".into());
+                    ra.pick=None;
+                    return false
+                }
                 if ra.page>0{ra.page-=1;self.row=0;self.status=if ra.page==0{"Achievements saved on the card".into()}else{"Choose a game".into()};return false}
                 return true
             }
             Action::GbaDown(Btn::Up)=>{self.row=(self.row+rows-1)%rows;}
             Action::GbaDown(Btn::Down)=>{self.row=(self.row+1)%rows;}
+            Action::GbaDown(Btn::Left)|Action::ShelfLeft if ra.page==4=>{
+                let sys=ra.pick.as_ref().map(|p|p.system).unwrap_or(0);
+                ra.page=3;self.row=PICK_FIXED+sys;
+                if let Some(p)=ra.pick.as_ref(){self.status=p.status_line();}
+                return false
+            }
+            Action::GbaDown(Btn::Right)|Action::ShelfRight if ra.page==3 && self.row>=PICK_FIXED=>{
+                if let Some(p)=ra.pick.as_mut(){
+                    let i=self.row-PICK_FIXED;
+                    if i<p.systems.len(){
+                        p.system=i;ra.page=4;self.row=0;
+                        let got=p.system_selected(i);
+                        let n=p.systems[i].games.len();
+                        self.status=format!("{}  {got}/{n} selected",p.systems[i].platform.dir_name());
+                    }
+                }
+                return false
+            }
+            Action::GbaDown(Btn::A)|Action::Insert if ra.page==3=>{
+                self.pick_input_systems();
+                return false
+            }
+            Action::GbaDown(Btn::A)|Action::Insert if ra.page==4=>{
+                self.pick_input_games();
+                return false
+            }
             Action::GbaDown(Btn::A)|Action::Insert if ra.page==1=>{
                 if ra.games.is_empty(){return false}
                 ra.focus=self.row.min(ra.games.len()-1);
@@ -745,15 +856,10 @@ impl WifiMenu{
                     }
                     ra.job=Some(rx);self.status="Testing the connection...".into();
                 }
-                (Some(account),2)=>{
-                    if !online(){self.status="Connect to Wi-Fi first".into();return false}
-                    if crate::offline_ra::cache_busy(){
-                        self.status=crate::offline_ra::cache_status().unwrap_or_else(||"Caching achievement sets...".into());
-                        return false
-                    }
-                    let (root,user,token)=(card_root(),account.user.clone(),account.token.clone());
-                    ra.cache=Some(crate::offline_ra::CacheRun::start(root,user,token));
-                    self.status="Caching achievement sets...".into();
+                (Some(_account),2)=>{
+                    ra.pick=Some(CachePicker::load(&card_root()));
+                    ra.page=3;self.row=0;
+                    self.status=ra.pick.as_ref().map(|p|p.status_line()).unwrap_or_else(||"Choose which sets to cache".into());
                 }
                 (Some(_),3)=>{ra.page=1;self.row=0;self.status="Sets saved on the card".into();}
                 (Some(_),4)=>{
@@ -770,18 +876,123 @@ impl WifiMenu{
             _=>{}
         }false
     }
+    fn picker_rows(p:&CachePicker,page:u8)->Vec<String>{
+        if p.systems.is_empty(){return vec!["NO RETROACHIEVEMENTS GAMES ON THE CARD".into()]}
+        if page==4{
+            let Some(sys)=p.systems.get(p.system) else{return vec!["NO SYSTEM".into()]};
+            let mut rows=vec!["SELECT ALL".into(),"SELECT NONE".into()];
+            if sys.games.is_empty(){rows.push("NO GAMES".into());return rows}
+            for g in &sys.games{
+                let mark=if p.selected.contains(&g.key){"[X]"}else{"[ ]"};
+                let cached=if g.cached{"  CACHED"}else{""};
+                rows.push(format!("{mark}  {}{cached}",g.title));
+            }
+            rows
+        }else{
+            let n=p.selected_count();
+            let size=p.size_label();
+            let cache=if size.is_empty(){format!("CACHE SELECTED    {n}")}else{format!("CACHE SELECTED    {n}    {size}")};
+            let mut rows=vec!["SELECT ALL".into(),"SELECT NONE".into(),cache];
+            for (i,sys) in p.systems.iter().enumerate(){
+                let got=p.system_selected(i);
+                let total=sys.games.len();
+                let mark=if total>0 && got==total{"[X]"}else if got==0{"[ ]"}else{"[+]"};
+                let count=if got==total{format!("{total} game{}",if total==1{""}else{"s"})}else{format!("{got}/{total}")};
+                let sizes:Vec<u64>=sys.games.iter().filter(|g|p.selected.contains(&g.key)).filter_map(|g|g.size).collect();
+                let unknown=sys.games.iter().filter(|g|p.selected.contains(&g.key)&&g.size.is_none()).count();
+                let size=match crate::offline_ra::approx_bytes(&sizes,unknown,p.avg){
+                    Some((n,approx)) if n>0=>{
+                        let s=crate::offline_ra::format_bytes(n);
+                        if approx{format!("    ~{s}")}else{format!("    {s}")}
+                    }
+                    _=>String::new(),
+                };
+                rows.push(format!("{mark}  {}    {count}{size}",sys.platform.dir_name()));
+            }
+            rows
+        }
+    }
+    fn pick_input_systems(&mut self){
+        if self.row==2{self.start_selected_cache();return}
+        let status={
+            let Some(ra)=self.ra.as_mut() else{return};
+            let Some(p)=ra.pick.as_mut() else{return};
+            if p.systems.is_empty(){return}
+            match self.row{
+                0=>p.select_all(),
+                1=>p.select_none(),
+                _=>p.toggle_system(self.row-PICK_FIXED),
+            }
+            crate::offline_ra::save_pick(&card_root(),&p.systems,&p.selected);
+            p.status_line()
+        };
+        self.status=status;
+    }
+    fn pick_input_games(&mut self){
+        let status={
+            let Some(ra)=self.ra.as_mut() else{return};
+            let Some(p)=ra.pick.as_mut() else{return};
+            let sys=p.system;
+            match self.row{
+                0=>p.select_system_all(sys),
+                1=>p.select_system_none(sys),
+                _=>p.toggle_game(sys,self.row-PICK_GAME_FIXED),
+            }
+            crate::offline_ra::save_pick(&card_root(),&p.systems,&p.selected);
+            let got=p.system_selected(sys);
+            let n=p.systems.get(sys).map(|s|s.games.len()).unwrap_or(0);
+            let name=p.systems.get(sys).map(|s|s.platform.dir_name()).unwrap_or("");
+            format!("{name}  {got}/{n} selected")
+        };
+        self.status=status;
+    }
+    fn start_selected_cache(&mut self){
+        if self.ra.as_ref().and_then(|r|r.account.as_ref()).is_none(){self.status="Log in first".into();return}
+        let (user,token,keys,selected)={
+            let Some(ra)=self.ra.as_ref() else{return};
+            let Some(account)=ra.account.as_ref() else{return};
+            let Some(p)=ra.pick.as_ref() else{return};
+            crate::offline_ra::save_pick(&card_root(),&p.systems,&p.selected);
+            (account.user.clone(),account.token.clone(),p.uncached_keys(),p.selected_count())
+        };
+        if selected==0{self.status="Choose at least one game".into();return}
+        if keys.is_empty(){self.status="All selected sets are already on the card".into();return}
+        if !online(){self.status="Connect to Wi-Fi first".into();return}
+        if crate::offline_ra::cache_busy(){
+            self.status=crate::offline_ra::cache_status().unwrap_or_else(||"Caching achievement sets...".into());
+            return
+        }
+        let root=card_root();
+        // Drop the handle: the pass keeps running in the background, and poll_cache
+        // reads its live status. Leaving this screen does not stop it.
+        let _run=crate::offline_ra::CacheRun::start_keys(root,user,token,keys);
+        self.status=crate::offline_ra::cache_status().unwrap_or_else(||"Caching achievement sets...".into());
+    }
     fn render_ra(&self,ra:&RaScreen)->UndoFace{
         let mut p=Painter::new();
-        let title=match ra.page{1=>"ACHIEVEMENT SETS",2=>"ACHIEVEMENTS",_=>"RETROACHIEVEMENTS"};
+        let title=match ra.page{
+            1=>"ACHIEVEMENT SETS",
+            2=>"ACHIEVEMENTS",
+            3=>"CACHE SETS",
+            4=>ra.pick.as_ref().and_then(|p|p.systems.get(p.system)).map(|s|s.platform.dir_name()).unwrap_or("GAMES"),
+            _=>"RETROACHIEVEMENTS",
+        };
         p.text(title,32,24,576,30.0);p.text(&self.status,32,66,576,18.0);
-        let rows=Self::ra_rows(ra);
+        let rows=if ra.page==3||ra.page==4{
+            ra.pick.as_ref().map(|p|Self::picker_rows(p,ra.page)).unwrap_or_default()
+        }else{Self::ra_rows(ra)};
         let first=if self.row<7{0}else{self.row-6};
         for (line,row) in (first..rows.len().min(first+7)).enumerate(){
             let y=110+line*41;
             if row==self.row{p.rect(0,y,640,38,slot_ui::edge());}
             p.text(&rows[row],32,y+1,576,23.0);
         }
-        let legend=if self.busy(){"B CANCEL"}else if ra.page==0{"B BACK    A SELECT"}else if ra.page==1{"B BACK    A OPEN"}else{"B BACK    A DETAILS"};
+        let legend=if self.busy(){"B CANCEL"}
+            else if ra.page==3{if self.row>=PICK_FIXED{"B BACK    A TOGGLE    RIGHT GAMES"}else{"B BACK    A SELECT    RIGHT GAMES"}}
+            else if ra.page==4{"B BACK    A TOGGLE"}
+            else if ra.page==0{"B BACK    A SELECT"}
+            else if ra.page==1{"B BACK    A OPEN"}
+            else{"B BACK    A DETAILS"};
         p.text(legend,24,430,592,20.0);
         UndoFace{rgba:p.rgba,w:640,h:480}
     }
@@ -974,7 +1185,7 @@ impl Painter{
         assert_eq!(masked(&k),"Benni");
     }
     #[test]fn ra_screen_types_the_login_and_needs_both_fields(){
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None}),query:None,update:None};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None,pick:None}),query:None,update:None};
         m.input(Action::GbaDown(Btn::A));assert!(m.keyboard.as_ref().is_some_and(|k|!k.secret));
         // q w e on the letter row
         m.input(Action::GbaDown(Btn::Down));for _ in 0..3{m.input(Action::GbaDown(Btn::A));m.input(Action::GbaDown(Btn::Right));}
@@ -992,7 +1203,7 @@ impl Painter{
         assert_eq!(cached_badge(&dir),Some(dir.join("System/Cache/Badges/a.png")));
         assert_eq!(cached_badge(&dir.join("nowhere")),None);let _=fs::remove_dir_all(&dir);
         let account=ra::Account{user:"Benni".into(),token:"t".into()};
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None}),query:None,update:None};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None,pick:None}),query:None,update:None};
         m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,5,"six rows when logged in, wrapping to LOG OUT");
         m.input(Action::GbaDown(Btn::Up));assert_eq!(m.row,4);
         assert!(m.take_test_unlock().is_none());
@@ -1002,7 +1213,7 @@ impl Painter{
     }
     #[test]fn a_cached_set_opens_offline(){
         let card=crate::offline_ra::GameCard{key:"abc".into(),title:"Tetris".into(),game_id:1,place:"GB  Tetris".into(),achievements:vec![crate::offline_ra::Ach{id:5,points:10,badge:"00010".into(),title:"Clear".into(),description:"Clear a line".into(),unlocked:true,waiting:true,refused:false}]};
-        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:vec![card],focus:0,cache:None}),query:None,update:None};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:None,user:String::new(),password:String::new(),job:None,test:None,page:0,games:vec![card],focus:0,cache:None,pick:None}),query:None,update:None};
         m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::Down));m.input(Action::GbaDown(Btn::Down));
         m.input(Action::GbaDown(Btn::A));
         assert_eq!(m.ra.as_ref().unwrap().page,1);
@@ -1081,4 +1292,121 @@ impl Painter{
         let mut s=art_menu(Some("jeff"));s.open_login(None);s.row=1;s.status="Logged in as jeff, level 1, 1 thread. 12 of 20000 lookups used today".into();save("screenscraper-logged-in.png",s.render());
         let mut c=art_menu(Some("jeff"));c.row=1;c.status="2 games have a label. A on one twice deletes it".into();save("cart-art-menu-logged-in.png",c.render());
     }
+
+    fn pick_menu(systems:Vec<(Platform,Vec<(&str,bool)>)>,selected:HashSet<crate::offline_ra::CacheKey>)->WifiMenu{
+        let systems=systems.into_iter().map(|(platform,games)|crate::offline_ra::CacheSystem{
+            platform,
+            games:games.into_iter().map(|(stem,cached)|crate::offline_ra::CacheGame{
+                key:crate::offline_ra::CacheKey{platform,stem:stem.into()},
+                title:stem.into(),
+                cached,
+                size:if cached{Some(1200)}else{None},
+            }).collect(),
+        }).collect::<Vec<_>>();
+        let avg=Some(1200);
+        let account=ra::Account{user:"Benni".into(),token:"t".into()};
+        let pick=CachePicker{systems,selected,system:0,avg};
+        WifiMenu{worker:None,face:None,dirty:true,on:true,status:pick.status_line(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None,page:3,games:Vec::new(),focus:0,cache:None,pick:Some(pick)}),query:None,update:None}
+    }
+    #[test]fn cache_achievement_sets_opens_a_system_picker(){
+        let account=ra::Account{user:"Benni".into(),token:"t".into()};
+        let mut m=WifiMenu{worker:None,face:None,dirty:true,on:true,status:String::new(),networks:Vec::new(),row:0,keyboard:None,refreshed:Instant::now(),art:None,fetched:Vec::new(),list:None,ra:Some(RaScreen{account:Some(account),user:String::new(),password:String::new(),job:None,test:None,page:0,games:Vec::new(),focus:0,cache:None,pick:None}),query:None,update:None};
+        m.row=2;
+        m.input(Action::GbaDown(Btn::A));
+        let ra=m.ra.as_ref().unwrap();
+        assert_eq!(ra.page,3);
+        assert!(ra.pick.is_some());
+        assert!(m.status.contains("selected"),"{}",m.status);
+        assert!(!m.input(Action::GbaDown(Btn::B)));
+        assert_eq!(m.ra.as_ref().unwrap().page,0);
+        assert!(m.ra.as_ref().unwrap().pick.is_none());
+        assert_eq!(m.row,2);
+    }
+    #[test]fn the_cache_picker_toggles_systems_and_drills_into_games(){
+        let mut selected=HashSet::new();
+        selected.insert(crate::offline_ra::CacheKey{platform:Platform::Snes,stem:"Mario".into()});
+        let mut m=pick_menu(vec![
+            (Platform::Gb,vec![("Tetris",false),("Kirby",true)]),
+            (Platform::Snes,vec![("Mario",true),("Yoshi",false)]),
+        ],selected);
+        let rows=WifiMenu::picker_rows(m.ra.as_ref().unwrap().pick.as_ref().unwrap(),3);
+        assert_eq!(rows[0],"SELECT ALL");
+        assert_eq!(rows[1],"SELECT NONE");
+        assert!(rows[2].starts_with("CACHE SELECTED"),"{:?}",rows);
+        assert!(rows[3].starts_with("[ ]  GB"),"{:?}",rows);
+        assert!(rows[4].contains("SNES")&&rows[4].starts_with("[+]"),"{:?}",rows);
+        m.row=3;m.input(Action::GbaDown(Btn::A));
+        let p=m.ra.as_ref().unwrap().pick.as_ref().unwrap();
+        assert_eq!(p.system_selected(0),2);
+        m.row=4;m.input(Action::GbaDown(Btn::Right));
+        assert_eq!(m.ra.as_ref().unwrap().page,4);
+        let rows=WifiMenu::picker_rows(m.ra.as_ref().unwrap().pick.as_ref().unwrap(),4);
+        assert!(rows[2].contains("[X]  Mario")&&rows[2].contains("CACHED"),"{:?}",rows);
+        assert!(rows[3].contains("[ ]  Yoshi"),"{:?}",rows);
+        m.row=3;m.input(Action::GbaDown(Btn::A));
+        let p=m.ra.as_ref().unwrap().pick.as_ref().unwrap();
+        assert!(p.selected.contains(&crate::offline_ra::CacheKey{platform:Platform::Snes,stem:"Yoshi".into()}));
+        assert!(!m.input(Action::GbaDown(Btn::B)));
+        assert_eq!(m.ra.as_ref().unwrap().page,3);
+        assert_eq!(m.row,4);
+    }
+    #[test]fn cache_selected_without_a_choice_asks_first(){
+        let mut m=pick_menu(vec![(Platform::Gb,vec![("Tetris",false)])],HashSet::new());
+        m.row=2;m.input(Action::GbaDown(Btn::A));
+        assert_eq!(m.status,"Choose at least one game");
+        assert!(m.ra.as_ref().unwrap().cache.is_none());
+    }
+    /// The Cache sets screens as PNGs, for review: `SLOT_SCREENS=dir`.
+    #[test]fn draw_the_cache_picker_screens(){
+        let Some(dir)=std::env::var_os("SLOT_SCREENS")else{return};let dir=PathBuf::from(dir);fs::create_dir_all(&dir).unwrap();
+        let save=|name:&str,f:UndoFace|{let img=slot_cartart::Image::from_rgba(f.w,f.h,f.rgba).unwrap();fs::write(dir.join(name),slot_cartart::image::encode_png_rgba(&img)).unwrap();};
+        let mut selected=HashSet::new();
+        for (p,s) in [(Platform::Snes,"Mario"),(Platform::Snes,"Yoshi"),(Platform::Gb,"Tetris"),(Platform::Nes,"Zelda"),(Platform::Md,"Sonic"),(Platform::Gba,"Emerald")]{
+            selected.insert(crate::offline_ra::CacheKey{platform:p,stem:s.into()});
+        }
+        let mut m=pick_menu(vec![
+            (Platform::Gba,vec![("Emerald",true),("Metroid Fusion",false),("Wario Land 4",false)]),
+            (Platform::Gb,vec![("Tetris",true),("Kirby",false),("Zelda DX",false)]),
+            (Platform::Md,vec![("Sonic",true),("Streets of Rage 2",false)]),
+            (Platform::Nes,vec![("Zelda",false),("Metroid",false),("Punch-Out!!",true)]),
+            (Platform::Snes,vec![("Mario",true),("Yoshi",false),("Star Fox",false),("Chrono Trigger",false)]),
+        ],selected);
+        m.status=m.ra.as_ref().unwrap().pick.as_ref().unwrap().status_line();
+        m.row=7;
+        save("cache-sets-systems.png",m.render());
+        m.row=2;
+        save("cache-sets-cache-selected.png",m.render());
+        m.row=7;m.input(Action::GbaDown(Btn::Right));
+        save("cache-sets-snes-games.png",m.render());
+        let empty=pick_menu(vec![
+            (Platform::Gb,vec![("Tetris",false)]),
+            (Platform::Snes,vec![("Mario",false)]),
+        ],HashSet::new());
+        save("cache-sets-none-selected.png",empty.render());
+    }
+
+
+    #[test]fn a_running_cache_keeps_going_after_leaving_the_screen_and_shows_live_progress_on_return(){
+        crate::offline_ra::test_set_cache_state(Some("Caching 3/10: Mario"),true,None);
+        let mut m=pick_menu(vec![(Platform::Gb,vec![("Tetris",false)])],HashSet::new());
+        m.poll();
+        assert_eq!(m.status,"Caching 3/10: Mario");
+        assert!(!m.busy(),"a background cache must not trap B as Cancel");
+        // B leaves the picker for the RetroAchievements menu; the pass stays running.
+        assert!(!m.input(Action::GbaDown(Btn::B)));
+        assert_eq!(m.ra.as_ref().unwrap().page,0);
+        assert!(crate::offline_ra::cache_busy());
+        assert_eq!(crate::offline_ra::cache_status().as_deref(),Some("Caching 3/10: Mario"));
+        // Coming back (or staying) still follows the live line, not a frozen copy.
+        crate::offline_ra::test_set_cache_state(Some("Caching 7/10: Yoshi"),true,None);
+        m.poll();
+        assert_eq!(m.status,"Caching 7/10: Yoshi");
+        // When it finishes, the stale "Caching N" line is gone and the counts are shown.
+        crate::offline_ra::test_set_cache_state(Some("Caching 7/10: Yoshi"),false,Some((6,1,0)));
+        assert!(crate::offline_ra::cache_status().is_none());
+        m.poll();
+        assert_eq!(m.status,"Cached 6 sets, 1 had none, 0 failed");
+        crate::offline_ra::test_set_cache_state(None,false,None);
+    }
+
 }
