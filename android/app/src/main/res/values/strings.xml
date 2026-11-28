@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Slot</string>
+    <string name="app_name">Slotted</string>
+    <string name="preview_image">Game preview</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_ss_heading">ScreenScraper</string>
+    <string name="settings_ss_help">Box art, screenshots, logos and video snaps come from ScreenScraper.fr when both a developer id for this app and your own account are set. Slotted does not invent a developer id or password: register the app on the ScreenScraper forum (https://www.screenscraper.fr/), present Slotted as a free GPL-3 frontend, and paste the issued devid and devpassword here. User accounts stay on this device and are only sent to ScreenScraper\'s API.\n\nWithout those credentials, Slotted still fetches stills from libretro-thumbnails (no account needed). Video snaps are only available from ScreenScraper.</string>
+    <string name="settings_ss_user">ScreenScraper username (ssid)</string>
+    <string name="settings_ss_password">ScreenScraper password</string>
+    <string name="settings_ss_devid">Developer id (devid)</string>
+    <string name="settings_ss_devid_hint">Issued after forum registration — leave blank until then</string>
+    <string name="settings_ss_devpassword">Developer password</string>
+    <string name="settings_ss_devpassword_hint">Issued with the developer id — do not invent one</string>
+    <string name="settings_save">Save account</string>
+    <string name="settings_test">Test login</string>
+    <string name="settings_preview_heading">Second screen and video</string>
+    <string name="settings_preview_help">On an AYN Thor (or any device with a second display), hovering a game plays its video snap on that screen, or shows a screenshot / box art plus title, year, publisher, players and RetroAchievements count when there is no video. On a single-screen device the same preview appears as a panel on this screen after a short hover. The second screen is released when a game launches in an external emulator.</string>
+    <string name="settings_second_screen">Use the second screen when available</string>
+    <string name="settings_low_volume">Play preview video at low volume (off = muted)</string>
+    <string name="settings_clear_cache">Clear cached art and video</string>
+    <string name="settings_done">Done</string>
+    <string name="about_title">About Slotted</string>
+    <string name="about_button">About</string>
+    <string name="about_body">Slotted is free software under the GNU General Public License v3.0 or later.\n\nGame media shown on the shelf and the second screen may come from:\n\n• ScreenScraper.fr — box art, screenshots, marquees / wheel logos and video snaps, when you enter your own account and a developer id issued for this app. Artwork remains the property of its rights holders. https://www.screenscraper.fr/\n\n• libretro-thumbnails — box art, snaps and title screens, used as a fallback with no account. Community-contributed. https://github.com/libretro-thumbnails/libretro-thumbnails\n\nSlotted does not sell this media and does not bundle BIOS, firmware, or console keys. You must supply those from hardware you own.\n\nThese systems play inside Slotted with libretro cores built from the sources in vendor/: GB / GBC / GBA (mGBA, MPL-2.0); NES (FCEUmm, GPL-2.0); SNES (Snes9x); Genesis / Master System / Game Gear (Genesis Plus GX, non-commercial — allowed because Slotted is free); PS1 (PCSX ReARMed, GPL-2.0); arcade (FinalBurn Neo, non-commercial, same rule); TurboGrafx-16 / PC Engine (Beetle PCE Fast, GPL-2.0+); Atari 2600 (Stella 2014, GPL-2.0+); Intellivision (FreeIntv, GPL-2.0+); Atari Lynx (Handy, zlib); Atari 7800 (ProSystem, GPL-2.0+); Game &amp; Watch (gw-libretro, zlib); ColecoVision (Gearcoleco, GPL-3.0); Atari 5200 (a5200, GPL-2.0); Atari 800 (Atari800, GPL-2.0+); Vectrex (vecx, GPL-3.0); 32X (PicoDrive, non-commercial, same rule); Nintendo DS (melonDS, GPL-3.0); Nintendo 64 (mupen64plus-next, GPL-2.0, GLES hardware render); and PSP (PPSSPP, GPL-2.0+; this Android build does not include FFmpeg, whose Linux prebuilts in the vendor tarball are not Bionic-compatible). Full license texts ship in the APK under assets/licenses. PPSSPP\'s fonts, shaders and compat lists ship with the app; BIOS and firmware do not. Dreamcast and Saturn still launch through RetroArch as an interim step. GameCube, PS2, Switch, 3DS, Vita and Xbox launch official standalone emulators by intent (Dolphin, ARMSX2, Eden, Azahar, Vita3K, hakuX).\n\nRetroAchievements counts will appear on the preview once that Android path is wired; they show as an em dash until then.</string>
 </resources>

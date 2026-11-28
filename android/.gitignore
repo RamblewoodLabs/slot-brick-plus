@@ -4,3 +4,13 @@ app/src/main/jniLibs/
 local.properties
 *.iml
 .cxx/
+# Filled developer credentials at the android/ root — never commit.
+# The empty assets placeholder is tracked.
+/screenscraper.properties
+
+# NDK libretro core extract/build trees (rebuild with android/build-cores.sh).
+/core-src/
+/core-build/
+
+# Packed from vendor/ppsspp-assets by build-apk.sh.
+app/src/main/assets/ppsspp/
