@@ -82,7 +82,8 @@ const POWER_MENU_BAR_INSET: f32 = 4.0;
 const CORE_PICKER_RECEDE: f32 = 0.26;
 
 const SLOT_NAME_IN_MS: Millis = slot_ui::paced_ms(200);
-const SLOT_NAME_HOLD_MS: Millis = slot_ui::paced_ms(1200);
+/// How long the name holds at full strength, so it can be read. Not paced: the fades are.
+const SLOT_NAME_HOLD_MS: Millis = 1200;
 const SLOT_NAME_OUT_MS: Millis = slot_ui::paced_ms(800);
 const SLOT_NAME_ALPHA: f32 = 0.4;
 /// How long the slot takes to turn from a cartridge slot into a disc slot, or back.
