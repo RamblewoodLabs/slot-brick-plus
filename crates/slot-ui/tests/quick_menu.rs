@@ -95,7 +95,12 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "About"
         ]
     );
-    #[cfg(feature = "brick")]
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    assert_eq!(
+        QuickRow::MAIN.map(QuickRow::label),
+        ["Emulation", "Gameplay", "Library", "Online", "Apps", "System"]
+    );
+    #[cfg(feature = "rg35xxsp")]
     assert_eq!(
         QuickRow::MAIN.map(QuickRow::label),
         ["Emulation", "Gameplay", "Library", "Online", "System"]
@@ -237,6 +242,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
     ];
     #[cfg(feature = "brick")]
     pages.extend([&QuickRow::ONLINE[..], &QuickRow::CLOCK[..]]);
+    #[cfg(all(feature = "brick", not(feature = "rg35xxsp")))]
+    pages.push(&QuickRow::APPS[..]);
     for page in pages {
         for &row in page {
             assert_eq!(row.page(), page, "{row:?}");

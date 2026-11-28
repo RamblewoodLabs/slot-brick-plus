@@ -429,6 +429,7 @@ runs the simulator's unit tests and scenarios before it builds anything.
 | [KrutzOtrem](https://github.com/KrutzOtrem/Trimui-Brick-Overlays) | The bundled overlays: *Vanilla* (GB, GBC, GBA) and *CRT* (NES, SNES), MIT |
 | [Hugo Chargois](https://font.gohu.org/) | GohuFont, one of the fonts under HOME → System → Font, WTFPL |
 | freesound_community and others on Pixabay | Slot's sounds: the favorite star's pops, the HOME menu's, a GBA cart opening and a label going on; Pixabay Content License, see `licenses/` |
+| [ETRNLIAM](https://github.com/ETRNLIAM/GrainBrick) | GrainBrick, the granular sound instrument HOME → Apps → GrainBrick opens on the Brick when you have installed it yourself. Free to download but not open source, so it is **not included** with Slot; see `licenses/grainbrick-not-included.txt` |
 | [TrimUI](https://github.com/trimui/firmware_brick), [Debian](https://www.debian.org) | Slot OS (experimental) runs TrimUI's boot chain, kernel, drivers and firmware from their firmware 1.1.1 (the [Brick Pro's](https://github.com/trimui/firmware_brickpro) for its image), and Debian 12 packages (glibc, ALSA, busybox, wpa_supplicant, hostapd); licences in `slot-os/licenses` on a Slot OS card |
 
 

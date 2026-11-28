@@ -5,7 +5,8 @@ press a
 phase Shelf
 press menu
 phase QuickMenu
-press up
+press up      # System
+press up      # Apps
 press up      # Online
 press a
 press up      # Update, the last of Online's rows
@@ -19,7 +20,8 @@ wait 1000
 snap shelf-update-icon
 press menu
 phase QuickMenu
-press up
+press up      # System
+press up      # Apps
 press up      # Online
 press a
 press up      # Update

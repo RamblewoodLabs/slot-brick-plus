@@ -1,0 +1,15 @@
+GrainBrick is not included with Slot.
+
+GrainBrick (https://github.com/ETRNLIAM/GrainBrick), a granular ambient sound instrument by
+ETRNLIAM, is free to download, but its own application code is not released under an
+open-source licence and its terms do not allow it to be passed on. Slot ships none of it.
+
+HOME -> Apps -> GrainBrick (TrimUI Brick only) opens a copy you installed yourself from its
+GitHub releases: put the contents of the release's grainbrick-beta2/ folder in
+Slot/Apps/GrainBrick/ (or the grainbrick-beta2/ folder itself in Slot/Apps/). It is a Python
+program; the Brick card Slot makes carries the Python 3.12 with pygame it needs, in
+Slot/Apps/python (see python-runtime.txt).
+
+GrainBrick's own notices for what it bundles (SoundTouch, LGPL-2.1+; parts of Mutable
+Instruments Rings, MIT; NumPy, BSD-3-Clause) are in its folder: THIRD_PARTY_NOTICES.md,
+THIRD_PARTY_LICENSES/ and THIRD_PARTY_SOURCES/.

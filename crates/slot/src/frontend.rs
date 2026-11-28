@@ -1054,6 +1054,29 @@ impl Frontend {
         self.session.app().updating()
     }
 
+    /// HOME → Apps → GrainBrick was picked: its folder and the Python to run it with.
+    pub fn launching(&self) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+        self.session.app().launching().cloned()
+    }
+
+    /// The app was not opened (or, in the simulator, never is): Slot carries on.
+    pub fn launch_failed(&mut self) {
+        self.session.app_mut().launch_failed();
+    }
+
+    /// Saves settled and the lights given back, Slot replaces itself with System/run-app.sh,
+    /// which runs the app and then starts Slot again. Returns only if that could not start.
+    #[cfg(all(feature = "brick", not(feature = "sim")))]
+    pub fn exec_app(&mut self, root: &std::path::Path, app: &std::path::Path, python: &std::path::Path) {
+        self.session.app_mut().settle_saves();
+        self.session.app().restore_brick_leds();
+        let _ = std::process::Command::new("sync").status();
+        eprintln!("slot: opening {} with {}", app.display(), python.display());
+        let e = crate::apps::exec(root, app, python);
+        eprintln!("slot: could not open {}: {e}", app.display());
+        self.session.app_mut().launch_failed();
+    }
+
     /// An update is swapped in: saves settled, Slot ends for launch.sh to start the new one.
     #[cfg(feature = "brick")]
     pub fn exit_for_update(&mut self) {
