@@ -14,15 +14,29 @@ pub fn of(platform: Platform) -> Option<&'static Turn> {
     turn_by_dir(platform.def().shell?)
 }
 
-/// How long a platform's cart takes to turn; 0 when it goes straight in.
-pub fn seconds(platform: Platform) -> f32 {
+/// Cart insert and eject — including the turn before a cart goes in — play this many
+/// times faster than the authored timings. 1.4 is a 40% speed-up: wall-clock durations
+/// are 1/1.4 ≈ 0.714 of what they were.
+pub const CART_ANIM_SPEED: f32 = crate::ANIM_SPEED;
+
+fn paced(seconds: f32) -> f32 {
+    crate::paced_s(seconds)
+}
+
+/// Authored length of a platform's turn, before [`crate::ANIM_SPEED`].
+fn authored_seconds(platform: Platform) -> f32 {
     if platform == Platform::Gw {
         return GW_OPEN_S + GW_HOLD_S;
     }
     if spins(platform) {
         return SPIN_FRAMES as f32 / SPIN_FPS + SPIN_HOLD_S;
     }
-    of(platform).map_or(0.0, Turn::seconds)
+    of(platform).map_or(0.0, |t| t.authored_seconds())
+}
+
+/// How long a platform's cart takes to turn; 0 when it goes straight in.
+pub fn seconds(platform: Platform) -> f32 {
+    paced(authored_seconds(platform))
 }
 
 /// Which of `n` frames shows `u` (0..1) of the way through a platform's turn. A rendered turn
@@ -32,7 +46,7 @@ pub fn frame_index(platform: Platform, u: f32, n: usize) -> usize {
     if n == 0 {
         return 0;
     }
-    let total = seconds(platform);
+    let total = authored_seconds(platform);
     let (motion, eased) = if platform == Platform::Gw {
         (GW_OPEN_S, true)
     } else if spins(platform) {
@@ -320,7 +334,7 @@ pub const GW_FRAMES: usize = 18;
 /// How the strip was authored: 18 frames at 30 fps (0.6 s).
 pub const GW_FPS: f32 = 30.0;
 /// Played eased over this long, then held open, so a Game & Watch takes about as long as
-/// every other shelf's cart turn (2.6-2.7 s) before it goes in.
+/// every other shelf's cart turn (about 1.9 s at `CART_ANIM_SPEED`) before it goes in.
 pub const GW_OPEN_S: f32 = 2.13;
 pub const GW_HOLD_S: f32 = 0.5;
 pub const GW_OPEN_DIR: &str = "open";
@@ -361,15 +375,21 @@ pub fn gw_faces(strip: &[u8]) -> Option<TurnFaces> {
 
 impl Turn {
     /// The frames at their own rate, then the still hold before the cart drops.
-    pub fn seconds(&self) -> f32 {
+    fn authored_seconds(&self) -> f32 {
         self.frames.len() as f32 / self.fps + self.hold
+    }
+
+    /// The frames at their own rate, then the still hold before the cart drops,
+    /// at `CART_ANIM_SPEED`.
+    pub fn seconds(&self) -> f32 {
+        paced(self.authored_seconds())
     }
 
     /// The frame shown `u` (0..1) of the way through the turn, hold included.
     pub fn frame_at(&self, u: f32) -> usize {
         let n = self.frames.len();
         let motion = n as f32 / self.fps;
-        let v = (u.clamp(0.0, 1.0) * self.seconds() / motion).min(1.0);
+        let v = (u.clamp(0.0, 1.0) * self.authored_seconds() / motion).min(1.0);
         ((v * n as f32) as usize).min(n.saturating_sub(1))
     }
 }
@@ -634,11 +654,12 @@ mod tests {
         );
         assert!(turns(Platform::Gw));
         let gw = seconds(Platform::Gw);
-        assert!(gw > 2.4 && gw < 3.0, "{gw}");
+        let authored = GW_OPEN_S + GW_HOLD_S;
+        assert!((gw - authored / CART_ANIM_SPEED).abs() < 1e-4, "{gw}");
         assert_eq!(frame_index(Platform::Gw, 0.0, GW_FRAMES), 0);
         assert_eq!(frame_index(Platform::Gw, 1.0, GW_FRAMES), GW_FRAMES - 1);
         assert_eq!(
-            frame_index(Platform::Gw, GW_OPEN_S / gw + 0.01, GW_FRAMES),
+            frame_index(Platform::Gw, GW_OPEN_S / authored + 0.01, GW_FRAMES),
             GW_FRAMES - 1,
             "open before the hold"
         );
@@ -726,7 +747,11 @@ mod tests {
             // half way round it is the plain back (or, a disc, still the disc), up off the shelf
             let mid = &turn.frames[SPIN_FRAMES / 2];
             assert!(mid.y < 0, "{p:?} does not lift");
-            assert!((seconds(p) - (SPIN_FRAMES as f32 / SPIN_FPS + SPIN_HOLD_S)).abs() < 1e-4);
+            assert!(
+                (seconds(p) - (SPIN_FRAMES as f32 / SPIN_FPS + SPIN_HOLD_S) / CART_ANIM_SPEED)
+                    .abs()
+                    < 1e-4
+            );
         }
     }
 
@@ -844,11 +869,11 @@ mod tests {
         for p in Platform::ALL {
             let Some(turn) = of(p) else { continue };
             // Every shelf's cart takes about as long to turn, the UMD's spin and two turns
-            // included: 2.4-3.0 s, hold and all.
+            // included: 2.4-3.0 s authored, played at CART_ANIM_SPEED (~1.7-2.1 s).
+            let s = turn.seconds();
             assert!(
-                turn.seconds() > 2.4 && turn.seconds() < 3.0,
-                "{p:?} turn length {}",
-                turn.seconds()
+                s > 2.4 / CART_ANIM_SPEED && s < 3.0 / CART_ANIM_SPEED,
+                "{p:?} turn length {s}"
             );
             // Whatever the hold, the last frame shows at the end and the first at the start.
             assert_eq!(turn.frame_at(0.0), 0, "{p:?}");

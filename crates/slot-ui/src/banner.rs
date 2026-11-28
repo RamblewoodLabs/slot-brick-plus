@@ -21,7 +21,7 @@ const TITLE_PX: f32 = 17.0;
 const DETAIL_PX: f32 = 13.0;
 
 /// How long the unlock burst plays inside the toast, after it has slid in.
-pub const BURST_MS: u32 = 700;
+pub const BURST_MS: u32 = crate::paced_ms(700) as u32;
 
 /// `badge`: BADGE_PX x BADGE_PX RGBA shown at the right end, like Steam's achievement icon.
 pub fn banner_face(title: &str, detail: &str, badge: Option<&[u8]>) -> UndoFace {
@@ -195,7 +195,10 @@ fn paint_burst(rgba: &mut [u8], w: u32, h: u32, cx: i32, cy: i32, u: f32) {
     }
     // Sparks that fly out and fade.
     for i in 0..12 {
-        let seed = (i as u32).wrapping_add(3).wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        let seed = (i as u32)
+            .wrapping_add(3)
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(12_345);
         let ang = (seed % 360) as f32 * (std::f32::consts::PI / 180.0);
         let dist = 4.0 + grow * (10.0 + (seed % 17) as f32);
         let x = cx as f32 + ang.cos() * dist;

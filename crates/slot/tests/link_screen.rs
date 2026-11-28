@@ -29,11 +29,12 @@ fn pick_hangs_the_plug_above_the_port() {
 #[test]
 fn working_seats_the_plug_in_200ms_and_holds_it_there() {
     let m = working(LinkRow::Host, 1000);
+    let drop = 1000 + paced_ms(200);
     assert_eq!(plug_tip(m, 1000), 330.0);
-    assert!((plug_tip(m, 1200) - 419.0).abs() < 0.01);
+    assert!((plug_tip(m, drop) - 419.0).abs() < 0.01);
     let held: Vec<f32> = (0..3000)
         .step_by(50)
-        .map(|t| plug_tip(m, 1200 + t))
+        .map(|t| plug_tip(m, drop + t))
         .collect();
     assert!(held.iter().all(|y| (y - 419.0).abs() < 0.01), "{held:?}");
 }
@@ -52,30 +53,31 @@ fn linked_seats_the_plug_from_where_it_was_and_clicks_as_it_lands() {
         (plug_tip(m, since) - before).abs() < 0.01,
         "the plug jumped"
     );
-    assert!((plug_tip(m, since + 160) - 419.0).abs() < 0.01);
-    assert_eq!(clicks_alpha(m, since + 100), 0.0);
-    assert_eq!(clicks_alpha(m, since + 160), 1.0);
+    assert!((plug_tip(m, since + paced_ms(160)) - 419.0).abs() < 0.01);
+    assert_eq!(clicks_alpha(m, since + paced_ms(100)), 0.0);
+    assert_eq!(clicks_alpha(m, since + paced_ms(160)), 1.0);
 }
 
 #[test]
 fn failed_lifts_tilts_and_dims_over_250ms() {
     let m = failed(5000);
+    let lifted = 5000 + paced_ms(250);
     assert_eq!(plug_turn(m, 5000), 0.0);
-    assert!((plug_tip(m, 5250) - 276.0).abs() < 0.01);
-    assert!((plug_turn(m, 5250) - 14f32.to_radians()).abs() < 1e-4);
-    assert!((art_alpha(m, 5250) - 0.45).abs() < 1e-4);
+    assert!((plug_tip(m, lifted) - 276.0).abs() < 0.01);
+    assert!((plug_turn(m, lifted) - 14f32.to_radians()).abs() < 1e-4);
+    assert!((art_alpha(m, lifted) - 0.45).abs() < 1e-4);
 }
 
 #[test]
 fn the_adapter_seats_while_working_and_stays_seated() {
     assert_eq!(adapter_base(GameMenu::Pick(LinkRow::Join), 0), 336.0);
-    assert!((adapter_base(working(LinkRow::Join, 0), 200) - PORT_Y).abs() < 0.01);
-    assert!((adapter_base(failed(3000), 3250) - PORT_Y).abs() < 0.01);
+    assert!((adapter_base(working(LinkRow::Join, 0), paced_ms(200)) - PORT_Y).abs() < 0.01);
+    assert!((adapter_base(failed(3000), 3000 + paced_ms(250)) - PORT_Y).abs() < 0.01);
 }
 
 #[test]
 fn the_arcs_call_in_turn_hold_when_linked_and_die_on_failure() {
-    let a = arc_alphas(working(LinkRow::Host, 0), 200 + 600);
+    let a = arc_alphas(working(LinkRow::Host, 0), paced_ms(200) + paced_ms(600));
     assert!(
         (a[0] - 1.0).abs() < 0.01,
         "ring 0 is not at its peak: {a:?}"
@@ -88,8 +90,8 @@ fn the_arcs_call_in_turn_hold_when_linked_and_die_on_failure() {
         since: 4000,
         opened: false,
     };
-    assert_eq!(arc_alphas(linked, 4160), [1.0; 3]);
-    assert_eq!(arc_alphas(failed(4000), 4250), [0.0; 3]);
+    assert_eq!(arc_alphas(linked, 4000 + paced_ms(160)), [1.0; 3]);
+    assert_eq!(arc_alphas(failed(4000), 4000 + paced_ms(250)), [0.0; 3]);
 }
 
 fn sprites() -> LinkSprites {
@@ -219,7 +221,7 @@ fn the_swap_arrows_show_on_pick_only() {
 fn a_failed_plug_is_drawn_turned() {
     let s = sprites();
     let mut out = Vec::new();
-    draw_link_art(failed(0), LinkKind::Cable, 250, &s, &mut out);
+    draw_link_art(failed(0), LinkKind::Cable, paced_ms(250), &s, &mut out);
     assert!(out.iter().any(
         |d| matches!(d, Draw::Turned { tex, turn, .. } if *tex == s.plug_host.tex && *turn > 0.2)
     ));
@@ -236,12 +238,12 @@ fn unplug_pulls_the_plug_back_out_of_the_port_and_leaves_it_there() {
         "the unplug did not start from where a seated plug sits"
     );
     assert!(
-        (plug_tip(m, 1260) - 330.0).abs() < 0.01,
+        (plug_tip(m, 1000 + paced_ms(260)) - 330.0).abs() < 0.01,
         "the plug is not back where it was picked up"
     );
     let held: Vec<f32> = (0..2000)
         .step_by(100)
-        .map(|t| plug_tip(m, 1260 + t))
+        .map(|t| plug_tip(m, 1000 + paced_ms(260) + t))
         .collect();
     assert!(held.iter().all(|y| (y - 330.0).abs() < 0.01), "{held:?}");
 }
@@ -253,14 +255,18 @@ fn unplug_lifts_the_adapter_off_the_port_and_dies_its_arcs() {
         since: 0,
     };
     assert!((adapter_base(m, 0) - PORT_Y).abs() < 0.01);
-    assert!((adapter_base(m, 260) - 336.0).abs() < 0.01);
+    assert!((adapter_base(m, paced_ms(260)) - 336.0).abs() < 0.01);
     assert_eq!(
         arc_alphas(m, 0),
         [1.0; 3],
         "a seated adapter's arcs do not start full"
     );
-    assert_eq!(arc_alphas(m, 260), [0.0; 3], "the arcs outlived the link");
-    let mid = arc_alphas(m, 130);
+    assert_eq!(
+        arc_alphas(m, paced_ms(260)),
+        [0.0; 3],
+        "the arcs outlived the link"
+    );
+    let mid = arc_alphas(m, paced_ms(130));
     assert!(
         mid[0] > 0.0 && mid[0] < 1.0,
         "the arcs did not fade: {mid:?}"
@@ -278,7 +284,7 @@ fn the_unplug_is_the_seating_motion_run_backwards() {
         "the unplug does not start where a seated plug is"
     );
     assert!(
-        (plug_tip(out, 260) - plug_tip(GameMenu::Pick(LinkRow::Host), 0)).abs() < 0.01,
+        (plug_tip(out, paced_ms(260)) - plug_tip(GameMenu::Pick(LinkRow::Host), 0)).abs() < 0.01,
         "the unplug does not end where the plug is picked up"
     );
 }

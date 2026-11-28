@@ -29,6 +29,30 @@ pub fn cover_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8
     Some(out)
 }
 
+/// A Vectrex box cover (or already-cut overlay) fitted to the console's screen.
+/// The overlay illustration is cut from the box when it is there, so the screen
+/// shows one image, not the whole cover with the overlay pictured inside it.
+pub fn vectrex_cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
+    let (src, sw, sh) = decode(path)?;
+    vectrex_cover_rgba(&src, sw, sh, w, h)
+}
+
+/// `vectrex_cover` for a picture already in memory, `sw` by `sh` RGBA.
+pub fn vectrex_cover_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Vec<u8>> {
+    if let Some(r) = slot_cartart::vectrex_overlay_bounds(src, sw, sh) {
+        let (cw, ch) = (r.w(), r.h());
+        if cw >= 16 && ch >= 16 {
+            let mut crop = Vec::with_capacity((cw * ch * 4) as usize);
+            for y in r.y0..r.y1 {
+                let a = ((y * sw + r.x0) * 4) as usize;
+                crop.extend_from_slice(&src[a..a + (cw * 4) as usize]);
+            }
+            return cover_rgba(&crop, cw, ch, w, h);
+        }
+    }
+    cover_rgba(src, sw, sh, w, h)
+}
+
 /// A Famicom cart label: filled like `cover`, unless the picture is the other way round (a
 /// tall NES label on the wide Famicom one), which would lose most of it. That one is shown whole, the
 /// sides filled with the colour round its edge.
@@ -57,8 +81,14 @@ pub fn label_fit_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Option<Ve
             let px = if fx < 0.0 || fy < 0.0 || fx >= dw || fy >= dh {
                 fill
             } else {
-                let (x0, y0) = ((x as f32 - dx).max(0.0) / scale, (y as f32 - dy).max(0.0) / scale);
-                let (x1, y1) = (((x + 1) as f32 - dx).min(dw) / scale, ((y + 1) as f32 - dy).min(dh) / scale);
+                let (x0, y0) = (
+                    (x as f32 - dx).max(0.0) / scale,
+                    (y as f32 - dy).max(0.0) / scale,
+                );
+                let (x1, y1) = (
+                    ((x + 1) as f32 - dx).min(dw) / scale,
+                    ((y + 1) as f32 - dy).min(dh) / scale,
+                );
                 box_average(src, sw, sh, x0, y0, x1, y1)
             };
             out[((y * w + x) * 4) as usize..][..4].copy_from_slice(&px);

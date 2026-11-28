@@ -117,7 +117,7 @@ struct Scroll {
 }
 
 /// How fast a long value scrolls, and how long it rests at either end.
-const SCROLL_PX_PER_S: f32 = 40.0;
+const SCROLL_PX_PER_S: f32 = 40.0 * slot_ui::ANIM_SPEED;
 const SCROLL_REST_S: f32 = 1.2;
 
 impl Scroll {

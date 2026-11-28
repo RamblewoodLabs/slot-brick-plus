@@ -194,7 +194,7 @@ pub fn profile(dir: &str) -> Profile {
             order: STICKER,
             ..p("A800")
         },
-        // The console's screen shows the art; the box is the art there is.
+        // The console's screen shows the overlay art cut from the box (not the whole cover).
         "VECTREX" => Profile {
             order: BOX_FIRST,
             box_top: false,

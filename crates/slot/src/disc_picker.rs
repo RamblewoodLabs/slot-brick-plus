@@ -3,13 +3,13 @@
 use std::path::PathBuf;
 
 use slot_gfx::{Draw, TexId, OUT_W};
-use slot_ui::{ease, rest_y, Millis, DISC_PX};
+use slot_ui::{ease, paced_ms, rest_y, Millis, ANIM_SPEED, DISC_PX};
 
 /// Which disc of each game was put in last, by the game's stem, from 1.
 pub const DISCS_FILE: &str = "Config/discs.ini";
 
-pub const OPEN_MS: Millis = 280;
-pub const CLOSE_MS: Millis = 220;
+pub const OPEN_MS: Millis = paced_ms(280);
+pub const CLOSE_MS: Millis = paced_ms(220);
 /// How far apart the fanned discs stand, how much higher each one behind stands, how much
 /// smaller it is, and how far each one leans.
 const FAN_X: f32 = 110.0;
@@ -19,7 +19,7 @@ const FAN_LEAN: f32 = 0.10;
 /// The front disc's own tilt, as it is lifted to show the ones behind.
 const TILT: f32 = -0.06;
 /// How quickly a disc chosen with left or right comes to the front.
-const BRING: f32 = 14.0;
+const BRING: f32 = 14.0 * ANIM_SPEED;
 
 pub struct DiscPicker {
     /// The game: its stem on the shelf.
@@ -37,7 +37,15 @@ impl DiscPicker {
     /// The fan opens on disc `at` (from 0): the one put in last.
     pub fn open(stem: String, discs: Vec<PathBuf>, at: usize, clean: bool, now: Millis) -> Self {
         let selected = at.min(discs.len().saturating_sub(1));
-        DiscPicker { stem, discs, clean, selected, shown: selected as f32, opened: now, close: None }
+        DiscPicker {
+            stem,
+            discs,
+            clean,
+            selected,
+            shown: selected as f32,
+            opened: now,
+            close: None,
+        }
     }
 
     pub fn selected(&self) -> usize {
@@ -127,7 +135,13 @@ mod tests {
     use super::*;
 
     fn picker() -> DiscPicker {
-        DiscPicker::open("FF7".into(), vec!["1".into(), "2".into(), "3".into()], 0, false, 0)
+        DiscPicker::open(
+            "FF7".into(),
+            vec!["1".into(), "2".into(), "3".into()],
+            0,
+            false,
+            0,
+        )
     }
 
     #[test]
@@ -150,6 +164,9 @@ mod tests {
         let mut out = Vec::new();
         let faces = [TexId::from_raw(1), TexId::from_raw(2), TexId::from_raw(3)];
         p.draw(&faces, None, OPEN_MS, &mut out);
-        assert!(matches!(out.last(), Some(Draw::Turned { tex, .. }) if *tex == faces[1]), "disc 2 is not in front");
+        assert!(
+            matches!(out.last(), Some(Draw::Turned { tex, .. }) if *tex == faces[1]),
+            "disc 2 is not in front"
+        );
     }
 }

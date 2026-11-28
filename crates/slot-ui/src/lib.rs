@@ -1,5 +1,7 @@
+mod anim;
+pub use anim::{paced_ms, paced_s, ANIM_SPEED};
 mod art;
-pub use art::{cover, label_fit};
+pub use art::{cover, label_fit, vectrex_cover, vectrex_cover_rgba};
 mod backdrop;
 mod banner;
 mod barcode;
@@ -16,8 +18,8 @@ mod hud;
 mod icon;
 mod label_adjust;
 mod label_grid;
-mod model;
 mod link_art;
+mod model;
 mod peel;
 mod plate;
 mod polaroids;
@@ -116,7 +118,7 @@ pub use sticker::{
     draw_sticker, head_rows, sticker_face, sticker_lines, StickerFields, COPYRIGHT, CREDITS, DC,
     HOME, ORIGIN, PORT_VERSION, STICKER_H, STICKER_W, TITLE,
 };
-pub use title_card::{draw_title_card, title_card_face, draw_filter_pill, filter_pill_face};
+pub use title_card::{draw_filter_pill, draw_title_card, filter_pill_face, title_card_face};
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
 
 #[cfg(feature = "brick")]

@@ -73,8 +73,10 @@ all as a 5.25" floppy with its paper label at the top. The label window is that 
 
 ### Vectrex
 
-The Vectrex shelf shows the console itself, switched off: the game's art sits on its screen,
-dim, as a coloured overlay does on a dark tube. On the way in the console turns once round
+The Vectrex shelf shows the console itself, switched off: the game's overlay art sits on
+its screen, dim, as a coloured overlay does on a dark tube. That art is cut from the box
+cover (the illustration on the lower half), not the whole box, so the screen shows one
+image rather than the cover with the overlay pictured inside it. On the way in the console turns once round
 (48 frames), stands still while its screen comes on (16 frames: the art's light eases up to
 full and a soft glow spreads onto the bezel), rests, and goes into the slot lit (`flip`, so
 the lit last frame is the face it goes in with). `scripts/vectrex_light.py` in
@@ -194,7 +196,9 @@ from all six sides under one fixed light for checking.
 A shell may carry `insert/`: the frames its cart turns through, on the shelf, before it slides
 into the slot. The slide itself is the same as every other cart's (`INSERT_S`), so the turn
 only adds its own length in front of it: 64 frames at 30 fps plus a still `hold` of 0.5 s
-(2.6 s), and the UMD's 80 frames (2.7 s), so every shelf's cart takes about as long.
+(2.6 s authored), and the UMD's 80 frames (2.7 s authored), so every shelf's cart takes
+about as long. Both the turn and the slide play at `ANIM_SPEED` (1.4), as does every other wall-clock
+animation in Slot: about 1.9 s for the turn and 0.52 s for the slide, a 40% speed-up.
 
 GB, GBC, GBA, NES (and Famicom), SNES (US and PAL) and PlayStation turn with their model's
 rendered frames (`model-*/insert/`) at the same pace (64 eased frames at 30 fps, then 0.5 s):
@@ -220,7 +224,7 @@ at the top on the shelf) uses the label turned round while its back faces the sc
 goes in with the label upright; `flip` makes the last frame its face for the slide. The HuCard
 is pitched end-over-end (not spun in its own plane) so the gold contact edge enters the slot
 first and the pins face into the connector, not out at the viewer.
-The PSP's UMD is the one turn that is longer (80 frames, 2.7 s): the shell stays still while
+The PSP's UMD is the one turn that is a little longer (80 frames, 2.7 s authored, about 1.9 s played): the shell stays still while
 the disc inside it (its printed label, the white hub and the UMD mark) spins up behind the
 clear front window; once it is spinning, the shell turns over end to end, so its curved end
 comes down to lead into the slot, then round side to side so its front, with the disc, faces

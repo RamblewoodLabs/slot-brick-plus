@@ -22,11 +22,13 @@
 pub mod analyze;
 pub mod image;
 mod profile;
+mod vectrex;
 
 use std::time::Instant;
 
 pub use image::{decode_png, encode_png_rgb, Image, Rect};
 pub use profile::{profile, Profile, SYSTEMS};
+pub use vectrex::{vectrex_overlay, vectrex_overlay_bounds};
 
 use analyze::{border_colour, foreground, percentiles, refine_label, skew_degrees, Energy};
 use image::{resize, rotate, sharpen, soft_blur};
@@ -161,6 +163,14 @@ fn fit_in_order(
                 Kind::Photo => photo_label(&p, &src.img, window)
                     .map(|(l, n)| (fill(&l, ow, oh, Cut::Middle, p.label_cut), n)),
                 Kind::Box => box_label(&src.img).map(|l| {
+                    let (l, note) = if dir == "VECTREX" {
+                        match crate::vectrex::vectrex_overlay(&l) {
+                            Some(overlay) => (overlay, "overlay cut from the box"),
+                            None => (l, ""),
+                        }
+                    } else {
+                        (l, "")
+                    };
                     (
                         fill(
                             &l,
@@ -169,7 +179,7 @@ fn fit_in_order(
                             if p.box_top { Cut::Top } else { Cut::Detail },
                             NEAR,
                         ),
-                        String::new(),
+                        note.to_string(),
                     )
                 }),
                 Kind::Marquee => marquee_label(&src.img)

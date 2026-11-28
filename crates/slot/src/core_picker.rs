@@ -1,11 +1,11 @@
 use slot_store::Core;
-use slot_ui::{ease, Millis, Refusal, CHIP_TIP};
+use slot_ui::{ease, paced_ms, Millis, Refusal, CHIP_TIP};
 
-pub const SLIDE_MS: Millis = 160;
-pub const LIFT_MS: Millis = 260;
+pub const SLIDE_MS: Millis = paced_ms(160);
+pub const LIFT_MS: Millis = paced_ms(260);
 pub const OPEN_MS: Millis = SLIDE_MS + LIFT_MS;
-pub const CLOSE_MS: Millis = 320;
-pub const HOP_MS: Millis = 180;
+pub const CLOSE_MS: Millis = paced_ms(320);
+pub const HOP_MS: Millis = paced_ms(180);
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Press {

@@ -1,9 +1,9 @@
 use crate::hud::Millis;
 
-const REFUSAL_MS: Millis = 300;
+const REFUSAL_MS: Millis = crate::paced_ms(300);
 
 const SHAKE_PX: f32 = 6.0;
-const SHAKE_HZ: f32 = 14.0;
+const SHAKE_HZ: f32 = 14.0 * crate::ANIM_SPEED;
 
 #[derive(Copy, Clone)]
 pub struct Refusal {
